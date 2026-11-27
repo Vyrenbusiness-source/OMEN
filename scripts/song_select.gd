@@ -147,6 +147,7 @@ var _detail_due := 0
 var _bg_next: TextureRect
 var _bg_tween: Tween
 var _bg_gen := 0
+var _board_gen := 0
 var _bg_dim := 0.30
 var _detail_tasks: Array[int] = []
 var _hp_cache: Dictionary = {}
@@ -492,6 +493,48 @@ func _bench_browser() -> void:
 		_filtered.size(), int(total), first_ms, frames.size(), worst, p99,
 		sum / maxf(frames.size(), 1.0), over, sws[sws.size() / 2] if not sws.is_empty() else 0.0,
 		sws[-1] if not sws.is_empty() else 0.0])
+	# Schnelles Durchwechseln (wie Pfeiltaste halten): alle 33 ms ein Set weiter,
+	# 40 Wechsel, dann 1,5 s Nachlauf (Hintergrund, .osu-Details, Vorschau).
+	await get_tree().create_timer(1.0).timeout
+	var rf := PackedFloat32Array()
+	var rslow: Array = []
+	var start := _filtered.find(_selected_set)
+	var switches := 0
+	var next_at := Time.get_ticks_msec()
+	var end_at := 0
+	last = Time.get_ticks_usec()
+	while end_at == 0 or Time.get_ticks_msec() < end_at:
+		_bench_misc = ""
+		if switches < 40 and Time.get_ticks_msec() >= next_at:
+			var ms2: MapSet = _filtered[(start + 1 + switches) % _filtered.size()]
+			var t1 := Time.get_ticks_usec()
+			_select_set(ms2, _hardest(ms2))
+			_scroll_to_selected()
+			var sel_ms := (Time.get_ticks_usec() - t1) / 1000.0
+			if sel_ms > 1.5:
+				_bench_misc += "select=%.1f " % sel_ms
+			switches += 1
+			next_at += 33
+			if switches == 40:
+				end_at = Time.get_ticks_msec() + 1500
+		await get_tree().process_frame
+		var now2 := Time.get_ticks_usec()
+		var ft2 := (now2 - last) / 1000.0
+		last = now2
+		rf.append(ft2)
+		if ft2 > 8.0:
+			rslow.append("%.1fms %s" % [ft2, _bench_misc])
+	for s in rslow:
+		print("BENCH_RAPID_SLOW ", s)
+	var rs := rf.duplicate()
+	rs.sort()
+	var rover := 0
+	for f in rf:
+		if f > 8.0:
+			rover += 1
+	print("BENCH_RAPID switches=%d frames=%d max_frame_ms=%.2f p99_ms=%.2f frames_over_8ms=%d" % [
+		switches, rf.size(), rs[-1] if not rs.is_empty() else 0.0,
+		rs[int(rs.size() * 0.99)] if not rs.is_empty() else 0.0, rover])
 	_preview.stop()
 	get_tree().quit()
 
@@ -503,6 +546,17 @@ var _bench_lay_us := 0
 var _bench_titles := ""
 var _bench_misc := ""
 var _bench_on := false
+var _bt_us := 0
+
+
+## Messung (--bench-browser): Abschnitt seit dem letzten Aufruf, wenn > 1 ms.
+func _bt(label: String) -> void:
+	if not _bench_on:
+		return
+	var now := Time.get_ticks_usec()
+	if now - _bt_us > 1000:
+		_bench_misc += "%s=%.1f " % [label, (now - _bt_us) / 1000.0]
+	_bt_us = now
 
 
 func _bench_content_h() -> float:
@@ -3693,8 +3747,11 @@ func _select_set(ms: MapSet, diff_index: int) -> void:
 	_selected_diff = clampi(diff_index, 0, ms.difficulty_count() - 1)
 	_selected_diff = maxi(ms.nearest_visible(_selected_diff, _vm()), 0)
 	_update_info_panel()
+	_bt("highlight")
 	Sfx.select_chime()
+	_bt("sfx")
 	_play_preview()
+	_bt("preview")
 
 
 func _cycle_difficulty(dir: int) -> void:
@@ -3712,7 +3769,9 @@ func _cycle_difficulty(dir: int) -> void:
 func _update_info_panel() -> void:
 	if _selected_set == null:
 		return
+	_bt_us = Time.get_ticks_usec()
 	_recs_mark_selected()
+	_bt("recs")
 	var m := _selected_set.meta_at(_selected_diff)
 	# Sofort das schnelle Thumbnail zeigen, das Full-Res-Cover einen Frame
 	# spaeter nachladen (Klicks fuehlen sich sofort an).
@@ -3734,7 +3793,9 @@ func _update_info_panel() -> void:
 	_diff_label.text = _selected_set.version_name_at(_selected_diff).strip_edges()
 	_diff_label.tooltip_text = _diff_label.text
 	_refresh_star_label()
+	_bt("stars")
 	_bg_front_set(_selected_set)
+	_bt("bgfront")
 	_notes_val.text = UiTheme.fmt_score(int(m.get("notes", 0)))
 	var keys_cap := _keys_val.get_parent().get_child(0) as Label
 	keys_cap.text = tr("Tasten").to_upper() if is_mania else "CS"
@@ -3745,25 +3806,57 @@ func _update_info_panel() -> void:
 	_len_label.text = _format_time(float(m.get("duration_ms", 0.0)))
 	if _preview_set == _selected_set:
 		_setup_beat_clock()
-	_update_max_pp(m)
-	# BESTE SCORES: Top 5 dieser Difficulty als cleane Rows.
+	_bt("text")
+	# Bestenliste und Max-pp lesen beide Dateien (scores/stars.cfg, ~10 ms je
+	# Wechsel): entprellt im Worker (_start_board_job), hier nur leeren.
 	for c in _lb_box.get_children():
 		c.queue_free()
-	# Eigene + Scores von Mitspielern (Multiplayer-Sync), beste zuerst.
-	# Trace: nur Trace-Scores, getrennt von Mania.
+	_maxpp_label.text = ""
+	_style_lb_mode_tag(_board_mode())
+	_board_gen += 1
+	_apply_card_highlight()
+
+
+## Board-Modus: Modus der Auswahl; Mania mit "Mines" an = eigene Liste "mania_mn".
+func _board_mode() -> String:
 	var score_mode := _pm()
-	# Mods-Schalter "Mines" an: eigene Liste "mania_mn" (RuleMods), Kopf zeigt "Mines".
 	if _play_mode == "mania":
 		score_mode = RuleMods.board_mode(score_mode, _rule_mods)
-	_style_lb_mode_tag(score_mode)
+	return score_mode
+
+
+func _start_board_job() -> void:
+	if _selected_set == null:
+		return
+	var ver := _selected_set.version_name_at(_selected_diff)
+	_detail_tasks.append(WorkerThreadPool.add_task(_board_job.bind(get_instance_id(), _board_gen,
+		_selected_set.osz_path, ver, _selected_set.osu_filename_at(_selected_diff), _board_mode(),
+		_play_mode == "mania", _lb_online), false, "browser-board"))
+
+
+## Worker: Max-pp aus dem Cache und Top-Scores lesen (nur Dateien, kein Szenenzugriff
+## ausser dem Profilnamen in ScoreStore._self_name, der nur gelesen wird).
+static func _board_job(owner_id: int, gen: int, osz: String, ver: String, inner: String,
+		score_mode: String, want_pp: bool, online: bool) -> void:
+	var pp := StarService.max_pp_cached(osz, inner) if want_pp else NAN
+	var tops: Array = [] if online else ScoreStore.top_scores_all(osz, ver, 5, score_mode)
+	var o: Object = instance_from_id(owner_id)
+	if o != null:
+		o.call_deferred(&"_on_board_data", gen, pp, tops)
+
+
+## Hauptthread: Bestenliste bauen (eigene + Mitspieler, beste zuerst), Max-pp, Replay.
+func _on_board_data(gen: int, pp: float, tops: Array) -> void:
+	if gen != _board_gen or _selected_set == null or not is_inside_tree():
+		return
+	var m := _selected_set.meta_at(_selected_diff)
+	_update_max_pp(m, pp)
+	var score_mode := _board_mode()
 	_online_gen += 1
 	if _lb_online:
 		_replay_btn.visible = false
 		_show_online_scores(m, score_mode)
-		_apply_card_highlight()
 		return
-	var tops := ScoreStore.top_scores_all(_selected_set.osz_path,
-		_selected_set.version_name_at(_selected_diff), 5, score_mode)
 	if tops.is_empty():
 		var empty := Label.new()
 		empty.text = RuleMods.board_text("empty") if RuleMods.is_mines_board(score_mode) 				else tr("Noch kein %s-Score — spiel die Map!") % _score_label(score_mode)
@@ -3776,7 +3869,9 @@ func _update_info_panel() -> void:
 		var hl: bool = not hl_done and bool(tops[i].get("is_self", true))
 		hl_done = hl_done or hl
 		_lb_box.add_child(_score_row(i, tops[i], hl))
+	_bt("board")
 	_fill_missing_pp(tops, score_mode)
+	_bt("fillpp")
 	# Replay-Button nur zeigen, wenn fuer diese Diff ein Replay existiert.
 	# Trace: Replay des besten Trace-Laufs (ReplayStore-Modus "trace").
 	if _replay_btn != null:
@@ -3787,7 +3882,6 @@ func _update_info_panel() -> void:
 		else:
 			_replay_btn.visible = int(m.get("mode", 0)) == 3 \
 					and ReplayStore.exists(_selected_set.osz_path, ver)
-	_apply_card_highlight()
 
 
 ## Auswahl in der Liste: gewaehltes Set klappt auf (Diffs als Zeilen darunter).
@@ -4717,7 +4811,7 @@ func _open_marathon() -> void:
 
 ## Max-pp (SS) der aktuellen Diff anzeigen; Berechnung laeuft im Thread,
 ## damit der Browser nie ruckelt. Ergebnis wird dauerhaft gecacht.
-func _update_max_pp(m: Dictionary) -> void:
+func _update_max_pp(m: Dictionary, pre: float = NAN) -> void:
 	if _selected_set == null:
 		return
 	# pp gibt es nur in Mania; Trace wertet ohne pp.
@@ -4725,7 +4819,7 @@ func _update_max_pp(m: Dictionary) -> void:
 		_maxpp_label.text = ""
 		return
 	var inner := _selected_set.osu_filename_at(_selected_diff)
-	var cached := StarService.max_pp_cached(_selected_set.osz_path, inner)
+	var cached := StarService.max_pp_cached(_selected_set.osz_path, inner) if is_nan(pre) else pre
 	if cached >= 0.0:
 		_maxpp_label.text = tr("Max. %s bei SS") % UiTheme.fmt_pp(cached)
 		return
@@ -4810,6 +4904,7 @@ func _start_detail_jobs() -> void:
 	if _selected_set == null:
 		return
 	_reap_detail_tasks()
+	_start_board_job()
 	var ms := _selected_set
 	var file := ms.osu_filename_at(_selected_diff)
 	var key := ms.osz_path + "|" + file
