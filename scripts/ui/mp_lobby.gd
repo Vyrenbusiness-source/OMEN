@@ -272,21 +272,21 @@ func _ready() -> void:
 	elif OS.get_cmdline_args().has("--mp-relay-client"):
 		Lobby.join_online(_arg_value("--mp-relay-code="))
 		_mp_relay(false)
-	elif OS.get_cmdline_args().has("--mp-orbit-host"):
+	elif OS.get_cmdline_args().has("--mp-mode-host"):
 		# --mp-via-relay: derselbe Ablauf ueber den Relay (tools/mp_relay_smoke.sh MODE=<modus>).
 		if not Lobby.active:
 			if OS.get_cmdline_args().has("--mp-via-relay"):
 				Lobby.host_online("Relay-Smoke")
 			else:
 				Lobby.host_room()
-		_mp_orbit(true)
-	elif OS.get_cmdline_args().has("--mp-orbit-client"):
+		_mp_mode_smoke(true)
+	elif OS.get_cmdline_args().has("--mp-mode-client"):
 		if not Lobby.active:
 			if OS.get_cmdline_args().has("--mp-via-relay"):
 				Lobby.join_online(_arg_value("--mp-relay-code="))
 			else:
 				Lobby.join_lan("127.0.0.1")
-		_mp_orbit(false)
+		_mp_mode_smoke(false)
 	elif OS.get_cmdline_args().has("--mp-auto-host"):
 		if not Lobby.active:
 			Lobby.host_room()
@@ -484,13 +484,13 @@ func _mp_relay(host: bool) -> void:
 	get_tree().quit(0)
 
 
-## Orbit-MP-Smoke: Stufe ueberlebt den Szenenwechsel Raum -> Orbit -> Raum.
+## Modus-MP-Smoke: Stufe ueberlebt den Szenenwechsel Raum -> Spiel -> Raum.
 static var _mpo_stage := 0
 
 
-## Orbit-Raum + Orbit-Turnier mit zwei Prozessen (tools/mp_orbit_smoke.sh).
-## Stufe 0: Raum, Modus Orbit, Map, bereit, Start. 1: Ergebnisse, Turnier
-## (4 Maps, je 1 Ban). 2/3: Turnierrunden. Jede Zeile beginnt mit "MPORBIT".
+## Raum + Turnier eines Modus mit zwei Prozessen (tools/mp_mode_smoke.sh).
+## Stufe 0: Raum, Modus, Map, bereit, Start. 1: Ergebnisse, Turnier
+## (4 Maps, je 1 Ban). 2/3: Turnierrunden. Jede Zeile beginnt mit "MPBOT".
 ## Smoke: erste [Set, Schwierigkeit] ab Set from, deren Map-Modus zum Spielmodus passt; [] = keine.
 func _mpo_fit(sets: Array, pmode: String, from: int) -> Array:
 	for k in range(from, sets.size()):
@@ -500,17 +500,17 @@ func _mpo_fit(sets: Array, pmode: String, from: int) -> Array:
 	return []
 
 
-func _mp_orbit(host: bool) -> void:
+func _mp_mode_smoke(host: bool) -> void:
 	var tag := "HOST" if host else "CLIENT"
-	# --mp-mode=<orbit|rally|dirigent|trace|rebound> (Standard orbit): Raum-Modus der Smoke-Runde.
-	var pmode := Lobby.norm_play(_arg_value("--mp-mode=")) if _arg_value("--mp-mode=") != "" else "orbit"
+	# --mp-mode=<mania|trace> (Standard trace): Raum-Modus der Smoke-Runde.
+	var pmode := Lobby.norm_play(_arg_value("--mp-mode=")) if _arg_value("--mp-mode=") != "" else "trace"
 	var pview := Lobby.play_name(pmode)
 	# Mania meldet die Darstellung (2D/3D) statt des Modusnamens.
 	var view_ok := func(v: String) -> bool:
 		return v == pview or (pmode == "mania" and v in ["2D", "3D"])
-	var step := func(msg: String): print("MPORBIT %s s%d %s" % [tag, _mpo_stage, msg])
+	var step := func(msg: String): print("MPBOT %s s%d %s" % [tag, _mpo_stage, msg])
 	var fail := func(msg: String):
-		print("MPORBIT %s s%d FAIL %s" % [tag, _mpo_stage, msg])
+		print("MPBOT %s s%d FAIL %s" % [tag, _mpo_stage, msg])
 		get_tree().quit(1)
 	var wait_for := func(cond: Callable, secs: float) -> bool:
 		var w := 0.0
@@ -585,7 +585,7 @@ func _mp_orbit(host: bool) -> void:
 			step.call("players synced: %d crown=%d me=%d" % [Lobby.players.size(), Lobby.crown_id, me])
 			if host:
 				Lobby.set_play_mode(pmode)
-				# Erste Schwierigkeit, die zum Raum-Modus passt (trace/rebound: nur Mania 4K).
+				# Erste Schwierigkeit, die zum Raum-Modus passt (nur Mania-Maps).
 				var pk := _mpo_fit(sets, pmode, 0)
 				if pk.is_empty():
 					fail.call("keine Map fuer Modus %s" % pmode)
@@ -1725,7 +1725,7 @@ func _build_room() -> void:
 	_copy_btn.pressed.connect(_copy_code)
 	code_row.add_child(_copy_btn)
 
-	# Spielmodus (Mania 4K / Orbit / Rally / Dirigent / Trace / Rebound) und Format (Frei / Teams / Battle Royale)
+	# Spielmodus (Mania / Trace) und Format (Frei / Teams / Battle Royale)
 	# als Reiter: waehlt die Krone, alle sehen den aktiven Unterstrich.
 	var sv := VBoxContainer.new()
 	sv.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
@@ -2076,7 +2076,7 @@ func _show_browser() -> void:
 	_refresh_rooms()
 
 
-## Ruhiges Abzeichen "3D" / "2D" / "Orbit" mit feiner Kante; null bei unbekannter Darstellung.
+## Ruhiges Abzeichen "3D" / "2D" / "Trace" mit feiner Kante; null bei unbekannter Darstellung.
 func _view_badge(view: String) -> Control:
 	if view == "":
 		return null
@@ -3544,9 +3544,9 @@ func _lobby_shots() -> void:
 		"Q2M8XP": {"name": "Nur 7K-Maps, bitte keine Anfänger und keine SV", "players": 8, "max": 8, "relay": true,
 			"code": "Q2M8XP", "version": cur_v, "map": demo_map.call(2), "mode": "mania", "kind": "free", "t": 0},
 		"locked#3": {"name": "Aria's Raum", "players": 1, "max": 4, "relay": true, "code": "", "locked": true,
-			"version": cur_v, "map": "", "mode": "orbit", "kind": "free", "t": 0},
+			"version": cur_v, "map": "", "mode": "trace", "kind": "free", "t": 0},
 		"M3N7P2": {"name": "Turnier-Training", "players": 4, "max": 16, "relay": true, "code": "M3N7P2",
-			"version": cur_v, "map": demo_map.call(4), "mode": "rally", "kind": "royale", "t": 0},
+			"version": cur_v, "map": demo_map.call(4), "mode": "mania", "kind": "royale", "t": 0},
 	}
 	_refresh_rooms()
 	await shot.call("browser_rooms")
@@ -3570,7 +3570,7 @@ func _lobby_shots() -> void:
 		Lobby.players[i + 2] = Lobby._new_player(who[i])
 		Lobby.players[i + 2].ready = i % 3 != 1
 		# Gemischte Darstellung; Jonas (letzter) = alter Client ohne Angabe.
-		Lobby.players[i + 2].view = ["3D", "2D", "2D", "3D", "Orbit", "3D", ""][i]
+		Lobby.players[i + 2].view = ["3D", "2D", "2D", "3D", "2D", "3D", ""][i]
 	Lobby.players[1].ready = true
 	Lobby.players[1].view = "3D"
 	if not _library.mapsets.is_empty():
@@ -3582,15 +3582,15 @@ func _lobby_shots() -> void:
 	_update_bg()
 	Lobby.players_changed.emit()
 	await shot.call("room_free_8")
-	# Orbit-Raum: alle spielen Orbit, Abzeichen zeigen "Orbit".
-	Lobby.play_mode = "orbit"
+	# Trace-Raum: alle spielen Trace, Abzeichen zeigen "Trace".
+	Lobby.play_mode = "trace"
 	for pid in Lobby.players:
-		Lobby.players[pid].view = "Orbit" if pid != 8 else ""
+		Lobby.players[pid].view = "Trace" if pid != 8 else ""
 	Lobby.players_changed.emit()
-	await shot.call("room_orbit")
+	await shot.call("room_trace")
 	Lobby.play_mode = "mania"
 	for pid in Lobby.players:
-		Lobby.players[pid].view = ["3D", "3D", "2D", "2D", "3D", "Orbit", "3D", ""][pid - 1]
+		Lobby.players[pid].view = ["3D", "3D", "2D", "2D", "3D", "2D", "3D", ""][pid - 1]
 	Lobby.players_changed.emit()
 	# Teams (4 Spieler).
 	for i in range(5, 9):

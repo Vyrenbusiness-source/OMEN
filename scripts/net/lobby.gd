@@ -173,6 +173,12 @@ static func norm_play(v) -> String:
 	return v if typeof(v) == TYPE_STRING and PLAY_MODES.has(v) else "mania"
 
 
+## Raumliste: false fuer Raeume mit fremdem oder entferntem Modus (bis v1.43 z. B.
+## "orbit"); die werden still uebersprungen. Fehlender Modus = Mania (alte Clients).
+static func known_play(v) -> bool:
+	return v == null or (typeof(v) == TYPE_STRING and (v == "" or PLAY_MODES.has(v)))
+
+
 static func play_name(m: String) -> String:
 	return ScoreStore.mode_label(norm_play(m))
 
@@ -591,7 +597,7 @@ func _process(delta: float) -> void:
 			var pkt := _listen.get_packet()
 			var ip := _listen.get_packet_ip()
 			var data: Variant = JSON.parse_string(pkt.get_string_from_utf8())
-			if data is Dictionary and int(data.get("tethra", 0)) == 1:
+			if data is Dictionary and int(data.get("tethra", 0)) == 1 and known_play(data.get("mode")):
 				lan_rooms[ip] = { "name": str(data.get("name", tr("Raum"))),
 					"players": int(data.get("players", 1)),
 					"mode": norm_play(data.get("mode", "mania")),
@@ -662,7 +668,7 @@ func fetch_online_rooms() -> void:
 			if not (ev is Dictionary) or str(ev.get("event", "")) != "message":
 				continue
 			var d: Variant = JSON.parse_string(str(ev.get("message", "")))
-			if d is Dictionary and str(d.get("c", "")) != "":
+			if d is Dictionary and str(d.get("c", "")) != "" and known_play(d.get("m")):
 				var t := float(ev.get("time", 0))
 				if t >= float(newest.get(str(d.c), 0.0)):
 					newest[str(d.c)] = t
@@ -709,7 +715,7 @@ static func parse_relay_rooms(txt: String) -> Dictionary:
 		return out
 	var n := 0
 	for r in arr:
-		if not (r is Dictionary):
+		if not (r is Dictionary) or not known_play(r.get("mode")):
 			continue
 		n += 1
 		var code := str(r.get("code", ""))

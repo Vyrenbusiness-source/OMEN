@@ -43,7 +43,7 @@ var _thumb_cache: Dictionary = {}
 # Laufende Cover-Liste; Moduswechsel erhoeht die Generation (alter Lauf endet).
 var _thumb_gen := 0
 
-## Angezeigter Spielmodus: "" = Mania 4K (pp, unveraendert), "orbit" = Orbit
+## Angezeigter Spielmodus: "" = Mania 4K (pp, unveraendert), "trace" = Trace
 ## (eigene Kennzahlen, beeinflusst die Mania-pp nie). Start: Modus aus dem
 ## Song-Browser (browser_state.cfg, nur gelesen).
 var _mode := ""
@@ -162,9 +162,9 @@ func _ready() -> void:
 		info.add_child(_name_hint)
 		name_edit.text_submitted.connect(func(t): _save_name(t))
 
-	# Modus-Umschalter (Mania 4K | Orbit): Kennzahlen und Listen je Modus.
+	# Modus-Umschalter (Mania 4K | Trace): Kennzahlen und Listen je Modus.
 	info.add_child(_build_mode_switch())
-	# Wertung (Mania: pp, Orbit: Orbit-Wertung) + Rang-Chips, je Modus neu.
+	# Wertung (Mania: pp, Trace: Trace-Rating) + Rang-Chips, je Modus neu.
 	_rating_slot = VBoxContainer.new()
 	_rating_slot.add_theme_constant_override("separation", 6)
 	info.add_child(_rating_slot)
@@ -392,7 +392,7 @@ func _build_backfill(api: OnlineApi) -> void:
 				row.add_child(_acct_label(tr("Upload abgebrochen (%d / %d).") % [int(st.done), int(st.total)]))
 			"error":
 				row.add_child(_acct_label(tr("Upload unterbrochen, Server nicht erreichbar.")))
-	var note := _acct_label(tr("Es werden nur deine Mania-Bestwerte hochgeladen. Orbit-Bestwerte nicht: sie stammen aus den alten Orbit-Regeln."))
+	var note := _acct_label(tr("Es werden nur deine Mania-Bestwerte hochgeladen."))
 	note.modulate = Color(1, 1, 1, 0.6)
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_acct.add_child(note)
@@ -405,11 +405,10 @@ func _acct_msg_label_update() -> void:
 
 
 ## Modi in Reiter-Reihenfolge ("" = Mania 4K).
-const PROFILE_MODES := ["", ScoreStore.MODE_ORBIT, ScoreStore.MODE_RALLY, ScoreStore.MODE_DIRIGENT,
-	ScoreStore.MODE_TRACE, ScoreStore.MODE_REBOUND]
+const PROFILE_MODES := ["", ScoreStore.MODE_TRACE]
 
 
-## Segment-Umschalter Mania 4K | Orbit | Rally | Dirigent | Trace | Rebound (Optik wie im Song-Browser).
+## Segment-Umschalter Mania 4K | Trace (Optik wie im Song-Browser).
 func _build_mode_switch() -> Control:
 	if not Settings.is_test_run():
 		var bs := ConfigFile.new()
@@ -417,9 +416,7 @@ func _build_mode_switch() -> Control:
 				and ScoreStore.uses_points(str(bs.get_value("browser", "play_mode", ""))):
 			_mode = str(bs.get_value("browser", "play_mode", ""))
 	for a in OS.get_cmdline_args():
-		if a == "--orbit":
-			_mode = ScoreStore.MODE_ORBIT
-		elif a.begins_with("--mode=") and ScoreStore.MODES.has(a.trim_prefix("--mode=")):
+		if a.begins_with("--mode=") and ScoreStore.MODES.has(a.trim_prefix("--mode=")):
 			_mode = a.trim_prefix("--mode=") if a != "--mode=mania" else ""
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
@@ -472,7 +469,7 @@ func _set_mode(mode: String) -> void:
 
 ## Wertung, Rang-Chips, Statistik-Spalte und Listen fuer _mode (neu) aufbauen.
 func _fill_mode() -> void:
-	var orbit := ScoreStore.uses_points(_mode)
+	var points_mode := ScoreStore.uses_points(_mode)
 	var stats := ScoreStore.mode_stats(_mode)
 	for c in _rating_slot.get_children():
 		c.queue_free()
@@ -481,23 +478,23 @@ func _fill_mode() -> void:
 	for c in _list.get_children():
 		c.queue_free()
 
-	# Mania: Gesamt-pp gross in ACCENT2 (wie bisher). Orbit: Orbit-Rating.
+	# Mania: Gesamt-pp gross in ACCENT2 (wie bisher). Trace: Trace-Rating.
 	var pp_row := HBoxContainer.new()
 	pp_row.add_theme_constant_override("separation", 6)
 	_rating_slot.add_child(pp_row)
 	var pp_big := Label.new()
-	pp_big.text = _fmt_int(roundi(float(stats.rating) if orbit else ScoreStore.profile_pp()))
+	pp_big.text = _fmt_int(roundi(float(stats.rating) if points_mode else ScoreStore.profile_pp()))
 	pp_big.add_theme_font_override("font", UiTheme.heading_font(1))
 	pp_big.add_theme_font_size_override("font_size", 44)
 	pp_big.add_theme_color_override("font_color", COL_PP)
 	pp_row.add_child(pp_big)
 	var pp_cap := Label.new()
-	# Orbit-Rating: eigene Kennzahl (Formel: ScoreStore.orbit_points,
-	# docs/modes/orbit.md); Mania-pp bleibt unveraendert.
-	pp_cap.text = ("%s-Rating" % ScoreStore.mode_label(_mode)) if orbit else "pp"
-	var orbit_tip := tr("Beste %s-Läufe: 4 × Sterne² × Genauigkeit⁴,
+	# Trace-Rating: eigene Kennzahl (Formel: ScoreStore.points); Mania-pp bleibt
+	# unveraendert.
+	pp_cap.text = ("%s-Rating" % ScoreStore.mode_label(_mode)) if points_mode else "pp"
+	var points_tip := tr("Beste %s-Läufe: 4 × Sterne² × Genauigkeit⁴,
 absteigend gewichtet mit 0,95ⁿ (wie pp)") 			% ScoreStore.mode_label(_mode)
-	pp_cap.tooltip_text = orbit_tip if orbit else ""
+	pp_cap.tooltip_text = points_tip if points_mode else ""
 	pp_cap.mouse_filter = Control.MOUSE_FILTER_PASS
 	pp_cap.size_flags_vertical = Control.SIZE_SHRINK_END
 	pp_cap.add_theme_font_size_override("font_size", 18)
@@ -523,8 +520,8 @@ absteigend gewichtet mit 0,95ⁿ (wie pp)") 			% ScoreStore.mode_label(_mode)
 		chips.add_child(_rank_chip(gk, int(counts[gk])))
 
 	_head_stat(_stat_col, _fmt_int(int(stats.plays)), tr("Spiele"), UiTheme.TEXT)
-	if orbit:
-		# Orbit: Ø Acc ueber alle (nicht gescheiterten) Plays, bester Score.
+	if points_mode:
+		# Trace: Ø Acc ueber alle (nicht gescheiterten) Plays, bester Score.
 		_head_stat(_stat_col, _fmt_pct(float(stats.avg_acc)) if float(stats.avg_acc) > 0.0 else "—",
 				tr("Ø Genauigkeit"), UiTheme.TEXT)
 		_head_stat(_stat_col, _fmt_int(int(stats.best_score)) if int(stats.best_score) > 0 else "—",
@@ -785,7 +782,7 @@ func _play_row(e: Dictionary, mode: String) -> Control:
 	pp_label.text = (_fmt_int(roundi(ppv)) + " pp") if ppv >= 0.0 else "—"
 	var pp_size := 24
 	if ScoreStore.uses_points(_mode):
-		# Orbit/Rally/Dirigent haben keine pp: Score statt pp.
+		# Trace hat keine pp: Score statt pp.
 		pp_label.text = _fmt_int(int(e.get("score", 0))) if int(e.get("score", 0)) > 0 else "—"
 		pp_size = 18
 	pp_label.custom_minimum_size = Vector2(88, 0)
@@ -871,12 +868,12 @@ func _start_map(osz_file: String, version: String) -> void:
 			idx = i
 			break
 	# Gleiche Mods wie im Song-Browser (bleiben an, bis man sie ausschaltet).
-	GameSession.mods = {"NF": Settings.mod_nf} if _mode in ["rally", "dirigent", "trace", "rebound"] 			else {"NF": Settings.mod_nf, "SV": Settings.mod_sv}
+	GameSession.mods = {"NF": Settings.mod_nf} if _mode == ScoreStore.MODE_TRACE 			else {"NF": Settings.mod_nf, "SV": Settings.mod_sv}
 	GameSession.is_replay = false
 	GameSession.set_selection(ms.osz_path, idx, ms.version_name_at(idx),
 			ms.osu_filename_at(idx), ms.stars_at(idx))
-	# Orbit-Profil startet Orbit (nur 4K-Diffs), sonst wie bisher Mania.
-	if ScoreStore.uses_points(_mode) and int(ms.meta_at(idx).get("mode", 0)) in [0, 3]:
+	# Trace-Profil startet Trace (nur Mania-Diffs), sonst wie bisher Mania.
+	if ScoreStore.uses_points(_mode) and int(ms.meta_at(idx).get("mode", 0)) == 3:
 		if ScoreStore.mode_ready(_mode):
 			get_tree().change_scene_to_file(ScoreStore.mode_scene(_mode))
 		return
