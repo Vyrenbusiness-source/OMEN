@@ -60,6 +60,10 @@ var has_mania_block := false
 var tintable := false
 var arrow_layout := false   ## [OMEN] Layout: arrows -> 5K-7K nach arrow_dir (Pfeile, Mitte Raute)
 var auto_colors: Array = []
+## [OMEN] SnapAuto: im Farbmodus "auto" faerbt der Skin die Noten nach Taktteilung
+## (1/4 rot, 1/8 blau, 1/12 violett, 1/16 gelb, sonst grau) statt je Spalte.
+## Ohne den Schluessel gilt das fuer Pfeil-Layouts.
+var snap_auto := false
 ## Nur der Fallback-Skin (Balken fuer importierte Skins ohne Notenbilder): Noten-
 ## bilder werden mit der Palette eingefaerbt, weil der osu!-Pfad nicht toent.
 var bake_auto := false
@@ -693,6 +697,7 @@ static func _load_builtin(p_name: String, p_keys: int = 4) -> ManiaSkin:
 				s._files[fn.strip_edges().to_lower() + "@2x"] = fn.strip_edges() + "@2x.png"
 			s.tintable = String(sec.get("tint", "0")).strip_edges() == "1"
 			s.arrow_layout = String(sec.get("layout", "")).strip_edges().to_lower() == "arrows"
+			s.snap_auto = String(sec.get("snapauto", "1" if s.arrow_layout else "0")).strip_edges() == "1"
 			for hx in String(sec.get("autocolors", "")).split(",", false):
 				s.auto_colors.append(Color.html(hx.strip_edges()))
 	# Layout steht im [OMEN]-Abschnitt, also erst nach _builtin_widths bekannt.
@@ -784,12 +789,22 @@ func auto_color(col: int) -> Color:
 	return auto_colors[clampi(col, 0, auto_colors.size() - 1)]
 
 
+## Farbe einer Taktteilung im Modus "auto" mit snap_auto: nur die vier Hauptteilungen
+## (Teiler 1-4 = 1/4, 1/8, 1/12, 1/16) bunt, alles andere grau.
+static func auto_snap_color(snap_div: int) -> Color:
+	if snap_div >= 1 and snap_div <= 4:
+		return NoteColors.snap_color(snap_div)
+	return Color(0.72, 0.74, 0.78)
+
+
 ## Toenung eines Eintrags: [Notenfarbe (Kopf, Kappe), Hold-Farbe (Koerper)].
 ## Modus "auto": Palette des Skins, Hold = Notenfarbe etwas dunkler. Eigene Farben
 ## (lanes/snap): die vom Spiel uebergebene Farbe c (bei Holds die Hold-Farbe).
-func tints(col: int, c: Color, is_hold: bool) -> Array:
+func tints(col: int, c: Color, is_hold: bool, snap_div: int = 0) -> Array:
 	if not NoteColors.is_custom(true):
 		var a := auto_color(col)
+		if snap_auto and snap_div > 0:
+			a = auto_snap_color(snap_div)
 		return [a, NoteColors.hold_of(a)]
 	c.a = 1.0
 	if not is_hold:

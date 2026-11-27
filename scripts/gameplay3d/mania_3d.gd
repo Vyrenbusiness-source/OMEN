@@ -701,11 +701,13 @@ func _update_playfield_2d(t: float) -> void:
 		var c: Color = entry.get("col", Color(1, 1, 1))
 		var held: bool = core.active_hold(obj.column) == index
 		var zh: float = (entry.root as Node3D).position.z
+		# Taktteilung nur durchreichen, wenn der Skin sie im Modus "auto" wuenscht.
+		var sdiv := _snap_divs[index] if (_pf2d.skin != null and _pf2d.skin.snap_auto and index < _snap_divs.size()) else 0
 		if obj.is_hold:
 			_pf2d.add_hold(obj.column, zh, _note_z(obj.end_time(), t), c,
-					Playfield2D.STATE_HELD if held else Playfield2D.STATE_NORMAL, index, obj.time - t)
+					Playfield2D.STATE_HELD if held else Playfield2D.STATE_NORMAL, index, obj.time - t, sdiv)
 		else:
-			_pf2d.add_note(obj.column, zh, c, Playfield2D.STATE_NORMAL, index, obj.time - t)
+			_pf2d.add_note(obj.column, zh, c, Playfield2D.STATE_NORMAL, index, obj.time - t, sdiv)
 	for rb in _released_beams:
 		_pf2d.add_hold(int(rb.col), _note_z(float(rb.head), t), _note_z(float(rb.end), t),
 				NoteColors.color_for(int(rb.col), true, true, CLEAN_HOLD, 0, core.columns), Playfield2D.STATE_DEAD)

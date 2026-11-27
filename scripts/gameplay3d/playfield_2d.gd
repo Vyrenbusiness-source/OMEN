@@ -32,7 +32,7 @@ var preview_size := Vector2.ZERO  ## > 0: Vorschau-Modus, _vs() nutzt diese Groe
 var _disc_tex: Texture2D
 var _ring_tex: Texture2D
 
-# Pro Frame gefuellt: [col, z_head, z_tail, color, state, is_hold, id, left_ms]
+# Pro Frame gefuellt: [col, z_head, z_tail, color, state, is_hold, id, left_ms, snap_div]
 # (id/left_ms nur fuer --debug-popin: Notenindex, Restzeit bis zur Trefferzeit)
 var _items: Array = []
 var _held: Array = []
@@ -85,13 +85,13 @@ func begin_frame() -> void:
 
 
 func add_note(col: int, z_head: float, color: Color, state: int = STATE_NORMAL,
-		id: int = -1, left_ms: float = 0.0) -> void:
-	_items.append([col, z_head, z_head, color, state, false, id, left_ms])
+		id: int = -1, left_ms: float = 0.0, snap_div: int = 0) -> void:
+	_items.append([col, z_head, z_head, color, state, false, id, left_ms, snap_div])
 
 
 func add_hold(col: int, z_head: float, z_tail: float, color: Color, state: int = STATE_NORMAL,
-		id: int = -1, left_ms: float = 0.0) -> void:
-	_items.append([col, z_head, z_tail, color, state, true, id, left_ms])
+		id: int = -1, left_ms: float = 0.0, snap_div: int = 0) -> void:
+	_items.append([col, z_head, z_tail, color, state, true, id, left_ms, snap_div])
 
 
 ## Mod "MN": Mine in Spalte col bei z (gleiche Z-Rechnung wie Noten), a = Deckkraft.
@@ -756,7 +756,7 @@ func _draw_skin_item(it: Array, xs: Array, ws: Array, vs: Vector2) -> void:
 	var tn := Color(1, 1, 1, 1)
 	var th_c := Color(1, 1, 1, 1)
 	if sk.tintable:
-		var tt := sk.tints(col, it[3], bool(it[5]))
+		var tt := sk.tints(col, it[3], bool(it[5]), int(it[8]) if it.size() > 8 else 0)
 		tn = tt[0]
 		th_c = tt[1]
 	var head := sk.tex("head_%d" % col) if bool(it[5]) else null

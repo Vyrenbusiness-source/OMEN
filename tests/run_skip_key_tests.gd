@@ -80,5 +80,15 @@ func _run() -> void:
 	g.free()
 
 	st.set("key_lanes_k", old_k)
+
+	var pf := ManiaSkin.load_skin("builtin:Pfeile")
+	_ok(pf != null and pf.snap_auto, "Pfeile-Skin: snap_auto")
+	var bal := ManiaSkin.load_skin("builtin:Balken")
+	_ok(bal != null and not bal.snap_auto, "Balken-Skin: kein snap_auto")
+	_ok(ManiaSkin.auto_snap_color(1).r > 0.9 and ManiaSkin.auto_snap_color(1).g < 0.4, "1/4 rot")
+	_ok(ManiaSkin.auto_snap_color(2).b > 0.9, "1/8 blau")
+	_ok(ManiaSkin.auto_snap_color(3).b > 0.9 and ManiaSkin.auto_snap_color(3).r > 0.6, "1/12 violett")
+	_ok(ManiaSkin.auto_snap_color(4).r > 0.9 and ManiaSkin.auto_snap_color(4).g > 0.7, "1/16 gelb")
+	_ok(ManiaSkin.auto_snap_color(8).is_equal_approx(ManiaSkin.auto_snap_color(16)), "sonst grau")
 	print("=== Ergebnis: %d bestanden, %d fehlgeschlagen ===" % [_passed, _failed])
 	quit(1 if _failed > 0 else 0)
