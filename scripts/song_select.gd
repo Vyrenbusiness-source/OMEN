@@ -63,6 +63,14 @@ var _sel_box: StyleBoxFlat = null
 var _bpm_label: Label
 var _len_label: Label
 var _diff_bar: HBoxContainer
+var _info_panel: PanelContainer
+var _notes_val: Label
+var _keys_val: Label
+var _od_val: Label
+var _hp_val: Label
+var _mods_btn: Button
+var _more_btn: MenuButton
+var _mods_fold: HFlowContainer
 var _progress_bg: Control
 var _progress_fill: ColorRect
 var _preview_len := 0.0
@@ -130,7 +138,20 @@ var _perf_select_t := 0
 # Hintergrund-Vorbereitung der Auswahl (Parse + Audio + Cover), entprellt:
 # erst wenn die Auswahl PREPARE_DELAY_MS stabil ist (schnelles Scrollen
 # startet keine Task-Lawine). Full-Res-Cover kommt danach aus dem Cache.
-const PREPARE_DELAY_MS := 100
+const PREPARE_DELAY_MS := 350
+## Entprellung fuer Hintergrundbild und .osu-Details beim Durchwechseln.
+const DETAIL_DELAY_MS := 140
+## Zielhelligkeit des Hintergrundbilds (mittlere Luminanz nach Abdunkeln).
+const BG_TARGET_LUM := 0.20
+var _detail_due := 0
+var _bg_next: TextureRect
+var _bg_tween: Tween
+var _bg_gen := 0
+var _stage_aspect := 16.0 / 9.0
+var _board_gen := 0
+var _bg_dim := 0.30
+var _detail_tasks: Array[int] = []
+var _hp_cache: Dictionary = {}
 const THUMB_BUDGET_USEC := 4000
 var _prep_due := 0
 var _bg_wait_set: MapSet = null
@@ -226,6 +247,16 @@ const STAR_FILTERS := [
 	["4–6★", 4.0, 6.0],
 	["6★+", 6.0, 999.0],
 ]
+## Kopfzeile: eigener Tab "For you" (Vorschlaege in eigener Ansicht ueber der
+## Liste, nie oberhalb der Liste), Filter als kleines Feld auf Abruf.
+var _tab_foryou: Button
+var _foryou_mode := false
+var _rec_view: PanelContainer
+var _filter_btn: Button
+var _filter_pop: PanelContainer
+var _filter_pop_box: VBoxContainer
+
+
 func _ready() -> void:
 	_perf_ready_t = Time.get_ticks_usec()
 	_bench_t0 = _perf_ready_t
@@ -463,6 +494,48 @@ func _bench_browser() -> void:
 		_filtered.size(), int(total), first_ms, frames.size(), worst, p99,
 		sum / maxf(frames.size(), 1.0), over, sws[sws.size() / 2] if not sws.is_empty() else 0.0,
 		sws[-1] if not sws.is_empty() else 0.0])
+	# Schnelles Durchwechseln (wie Pfeiltaste halten): alle 33 ms ein Set weiter,
+	# 40 Wechsel, dann 1,5 s Nachlauf (Hintergrund, .osu-Details, Vorschau).
+	await get_tree().create_timer(1.0).timeout
+	var rf := PackedFloat32Array()
+	var rslow: Array = []
+	var start := _filtered.find(_selected_set)
+	var switches := 0
+	var next_at := Time.get_ticks_msec()
+	var end_at := 0
+	last = Time.get_ticks_usec()
+	while end_at == 0 or Time.get_ticks_msec() < end_at:
+		_bench_misc = ""
+		if switches < 40 and Time.get_ticks_msec() >= next_at:
+			var ms2: MapSet = _filtered[(start + 1 + switches) % _filtered.size()]
+			var t1 := Time.get_ticks_usec()
+			_select_set(ms2, _hardest(ms2))
+			_scroll_to_selected()
+			var sel_ms := (Time.get_ticks_usec() - t1) / 1000.0
+			if sel_ms > 1.5:
+				_bench_misc += "select=%.1f " % sel_ms
+			switches += 1
+			next_at += 33
+			if switches == 40:
+				end_at = Time.get_ticks_msec() + 1500
+		await get_tree().process_frame
+		var now2 := Time.get_ticks_usec()
+		var ft2 := (now2 - last) / 1000.0
+		last = now2
+		rf.append(ft2)
+		if ft2 > 8.0:
+			rslow.append("%.1fms %s" % [ft2, _bench_misc])
+	for s in rslow:
+		print("BENCH_RAPID_SLOW ", s)
+	var rs := rf.duplicate()
+	rs.sort()
+	var rover := 0
+	for f in rf:
+		if f > 8.0:
+			rover += 1
+	print("BENCH_RAPID switches=%d frames=%d max_frame_ms=%.2f p99_ms=%.2f frames_over_8ms=%d" % [
+		switches, rf.size(), rs[-1] if not rs.is_empty() else 0.0,
+		rs[int(rs.size() * 0.99)] if not rs.is_empty() else 0.0, rover])
 	_preview.stop()
 	get_tree().quit()
 
@@ -474,6 +547,17 @@ var _bench_lay_us := 0
 var _bench_titles := ""
 var _bench_misc := ""
 var _bench_on := false
+var _bt_us := 0
+
+
+## Messung (--bench-browser): Abschnitt seit dem letzten Aufruf, wenn > 1 ms.
+func _bt(label: String) -> void:
+	if not _bench_on:
+		return
+	var now := Time.get_ticks_usec()
+	if now - _bt_us > 1000:
+		_bench_misc += "%s=%.1f " % [label, (now - _bt_us) / 1000.0]
+	_bt_us = now
 
 
 func _bench_content_h() -> float:
@@ -657,6 +741,25 @@ func _capture_screenshot_and_quit() -> void:
 	for a in OS.get_cmdline_args():
 		if a.begins_with("--shot-wait="):
 			wait = float(a.trim_prefix("--shot-wait="))
+	# Harness: --map=<text> [--diff=<text>] waehlt eine Map (wie --mania, ohne Start).
+	if _arg_value("--map") != null:
+		var pk := _debug_pick()
+		if not pk.is_empty():
+			_select_set(pk[0], pk[1])
+			_selected_diff = pk[1]
+			_update_info_panel()
+			_scroll_to_selected(true)
+	# Harness: --shot-view=filter (Filter-Feld offen), foryou (Tab), mods (Mods offen).
+	match str(_arg_value("--shot-view")):
+		"filter":
+			_filter_pop.visible = true
+			_restyle_filter_btn()
+			_update_list_top()
+		"foryou":
+			_set_foryou_mode(true)
+		"mods":
+			if has_method(&"_set_mods_open"):
+				call(&"_set_mods_open", true)
 	await get_tree().create_timer(wait).timeout
 	await RenderingServer.frame_post_draw
 	if not is_inside_tree():
@@ -683,10 +786,15 @@ func _build_ui() -> void:
 	_bg.modulate = Color(0.30, 0.29, 0.28)
 	_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_bg)
+	# Zweite Ebene fuer die weiche Ueberblendung zum naechsten Map-Bild.
+	_bg.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_bg_next = _bg.duplicate() as TextureRect
+	_bg_next.modulate.a = 0.0
+	add_child(_bg_next)
 
 	var overlay := ColorRect.new()
 	overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	overlay.color = Color(UiTheme.BG.r, UiTheme.BG.g, UiTheme.BG.b, 0.60)
+	overlay.color = Color(UiTheme.BG.r, UiTheme.BG.g, UiTheme.BG.b, 0.38)
 	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(overlay)
 
@@ -695,6 +803,8 @@ func _build_ui() -> void:
 	_build_info_panel()
 	_build_stage()
 	_build_list()
+	move_child(_rec_view, -1)
+	move_child(_filter_pop, -1)
 	_update_list_top()
 
 
@@ -752,6 +862,12 @@ func _build_header() -> void:
 	_tab_collections.custom_minimum_size = Vector2(0, HEAD_H)
 	_tab_collections.pressed.connect(func(): _set_collection_mode(true))
 	top_right.add_child(_tab_collections)
+
+	_tab_foryou = _make_toggle(tr("For you"), 15)
+	_tab_foryou.custom_minimum_size = Vector2(0, HEAD_H)
+	_tab_foryou.tooltip_text = tr("Show suggestions")
+	_tab_foryou.pressed.connect(func(): _set_foryou_mode(true))
+	top_right.add_child(_tab_foryou)
 	_style_tabs()
 
 	_tab_online = Button.new()
@@ -772,7 +888,7 @@ func _build_header() -> void:
 	_import_btn.add_theme_font_size_override("font_size", 15)
 	UiTheme.style_ghost_button(_import_btn, 10)
 	_import_btn.pressed.connect(_open_import_panel)
-	top_right.add_child(_import_btn)
+	left.add_child(_import_btn)
 
 	# Filter-Reihen stehen in einem Stapel: wird eine Reihe hoeher oder kommt eine
 	# dazu (Sammlungen), rutscht die Liste mit.
@@ -807,13 +923,37 @@ func _build_header() -> void:
 		_refresh_filter(_search.text)
 		_scroll_to_selected(true))
 	sort_row.add_child(_group_btn)
+	_filter_btn = _make_toggle(tr("Filter"), 13, 8)
+	_filter_btn.custom_minimum_size = Vector2(0, FILTER_H)
+	_filter_btn.tooltip_text = tr("Sterne, Bestwert, Rang und Tasten filtern")
+	_filter_btn.pressed.connect(func():
+		_filter_pop.visible = not _filter_pop.visible
+		_restyle_filter_btn()
+		_update_list_top())
+	sort_row.add_child(_filter_btn)
+
+	# Filter-Feld: liegt ueber der Liste, nimmt ihr keine Hoehe weg.
+	_filter_pop = PanelContainer.new()
+	var fp_sb := StyleBoxFlat.new()
+	fp_sb.bg_color = Color(UiTheme.BG, 0.97)
+	fp_sb.set_corner_radius_all(4)
+	fp_sb.set_border_width_all(1)
+	fp_sb.border_color = Color(1, 1, 1, 0.12)
+	fp_sb.set_content_margin_all(12)
+	_filter_pop.add_theme_stylebox_override("panel", fp_sb)
+	_filter_pop.visible = false
+	_place_right(_filter_pop, FILTER_Y + FILTER_H + 6, 0.0)
+	add_child(_filter_pop)
+	_filter_pop_box = VBoxContainer.new()
+	_filter_pop_box.add_theme_constant_override("separation", 8)
+	_filter_pop.add_child(_filter_pop_box)
 
 	# Filter-Reihe: Sterne-Chips, SV und Tasten rechtsbuendig.
 	var filter_row := HBoxContainer.new()
 	filter_row.custom_minimum_size = Vector2(0, FILTER_H)
 	filter_row.alignment = BoxContainer.ALIGNMENT_END
 	filter_row.add_theme_constant_override("separation", 6)
-	_filter_stack.add_child(filter_row)
+	_filter_pop_box.add_child(filter_row)
 	_filter_row = filter_row
 
 	for fi in STAR_FILTERS.size():
@@ -842,18 +982,8 @@ func _build_header() -> void:
 	score_row.custom_minimum_size = Vector2(0, SCORE_H)
 	score_row.alignment = BoxContainer.ALIGNMENT_END
 	score_row.add_theme_constant_override("separation", 6)
-	_filter_stack.add_child(score_row)
+	_filter_pop_box.add_child(score_row)
 	_score_chips_row = score_row
-	# "For you" an/aus (Vorschlaege oberhalb der Liste), links in der Reihe.
-	_rec_chip = _make_toggle(tr("For you"), 13, 15)
-	_rec_chip.custom_minimum_size = Vector2(0, SCORE_H)
-	_rec_chip.tooltip_text = tr("Show suggestions")
-	_rec_chip.pressed.connect(func(): _set_recs_hidden(not bool(_rec.hidden)))
-	score_row.add_child(_rec_chip)
-	var rec_gap := Control.new()
-	rec_gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rec_gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	score_row.add_child(rec_gap)
 	# Mit/Ohne Bestwert wie der SV-Chip: erneut klicken = wieder alle Maps.
 	for bi in [BEST_WITH, BEST_WITHOUT]:
 		var chip := _make_toggle(tr(BEST_NAMES[bi]), 13, 15)
@@ -909,7 +1039,7 @@ func _build_header() -> void:
 	_search = LineEdit.new()
 	_search.placeholder_text = "Map suchen"
 	_search.clear_button_enabled = true
-	_search.custom_minimum_size = Vector2(140, HEAD_H)
+	_search.custom_minimum_size = Vector2(120, HEAD_H)
 	_search.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_search.add_theme_stylebox_override("normal", _toggle_box(false, 10))
 	var search_focus := _toggle_box(false, 10, true)
@@ -1049,10 +1179,15 @@ func _line_icon(size: int, segs: Array) -> ImageTexture:
 func _build_info_panel() -> void:
 	# Hoehe folgt dem Inhalt: kein leerer Glasbereich unter der Bestenliste.
 	var panel := PanelContainer.new()
-	panel.position = Vector2(M, HEAD_Y + HEAD_H + M)
-	panel.custom_minimum_size = Vector2(INFO_W, 0)
+	panel.anchor_bottom = 1.0
+	panel.offset_left = M
+	panel.offset_top = HEAD_Y + HEAD_H + M
+	panel.offset_bottom = -M
+	panel.offset_right = M + INFO_W
 	panel.add_theme_stylebox_override("panel", UiTheme.glass_box(18, 0.5))
 	add_child(panel)
+	_info_panel = panel
+	resized.connect(_layout_info)
 
 	var margin := MarginContainer.new()
 	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
@@ -1063,13 +1198,13 @@ func _build_info_panel() -> void:
 	vb.add_theme_constant_override("separation", 10)
 	margin.add_child(vb)
 
-	_title_label = _add_label(vb, "", 26, COL_TEXT)
+	_title_label = _add_label(vb, "", 30, COL_TEXT)
 	_title_label.add_theme_font_override("font", UiTheme.heading_font(1))
 	_title_label.mouse_filter = Control.MOUSE_FILTER_PASS  # Tooltip mit dem vollen Titel
 	var by := VBoxContainer.new()
 	by.add_theme_constant_override("separation", 0)
 	vb.add_child(by)
-	_artist_label = _add_label(by, "", 15, COL_TEXT.darkened(0.12))
+	_artist_label = _add_label(by, "", 17, COL_TEXT.darkened(0.12))
 	_mapper_label = _add_label(by, "", 13, COL_DIM)
 
 	# Lange Titel kuerzen statt das Panel zu weiten: es bleibt INFO_W breit.
@@ -1078,52 +1213,39 @@ func _build_info_panel() -> void:
 		lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_artist_label.mouse_filter = Control.MOUSE_FILTER_PASS
 
-	var gap := Control.new()
-	gap.custom_minimum_size = Vector2(0, 2)
-	vb.add_child(gap)
-
+	# Diff-Name links, Sterne in Sternfarbe rechts. Die Diff waehlt die Liste rechts.
 	var diff_row := HBoxContainer.new()
-	diff_row.add_theme_constant_override("separation", 8)
+	diff_row.add_theme_constant_override("separation", 12)
 	vb.add_child(diff_row)
-	var prev := _icon_button(_chevron_icon(-1), "Vorherige Schwierigkeit")
-	prev.pressed.connect(func(): _cycle_difficulty(-1))
-	diff_row.add_child(prev)
 	_diff_label = Label.new()
-	_diff_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_diff_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_diff_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_diff_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	_diff_label.add_theme_font_size_override("font_size", 16)
+	_diff_label.add_theme_font_size_override("font_size", 19)
 	_diff_label.add_theme_color_override("font_color", COL_TEXT)
 	diff_row.add_child(_diff_label)
-	var next := _icon_button(_chevron_icon(1), "Naechste Schwierigkeit")
-	next.pressed.connect(func(): _cycle_difficulty(1))
-	diff_row.add_child(next)
+	_star_label = Label.new()
+	_star_label.add_theme_font_size_override("font_size", 19)
+	_star_label.add_theme_font_override("font", UiTheme.heading_font(1))
+	diff_row.add_child(_star_label)
 
-	# Diff-Farbbalken: ein Segment pro Difficulty in Sternfarbe, Auswahl hell.
-	# Einziger Ort mit Sternfarbe im Panel.
-	_diff_bar = HBoxContainer.new()
-	_diff_bar.custom_minimum_size = Vector2(0, 8)
-	_diff_bar.add_theme_constant_override("separation", 4)
-	vb.add_child(_diff_bar)
-
-	# Sterne + BPM + Laenge als ruhige Glas-Chips in einer Reihe.
-	var chip_row := HBoxContainer.new()
-	chip_row.add_theme_constant_override("separation", 8)
-	vb.add_child(chip_row)
-	_star_label = _info_chip(chip_row)
-	_bpm_label = _info_chip(chip_row)
-	_len_label = _info_chip(chip_row)
-
-	_stats_label = _add_label(vb, "", 14, COL_DIM)
+	# Kennzahlen als ruhige Paare: Beschriftung klein, Wert darunter.
+	var stats := HBoxContainer.new()
+	stats.add_theme_constant_override("separation", 22)
+	vb.add_child(stats)
+	_len_label = _stat_pair(stats, tr("Länge"))
+	_bpm_label = _stat_pair(stats, "BPM")
+	_notes_val = _stat_pair(stats, tr("Noten"))
+	_keys_val = _stat_pair(stats, tr("Tasten"))
+	_od_val = _stat_pair(stats, "OD")
+	_hp_val = _stat_pair(stats, "HP")
+	_stats_label = Label.new()  # nur noch fuer alte Aufrufer, nicht im Baum
 	_maxpp_label = _add_label(vb, "", 14, UiTheme.ACCENT2)
-	for lbl in [_stats_label, _maxpp_label]:
-		lbl.autowrap_mode = TextServer.AUTOWRAP_OFF  # Umbruch und Kuerzen schliessen sich aus
-		lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	_maxpp_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	_maxpp_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 
 	var play := Button.new()
-	play.text = "Spielen"
-	play.custom_minimum_size = Vector2(0, 54)
+	play.text = tr("Spielen")
+	play.custom_minimum_size = Vector2(0, 56)
 	play.add_theme_font_size_override("font_size", 22)
 	UiTheme.style_button(play, true)
 	play.add_theme_font_override("font", UiTheme.heading_font(4))
@@ -1154,16 +1276,42 @@ func _build_info_panel() -> void:
 	vb.add_child(play)
 	_play_btn = play
 
-	# Mods + Sammlung: No-Fail als Schalter, Sammlung als Ghost-Button.
-	# Umbrechend: im Trace-Modus kommen MR/HD/SS dazu; eine starre Zeile machte das
-	# Panel breiter als INFO_W und es lief unter das Cover in der Mitte.
+	# Mods: geschlossen EINE Zeile mit den aktiven Kuerzeln, Klick klappt die
+	# Schalter mit vollen Namen auf (Esc klappt zu). Aktionen hinter "Mehr".
+	var mods_line := HBoxContainer.new()
+	mods_line.add_theme_constant_override("separation", 8)
+	vb.add_child(mods_line)
+	_mods_btn = Button.new()
+	_mods_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_mods_btn.icon_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_mods_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_mods_btn.custom_minimum_size = Vector2(0, 40)
+	_mods_btn.add_theme_font_size_override("font_size", 15)
+	_mods_btn.tooltip_text = tr("Mods auf- und zuklappen (Esc klappt zu)")
+	UiTheme.style_ghost_button(_mods_btn, 6)
+	_mods_btn.pressed.connect(func(): _set_mods_open(not _mods_fold.visible))
+	mods_line.add_child(_mods_btn)
+	_more_btn = MenuButton.new()
+	_more_btn.text = tr("Mehr")
+	_more_btn.flat = false
+	_more_btn.tooltip_text = tr("Sammlung, an Freund schicken, Marathon")
+	_more_btn.custom_minimum_size = Vector2(88, 40)
+	_more_btn.add_theme_font_size_override("font_size", 15)
+	UiTheme.style_ghost_button(_more_btn, 6)
+	_more_btn.get_popup().add_theme_font_size_override("font_size", 15)
+	_more_btn.about_to_popup.connect(_fill_more_menu)
+	_more_btn.get_popup().id_pressed.connect(_on_more_item)
+	mods_line.add_child(_more_btn)
+
 	var mods_row := HFlowContainer.new()
 	mods_row.add_theme_constant_override("h_separation", 8)
 	mods_row.add_theme_constant_override("v_separation", 8)
+	mods_row.visible = false
 	vb.add_child(mods_row)
+	_mods_fold = mods_row
 
 	var nf := CheckButton.new()
-	nf.text = "No-Fail"
+	nf.text = "No Fail"
 	nf.tooltip_text = "Kein Abbruch bei leerer Lebensleiste"
 	nf.focus_mode = Control.FOCUS_NONE
 	nf.button_pressed = _nf_enabled
@@ -1214,6 +1362,12 @@ func _build_info_panel() -> void:
 		mods_row.add_child(rb)
 		_rule_mod_btns[k] = rb
 	TempoBrowserRow.build(self, mods_row)  # mv-tempo: Turbo, Tonhoehe, Ueben
+	for tbtn in TempoBrowserRow._btns:
+		(tbtn as BaseButton).toggled.connect(func(_on: bool): _refresh_mods_line())
+	# Aktionen leben im Menue "Mehr"; die Knoepfe bleiben unsichtbar als Zustandstraeger.
+	var act_holder := Control.new()
+	act_holder.visible = false
+	vb.add_child(act_holder)
 	_apply_mod_visibility()
 	_apply_play_state()
 
@@ -1225,7 +1379,7 @@ func _build_info_panel() -> void:
 	coll_btn.add_theme_font_size_override("font_size", 14)
 	UiTheme.style_ghost_button(coll_btn, 10)
 	coll_btn.pressed.connect(_open_collection_popup)
-	mods_row.add_child(coll_btn)
+	act_holder.add_child(coll_btn)
 
 	_share_btn = Button.new()
 	_share_btn.text = tr("An Freund schicken")
@@ -1235,7 +1389,7 @@ func _build_info_panel() -> void:
 	_share_btn.add_theme_font_size_override("font_size", 14)
 	UiTheme.style_ghost_button(_share_btn, 10)
 	_share_btn.pressed.connect(_share_selected_map)
-	mods_row.add_child(_share_btn)
+	act_holder.add_child(_share_btn)
 
 	# Marathon (scripts/marathon): mehrere Maps am Stueck, nur Mania.
 	_marathon_btn = Button.new()
@@ -1247,7 +1401,8 @@ func _build_info_panel() -> void:
 	UiTheme.style_ghost_button(_marathon_btn, 10)
 	_marathon_btn.pressed.connect(_open_marathon)
 	_marathon_btn.visible = _play_mode == "mania"
-	mods_row.add_child(_marathon_btn)
+	act_holder.add_child(_marathon_btn)
+	_refresh_mods_line()
 
 	var sep := ColorRect.new()
 	sep.custom_minimum_size = Vector2(0, 1)
@@ -1295,9 +1450,101 @@ func _build_info_panel() -> void:
 	_replay_btn.pressed.connect(_watch_replay)
 	lb_head.add_child(_replay_btn)
 
+	var lb_scroll := ScrollContainer.new()
+	lb_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	lb_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	vb.add_child(lb_scroll)
 	_lb_box = VBoxContainer.new()
-	_lb_box.add_theme_constant_override("separation", 6)
-	vb.add_child(_lb_box)
+	_lb_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_lb_box.add_theme_constant_override("separation", 4)
+	lb_scroll.add_child(_lb_box)
+	_layout_info.call_deferred()
+
+
+## Linkes Panel und Buehne: Breite folgt dem Fenster (30 %, 500 bis 720 px).
+func _info_w() -> float:
+	return clampf(size.x * 0.30, 500.0, 720.0)
+
+
+func _layout_info() -> void:
+	if _info_panel == null:
+		return
+	_info_panel.offset_right = M + _info_w()
+	if _stage != null:
+		_stage.offset_left = M + _info_w() + M
+
+
+## Kennzahl als Paar: Beschriftung klein und ruhig, Wert darunter.
+func _stat_pair(parent: Control, caption: String) -> Label:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	parent.add_child(col)
+	var cap := Label.new()
+	cap.text = caption.to_upper()
+	cap.add_theme_font_size_override("font_size", 11)
+	cap.add_theme_color_override("font_color", COL_DIM)
+	col.add_child(cap)
+	var val := Label.new()
+	val.add_theme_font_size_override("font_size", 17)
+	val.add_theme_color_override("font_color", COL_TEXT)
+	col.add_child(val)
+	return val
+
+
+## Mods-Zeile: aktive Kuerzel ("NF SD") bzw. "keine", Pfeil zeigt auf/zu.
+func _refresh_mods_line() -> void:
+	if _mods_btn == null or _mods_fold == null:
+		return
+	_mods_btn.text = tr("Mods") + "     " + mods_codes(_current_mods())
+	_mods_btn.icon = _rec_fold_icon(_mods_fold.visible)
+	var on := not _current_mods_codes().is_empty()
+	for fc in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		_mods_btn.add_theme_color_override(fc, COL_ACCENT if on else COL_TEXT)
+
+
+func _current_mods_codes() -> Array:
+	return mods_code_list(_current_mods())
+
+
+## Kuerzel der aktiven Mods in fester Reihenfolge (Test: run_browser_filter_tests).
+static func mods_code_list(m: Dictionary) -> Array:
+	var out: Array = []
+	for k in ["NF", "SV", "TB"] + Array(TraceMods.MODS) + Array(RuleMods.KEYS):
+		if bool(m.get(k, false)) and not out.has(k):
+			out.append(k)
+	return out
+
+
+static func mods_codes(m: Dictionary) -> String:
+	var l := mods_code_list(m)
+	return "  ".join(l) if not l.is_empty() else TranslationServer.translate("keine")
+
+
+func _set_mods_open(open: bool) -> void:
+	if _mods_fold == null:
+		return
+	_mods_fold.visible = open
+	_refresh_mods_line()
+
+
+func _fill_more_menu() -> void:
+	var pm := _more_btn.get_popup()
+	pm.clear()
+	pm.add_item(tr("+ Sammlung"), 0)
+	pm.add_item(tr("An Freund schicken"), 1)
+	pm.set_item_disabled(1, _share_btn.disabled)
+	if _marathon_btn.visible:
+		pm.add_item(tr("Marathon"), 2)
+
+
+func _on_more_item(id: int) -> void:
+	match id:
+		0:
+			_open_collection_popup()
+		1:
+			_share_selected_map()
+		2:
+			_open_marathon()
 
 
 ## Buehne in der Mitte: grosses Cover (abgerundet, Schatten), Vorschau-Linie,
@@ -1382,16 +1629,20 @@ func _build_stage() -> void:
 
 
 func _layout_stage() -> void:
+	# Scharfes Map-Bild als Kachel in der Mitte (Seitenverhaeltnis des Bildes, kein
+	# Strecken), darunter Vorschau-Linie und Spektrum. Dahinter liegt dasselbe Bild
+	# weich und abgedunkelt als Vollbild (_bg).
 	var avail := _stage.size
-	var w := minf(avail.x - 2.0 * M, 760.0)
+	var aspect := _stage_aspect
+	var w := minf(avail.x - 2.0 * M, 620.0)
 	var viz_h := 64.0
 	var gap := 18.0
-	var h := w * 9.0 / 16.0
-	var max_h := avail.y - (gap + 3.0 + gap + viz_h)
+	var h := w / aspect
+	var max_h := minf(avail.y - (gap + 3.0 + gap + viz_h), 460.0)
 	if h > max_h:
 		h = max_h
-		w = h * 16.0 / 9.0
-	var fits := w >= 240.0
+		w = h * aspect
+	var fits := w >= 240.0 or h >= 200.0
 	for c in _stage.get_children():
 		(c as CanvasItem).visible = fits
 	if not fits:
@@ -1404,10 +1655,12 @@ func _layout_stage() -> void:
 	_stage_shadow.size = Vector2(w, h)
 	_stage_mask.position = Vector2(x, top)
 	_stage_mask.size = Vector2(w, h)
-	_progress_bg.position = Vector2(x, top + h + gap)
-	_progress_bg.size = Vector2(w, 3)
-	_stage_viz.position = Vector2(x, top + h + gap + 3.0 + gap)
-	_stage_viz.size = Vector2(w, viz_h)
+	var lw := maxf(w, 360.0)
+	var lx := (avail.x - lw) * 0.5
+	_progress_bg.position = Vector2(lx, top + h + gap)
+	_progress_bg.size = Vector2(lw, 3)
+	_stage_viz.position = Vector2(lx, top + h + gap + 3.0 + gap)
+	_stage_viz.size = Vector2(lw, viz_h)
 
 
 func _info_chip(parent: Node) -> Label:
@@ -1718,13 +1971,23 @@ func _row_indent(kind: int, state: int) -> float:
 
 
 func _max_scroll() -> float:
-	return maxf(_content_h - (_view.size.y if _view != null else 0.0), 0.0)
+	return maxf(_content_h - (_view.size.y if _view != null else 0.0), 0.0) + _center_pad()
+
+
+## Wie osu!: erste und letzte Karte duerfen bis in die Mitte rutschen.
+func _center_pad() -> float:
+	if _view == null:
+		return 0.0
+	return maxf(_view.size.y * 0.5 - CARD_H * 0.5 - LIST_TOP_PAD, 0.0)
 
 
 func _clamp_scroll() -> void:
+	if _view == null or _view.size.y <= 0.0:
+		_list_dirty = true  # noch ohne Hoehe: Mitte-Polster unbekannt, nicht kappen
+		return
 	var mx := _max_scroll()
-	_scroll_y = clampf(_scroll_y, 0.0, mx)
-	_scroll_goal = clampf(_scroll_goal, 0.0, mx)
+	_scroll_y = clampf(_scroll_y, -_center_pad(), mx)
+	_scroll_goal = clampf(_scroll_goal, -_center_pad(), mx)
 	_list_dirty = true
 
 
@@ -1736,7 +1999,7 @@ func _list_wheel(ev: InputEvent) -> bool:
 		return false
 	var f := mb.factor if mb.factor > 0.0 else 1.0
 	var dir := -1.0 if mb.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0
-	_scroll_goal = clampf(_scroll_goal + dir * WHEEL_STEP * f, 0.0, _max_scroll())
+	_scroll_goal = clampf(_scroll_goal + dir * WHEEL_STEP * f, -_center_pad(), _max_scroll())
 	_user_scrolled = true
 	return true
 
@@ -2326,11 +2589,55 @@ func _cover_loaded(path: String, img: Image, dim: float = 0.62) -> void:
 # ---------------------------------------------------------------------------
 
 func _style_tabs() -> void:
-	_apply_toggle(_tab_collections, _collection_mode)
-	_apply_toggle(_tab_downloaded, not _collection_mode)
+	_apply_toggle(_tab_collections, _collection_mode and not _foryou_mode)
+	_apply_toggle(_tab_downloaded, not _collection_mode and not _foryou_mode)
+	if _tab_foryou != null:
+		_apply_toggle(_tab_foryou, _foryou_mode)
+
+
+## Tab "For you": Vorschlaege als eigene Ansicht in der rechten Spalte.
+func _set_foryou_mode(on: bool) -> void:
+	_foryou_mode = on
+	if on and _collection_mode:
+		_collection_mode = false
+		_chips_row.visible = false
+		_apply_filter_layout()
+		_refresh_filter(_search.text)
+	if _filter_pop != null:
+		_filter_pop.visible = false
+		_update_list_top()
+	_style_tabs()
+	_apply_recs_visibility()
+	_restyle_filter_btn()
+	if on:
+		_recs_refresh()
+
+
+## Zahl aktiver Filter (Sterne, SV, Tasten, Bestwert/Rang) fuer den Filter-Knopf.
+func _active_filter_count() -> int:
+	var n := 0
+	if _star_filter != 0:
+		n += 1
+	if _sv_filter:
+		n += 1
+	if _key_filter != 0:
+		n += 1
+	if int(_mode_filter().get("best", BEST_ALL)) != BEST_ALL:
+		n += 1
+	return n
+
+
+## Filter-Knopf: Akzent, solange ein Filter wirkt oder das Feld offen ist; Zahl im Text.
+func _restyle_filter_btn() -> void:
+	if _filter_btn == null:
+		return
+	var n := _active_filter_count()
+	_filter_btn.text = tr("Filter") + (("  %d" % n) if n > 0 else "")
+	_apply_toggle(_filter_btn, n > 0 or _filter_pop.visible)
 
 
 func _set_collection_mode(on: bool) -> void:
+	_foryou_mode = false
 	_collection_mode = on
 	_coll_undo = ""
 	if on and not CollectionStore.list_for(_play_mode).has(_active_collection):
@@ -2923,6 +3230,7 @@ func _save_browser_state() -> void:
 
 
 func _refresh_filter(query: String) -> void:
+	_restyle_filter_btn()
 	if _state_ready:
 		_save_browser_state()
 	var q := query.strip_edges().to_lower()
@@ -3210,8 +3518,8 @@ func _beat_react(delta: float) -> void:
 		_bg.pivot_offset = _bg.size * 0.5
 		var s := 1.0  # steht still, nur die Helligkeit atmet leicht
 		_bg.scale = Vector2(s, s)
-		var b := 0.30 + 0.03 * p
-		_bg.modulate = Color(b, b * 0.97, b * 0.93)
+		var b := _bg_dim * (1.0 + 0.10 * p)
+		_bg.modulate = Color(b, b * 0.98, b * 0.96)
 	# Gewaehlte Zeile (Karte bzw. Diff) atmet leicht mit, nur Helligkeit.
 	var card := _sel_node
 	if card != _pulse_card:
@@ -3296,6 +3604,9 @@ func _change_to_game(path: String) -> void:
 func _prepare_step() -> void:
 	if _selected_set == null:
 		return
+	if _detail_due > 0 and Time.get_ticks_msec() >= _detail_due:
+		_detail_due = 0
+		_start_detail_jobs()
 	if _prep_due > 0 and Time.get_ticks_msec() >= _prep_due:
 		_prep_due = 0
 		var m := _selected_set.meta_at(_selected_diff)
@@ -3451,8 +3762,11 @@ func _select_set(ms: MapSet, diff_index: int) -> void:
 	_selected_diff = clampi(diff_index, 0, ms.difficulty_count() - 1)
 	_selected_diff = maxi(ms.nearest_visible(_selected_diff, _vm()), 0)
 	_update_info_panel()
+	_bt("highlight")
 	Sfx.select_chime()
+	_bt("sfx")
 	_play_preview()
+	_bt("preview")
 
 
 func _cycle_difficulty(dir: int) -> void:
@@ -3470,15 +3784,18 @@ func _cycle_difficulty(dir: int) -> void:
 func _update_info_panel() -> void:
 	if _selected_set == null:
 		return
+	_bt_us = Time.get_ticks_usec()
 	_recs_mark_selected()
+	_bt("recs")
 	var m := _selected_set.meta_at(_selected_diff)
 	# Sofort das schnelle Thumbnail zeigen, das Full-Res-Cover einen Frame
 	# spaeter nachladen (Klicks fuehlen sich sofort an).
 	var quick: Texture2D = _cover_lru.get(_selected_set.osz_path) \
 			if _cover_lru.has(_selected_set.osz_path) else _selected_set.thumb_texture()
-	# Hintergrund: nur ein weicher Farbverlauf des Covers, kein erkennbares Motiv.
-	_bg.texture = UiTheme.blurred_texture(quick, 8) if quick != null else null
+	# Hintergrund, BPM/HP und Beat-Uhr entprellt im Worker (_start_detail_jobs):
+	# schnelles Durchwechseln kostet im Hauptthread nur Texte.
 	_cover.texture = quick
+	_detail_due = Time.get_ticks_msec() + DETAIL_DELAY_MS
 	_prep_due = Time.get_ticks_msec() + PREPARE_DELAY_MS
 	_bg_wait_set = null
 	_title_label.text = _selected_set.title
@@ -3488,50 +3805,113 @@ func _update_info_panel() -> void:
 	_mapper_label.text = tr("Map von %s") % _selected_set.creator
 	var is_mania := int(m.get("mode", 0)) == 3
 	var keys := int(round(float(m.get("cs", 4.0))))
-	_diff_label.text = _selected_set.version_name_at(_selected_diff).strip_edges() 		+ (("  ·  %dK" % keys) if is_mania else "  ·  osu!standard")
+	_diff_label.text = _selected_set.version_name_at(_selected_diff).strip_edges()
+	_diff_label.tooltip_text = _diff_label.text
 	_refresh_star_label()
+	_bt("stars")
 	_bg_front_set(_selected_set)
-	var notes := tr("%d Noten") % int(m.get("notes", 0))
-	var od := "OD " + UiTheme.fmt_num(float(m.get("od", 0.0)))
-	if is_mania:
-		# Mania: CS ist die Tastenzahl, AR gibt es nicht.
-		_stats_label.text = tr("%s  ·  %d Tasten  ·  %s") % [notes, keys, od]
-	else:
-		_stats_label.text = "%s  ·  CS %s  ·  AR %s  ·  %s" % [notes,
-			UiTheme.fmt_num(float(m.get("cs", 0.0))), UiTheme.fmt_num(float(m.get("ar", 0.0))), od]
-	_bpm_label.text = "%s BPM" % _bpm_text(_selected_set, _selected_diff)
+	_bt("bgfront")
+	_notes_val.text = UiTheme.fmt_score(int(m.get("notes", 0)))
+	var keys_cap := _keys_val.get_parent().get_child(0) as Label
+	keys_cap.text = tr("Tasten").to_upper() if is_mania else "CS"
+	_keys_val.text = str(keys) if is_mania else UiTheme.fmt_num(float(m.get("cs", 0.0)))
+	_od_val.text = UiTheme.fmt_num(float(m.get("od", 0.0)))
+	_hp_val.text = _hp_text(_selected_set, _selected_diff)
+	_bpm_label.text = _bpm_text(_selected_set, _selected_diff)
 	_len_label.text = _format_time(float(m.get("duration_ms", 0.0)))
-	_rebuild_diff_bar()
 	if _preview_set == _selected_set:
 		_setup_beat_clock()
-	_update_max_pp(m)
-	# BESTE SCORES: Top 5 dieser Difficulty als cleane Rows.
+	_bt("text")
+	# Bestenliste und Max-pp lesen beide Dateien (scores/stars.cfg, ~10 ms je
+	# Wechsel): entprellt im Worker (_start_board_job), hier nur leeren.
 	for c in _lb_box.get_children():
 		c.queue_free()
-	# Eigene + Scores von Mitspielern (Multiplayer-Sync), beste zuerst.
-	# Trace: nur Trace-Scores, getrennt von Mania.
+	_maxpp_label.text = ""
+	_style_lb_mode_tag(_board_mode())
+	_board_gen += 1
+	_apply_card_highlight()
+
+
+## Board-Modus: Modus der Auswahl; Mania mit "Mines" an = eigene Liste "mania_mn".
+func _board_mode() -> String:
 	var score_mode := _pm()
-	# Mods-Schalter "Mines" an: eigene Liste "mania_mn" (RuleMods), Kopf zeigt "Mines".
 	if _play_mode == "mania":
 		score_mode = RuleMods.board_mode(score_mode, _rule_mods)
-	_style_lb_mode_tag(score_mode)
+	return score_mode
+
+
+func _start_board_job() -> void:
+	if _selected_set == null:
+		return
+	var ver := _selected_set.version_name_at(_selected_diff)
+	_detail_tasks.append(WorkerThreadPool.add_task(_board_job.bind(get_instance_id(), _board_gen,
+		_selected_set.osz_path, ver, _selected_set.osu_filename_at(_selected_diff), _board_mode(),
+		_play_mode == "mania", _lb_online, ScoreStore._self_name()), false, "browser-board"))
+
+
+## Worker: Max-pp aus dem Cache und Top-Scores lesen (nur Dateien, kein Szenenzugriff;
+## den Profilnamen liest _start_board_job im Hauptthread und reicht ihn als player herein).
+static func _board_job(owner_id: int, gen: int, osz: String, ver: String, inner: String,
+		score_mode: String, want_pp: bool, online: bool, player: String) -> void:
+	var pp := StarService.max_pp_cached(osz, inner) if want_pp else NAN
+	var tops: Array = [] if online else board_scores(osz, ver, 5, score_mode, player)
+	var o: Object = instance_from_id(owner_id)
+	if o != null:
+		o.call_deferred(&"_on_board_data", gen, pp, tops)
+
+
+## Wie ScoreStore.top_scores_all, aber ohne Szenenbaum (Worker-tauglich):
+## eigene Scores bekommen den uebergebenen Namen.
+static func board_scores(osz: String, ver: String, n: int, mode: String, player: String) -> Array:
+	var cfg := ConfigFile.new()
+	var loaded := ScoreStore._load(cfg) == OK
+	var out: Array = []
+	for e in ScoreStore.top_scores(osz, ver, ScoreStore.HISTORY_CAP, mode):
+		var d: Dictionary = (e as Dictionary).duplicate()
+		d["player"] = player
+		d["is_self"] = true
+		d["mode"] = ScoreStore.mode_name(mode)
+		out.append(d)
+	if loaded:
+		var others: Array = cfg.get_value(ScoreStore._sec("others", mode),
+				ScoreStore.map_id(osz, ver, cfg), [])
+		for o in others:
+			if o is Dictionary:
+				var d: Dictionary = (o as Dictionary).duplicate()
+				d["is_self"] = false
+				d["mode"] = ScoreStore.mode_name(mode)
+				out.append(d)
+	out.sort_custom(func(a, b): return ScoreStore.ranks_higher(a, b))
+	return out.slice(0, n)
+
+
+## Hauptthread: Bestenliste bauen (eigene + Mitspieler, beste zuerst), Max-pp, Replay.
+func _on_board_data(gen: int, pp: float, tops: Array) -> void:
+	if gen != _board_gen or _selected_set == null or not is_inside_tree():
+		return
+	var m := _selected_set.meta_at(_selected_diff)
+	_update_max_pp(m, pp)
+	var score_mode := _board_mode()
 	_online_gen += 1
 	if _lb_online:
 		_replay_btn.visible = false
 		_show_online_scores(m, score_mode)
-		_apply_card_highlight()
 		return
-	var tops := ScoreStore.top_scores_all(_selected_set.osz_path,
-		_selected_set.version_name_at(_selected_diff), 5, score_mode)
 	if tops.is_empty():
 		var empty := Label.new()
 		empty.text = RuleMods.board_text("empty") if RuleMods.is_mines_board(score_mode) 				else tr("Noch kein %s-Score — spiel die Map!") % _score_label(score_mode)
-		empty.add_theme_font_size_override("font_size", 13)
+		empty.add_theme_font_size_override("font_size", 14)
 		empty.add_theme_color_override("font_color", COL_DIM)
+		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		_lb_box.add_child(empty)
+	var hl_done := false
 	for i in tops.size():
-		_lb_box.add_child(_score_row(i, tops[i]))
+		var hl: bool = not hl_done and bool(tops[i].get("is_self", true))
+		hl_done = hl_done or hl
+		_lb_box.add_child(_score_row(i, tops[i], hl))
+	_bt("board")
 	_fill_missing_pp(tops, score_mode)
+	_bt("fillpp")
 	# Replay-Button nur zeigen, wenn fuer diese Diff ein Replay existiert.
 	# Trace: Replay des besten Trace-Laufs (ReplayStore-Modus "trace").
 	if _replay_btn != null:
@@ -3542,7 +3922,6 @@ func _update_info_panel() -> void:
 		else:
 			_replay_btn.visible = int(m.get("mode", 0)) == 3 \
 					and ReplayStore.exists(_selected_set.osz_path, ver)
-	_apply_card_highlight()
 
 
 ## Auswahl in der Liste: gewaehltes Set klappt auf (Diffs als Zeilen darunter).
@@ -3593,10 +3972,10 @@ func _frame_box(col: Color, w: int) -> StyleBoxFlat:
 
 ## Ein Segment pro Difficulty in Sternfarbe; Klick waehlt die Diff.
 func _rebuild_diff_bar() -> void:
-	for c in _diff_bar.get_children():
-		c.queue_free()
 	if _diff_bar == null or _selected_set == null:
 		return
+	for c in _diff_bar.get_children():
+		c.queue_free()
 	for i in _mode_order(_selected_set):
 		var seg := ColorRect.new()
 		seg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -3621,6 +4000,8 @@ func _bpm_text(ms: MapSet, diff: int) -> String:
 	var key := ms.osz_path + "|" + ms.osu_filename_at(diff)
 	if _bpm_cache.has(key):
 		return str(_bpm_cache[key])
+	if not _tp_cache.has(key):
+		return "…"  # _osu_info_job liefert nach
 	var txt := "—"
 	var lo := INF
 	var hi := 0.0
@@ -3665,7 +4046,9 @@ func _timing_points(ms: MapSet, diff: int) -> Array:
 func _setup_beat_clock() -> void:
 	if _selected_set == null:
 		return
-	_beat.setup(_timing_points(_selected_set, _selected_diff))
+	var key := _selected_set.osz_path + "|" + _selected_set.osu_filename_at(_selected_diff)
+	if _tp_cache.has(key):
+		_beat.setup(_tp_cache[key])  # sonst setzt _on_osu_info die Uhr
 
 
 ## Hoerbare Position der Vorschau in ms (Mix-Puffer + Ausgabelatenz korrigiert).
@@ -3905,51 +4288,52 @@ func _estimate_pp(e: Dictionary) -> float:
 	return max_pp * Recommender.acc_factor(float(e.get("accuracy", 0.0)))
 
 
-func _score_row(rank: int, e: Dictionary) -> Control:
+func _score_row(rank: int, e: Dictionary, hl: bool = false) -> Control:
+	# Zeile ~52 px: Platz, Rang-Buchstabe gross, Name/Mods+Datum, Score/Acc+Kombo, pp.
+	var panel := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(1, 1, 1, 0.055 if hl else 0.025)
+	sb.border_width_left = 3 if hl else 0
+	sb.border_color = COL_ACCENT
+	sb.set_corner_radius_all(3)
+	sb.content_margin_left = 10
+	sb.content_margin_right = 12
+	sb.content_margin_top = 3
+	sb.content_margin_bottom = 3
+	panel.add_theme_stylebox_override("panel", sb)
+	panel.custom_minimum_size = Vector2(0, 52)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 7)
+	row.add_theme_constant_override("separation", 10)
+	panel.add_child(row)
 	var num := Label.new()
-	num.text = "#%d" % (rank + 1)
-	num.custom_minimum_size = Vector2(24, 0)
-	num.add_theme_font_size_override("font_size", 12)
+	num.text = str(rank + 1)
+	num.custom_minimum_size = Vector2(20, 0)
+	num.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	num.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	num.add_theme_font_size_override("font_size", 14)
 	num.add_theme_color_override("font_color", COL_TEXT if rank == 0 else COL_DIM)
 	row.add_child(num)
 	var g := str(e.get("grade", "?"))
 	var grade := Label.new()
 	grade.text = g
-	grade.custom_minimum_size = Vector2(28, 0)
+	grade.custom_minimum_size = Vector2(46, 0)
 	grade.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	grade.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	grade.add_theme_font_override("font", UiTheme.heading_font(0))
-	grade.add_theme_font_size_override("font_size", 15)
+	grade.add_theme_font_size_override("font_size", 34)
 	grade.add_theme_color_override("font_color", GRADE_COLOR.get(g.left(1), COL_TEXT))
 	row.add_child(grade)
-	# Modus-Symbol: jeder Score zeigt, in welchem Modus er gespielt wurde.
-	row.add_child(ModeBadge.make(str(e.get("mode", "mania")), 14))
-	var main := Label.new()
 	var is_self := bool(e.get("is_self", true))
-	main.text = "%s · %s · %dx" % [
-		UiTheme.fmt_score(int(e.get("score", 0))),
-		UiTheme.fmt_pct(float(e.get("accuracy", 0.0)) * 100.0), int(e.get("max_combo", 0))]
+	var left := _two_lines(row, ScoreStore._self_name() if is_self else str(e.get("player", "?")),
+		_join_dot([ScoreStore.mods_label(e), score_date_text(str(e.get("date", "")), UiTheme.is_german())]),
+		HORIZONTAL_ALIGNMENT_LEFT)
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	if not is_self:
-		# Mitspieler: Name vorne, Combo weglassen (Platz).
-		main.text = "%s · %s · %s" % [str(e.get("player", "?")),
-			UiTheme.fmt_score(int(e.get("score", 0))),
-			UiTheme.fmt_pct(float(e.get("accuracy", 0.0)) * 100.0)]
-		main.tooltip_text = tr("Score von %s (Multiplayer)") % str(e.get("player", "?"))
-		main.mouse_filter = Control.MOUSE_FILTER_PASS
-	main.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	main.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	main.add_theme_font_size_override("font_size", 13)
-	main.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95))
-	row.add_child(main)
-	# Mods des Scores (SV mit Stufe), klein vor pp.
-	var mods_txt := ScoreStore.mods_label(e)
-	if mods_txt != "":
-		var ml := Label.new()
-		ml.text = mods_txt
-		ml.add_theme_font_size_override("font_size", 11)
-		ml.add_theme_color_override("font_color", COL_ACCENT.lerp(COL_TEXT, 0.3))
-		row.add_child(ml)
+		left.tooltip_text = tr("Score von %s (Multiplayer)") % str(e.get("player", "?"))
+		left.mouse_filter = Control.MOUSE_FILTER_PASS
+	_two_lines(row, UiTheme.fmt_score(int(e.get("score", 0))),
+		"%s  ·  %dx" % [UiTheme.fmt_pct(float(e.get("accuracy", 0.0)) * 100.0), int(e.get("max_combo", 0))],
+		HORIZONTAL_ALIGNMENT_RIGHT)
 	var pp_lbl := Label.new()
 	var pp_val := float(e.get("pp", -1.0))
 	pp_lbl.text = UiTheme.fmt_pp(pp_val) if pp_val > 0.0 else "—"
@@ -3960,7 +4344,10 @@ func _score_row(rank: int, e: Dictionary) -> Control:
 			pp_lbl.tooltip_text = tr("Geschätzt aus Accuracy (Multiplayer-Score ohne pp)")
 			pp_lbl.mouse_filter = Control.MOUSE_FILTER_PASS
 			pp_lbl.modulate.a = 0.7
-	pp_lbl.add_theme_font_size_override("font_size", 13)
+	pp_lbl.custom_minimum_size = Vector2(64, 0)
+	pp_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	pp_lbl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	pp_lbl.add_theme_font_size_override("font_size", 15)
 	pp_lbl.add_theme_color_override("font_color", UiTheme.ACCENT2)
 	row.add_child(pp_lbl)
 	var oid := str(e.get("online_id", ""))
@@ -3969,25 +4356,48 @@ func _score_row(rank: int, e: Dictionary) -> Control:
 		sh.text = "⇪"
 		sh.tooltip_text = tr("Score teilen")
 		sh.custom_minimum_size = Vector2(26, 22)
+		sh.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		sh.add_theme_font_size_override("font_size", 12)
 		UiTheme.style_ghost_button(sh, 6)
 		sh.pressed.connect(func(): ScoreShare.share(oid))
 		row.add_child(sh)
-	var date := Label.new()
-	var d := str(e.get("date", "")).split("T")[0]
-	var parts := d.split("-")
-	if parts.size() != 3:
-		date.text = ""
-	elif UiTheme.is_german():
-		date.text = "%s.%s.%s" % [parts[2], parts[1], parts[0].substr(2)]
-	else:
-		date.text = "%s/%s/%s" % [parts[1], parts[2], parts[0].substr(2)]
-	date.custom_minimum_size = Vector2(58, 0)
-	date.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	date.add_theme_font_size_override("font_size", 12)
-	date.add_theme_color_override("font_color", COL_DIM)
-	row.add_child(date)
-	return row
+	return panel
+
+
+## Zwei Zeilen: oben gross (15 px), unten klein und ruhig (12 px).
+func _two_lines(parent: Control, top: String, sub: String, align: HorizontalAlignment) -> VBoxContainer:
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	parent.add_child(col)
+	for i in 2:
+		var l := Label.new()
+		l.text = top if i == 0 else sub
+		l.horizontal_alignment = align
+		if align == HORIZONTAL_ALIGNMENT_LEFT:
+			l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+		l.add_theme_font_size_override("font_size", 16 if i == 0 else 12)
+		l.add_theme_color_override("font_color", COL_TEXT if i == 0 else COL_DIM)
+		col.add_child(l)
+	return col
+
+
+static func _join_dot(parts: Array) -> String:
+	var out: Array = []
+	for p in parts:
+		if str(p) != "":
+			out.append(str(p))
+	return "  ·  ".join(out)
+
+
+## Datum "2026-11-27T..." kurz: de 27.11.26, en 11/27/26 ("" wenn unlesbar).
+static func score_date_text(iso: String, german: bool) -> String:
+	var parts := iso.split("T")[0].split("-")
+	if parts.size() != 3 or parts[0].length() != 4:
+		return ""
+	if german:
+		return "%s.%s.%s" % [parts[2], parts[1], parts[0].substr(2)]
+	return "%s/%s/%s" % [parts[1], parts[2], parts[0].substr(2)]
 
 
 ## Modus-Umschalter Mania | Trace als Zweier-Reihe
@@ -4279,6 +4689,7 @@ func _make_mod_button(key: String) -> CheckButton:
 ## Trace-Mod-Schalter (MR/HD/SS) im Stil der NF/SV-Schalter.
 func _make_trace_mod_button(key: String) -> CheckButton:
 	var b := _make_mod_button(key)
+	b.text = str(TRACE_MOD_TIPS[key]).get_slice(":", 0)
 	b.tooltip_text = TRACE_MOD_TIPS[key]
 	b.button_pressed = bool(_trace_mods.get(key, false))
 	b.toggled.connect(func(on: bool): _on_trace_mod_toggled(key, on))
@@ -4288,7 +4699,7 @@ func _make_trace_mod_button(key: String) -> CheckButton:
 ## Regel-Mod-Schalter (SD/PF/MN) im Stil der NF/SV-Schalter.
 func _make_rule_mod_button(key: String) -> CheckButton:
 	var b := _make_mod_button(key)
-	b.text = RuleMods.label(key)
+	b.text = {"SD": "Sudden Death", "PF": "Perfect"}.get(key, RuleMods.label(key))
 	b.tooltip_text = RuleMods.tip(key)
 	b.button_pressed = bool(_rule_mods.get(key, false))
 	b.toggled.connect(func(on: bool): _on_rule_mod_toggled(key, on))
@@ -4312,10 +4723,12 @@ func _sync_rule_mod_buttons() -> void:
 		var b := _rule_mod_btns[k] as CheckButton
 		b.visible = RuleMods.available(k, _play_mode)
 		b.set_pressed_no_signal(bool(_rule_mods.get(k, false)))
+	_refresh_mods_line()
 
 
 func _on_trace_mod_toggled(key: String, on: bool) -> void:
 	_trace_mods[key] = on
+	_refresh_mods_line()
 	if _state_ready:
 		_save_browser_state()
 
@@ -4342,6 +4755,7 @@ func _on_sv_toggled(pressed: bool) -> void:
 	if _sv_btn != null:
 		_sv_btn.set_pressed_no_signal(_sv_enabled)
 	_restyle_sv_level()
+	_refresh_mods_line()
 
 
 ## Mods fuer den naechsten Start (Schnittstelle GameSession.mods): Grund-Mods des
@@ -4374,15 +4788,14 @@ func _update_nf_button() -> void:
 	if _nf_btn == null:
 		return
 	_nf_btn.set_pressed_no_signal(_nf_enabled)
+	_refresh_mods_line()
 
 
 ## Full-Res-Cover nachladen (nur wenn die Auswahl noch aktuell ist).
 func _load_fullres_bg(target_set: MapSet) -> void:
 	if _selected_set != target_set:
 		return
-	var tex := target_set.background_texture()
-	if tex != null and _selected_set == target_set:
-		_cover.texture = tex
+	pass  # Die Mitte zeigt kein Cover mehr; das Hintergrundbild kommt aus _bg_job.
 
 
 ## Gespeichertes Replay der gewaehlten Diff ansehen.
@@ -4438,7 +4851,7 @@ func _open_marathon() -> void:
 
 ## Max-pp (SS) der aktuellen Diff anzeigen; Berechnung laeuft im Thread,
 ## damit der Browser nie ruckelt. Ergebnis wird dauerhaft gecacht.
-func _update_max_pp(m: Dictionary) -> void:
+func _update_max_pp(m: Dictionary, pre: float = NAN) -> void:
 	if _selected_set == null:
 		return
 	# pp gibt es nur in Mania; Trace wertet ohne pp.
@@ -4446,7 +4859,7 @@ func _update_max_pp(m: Dictionary) -> void:
 		_maxpp_label.text = ""
 		return
 	var inner := _selected_set.osu_filename_at(_selected_diff)
-	var cached := StarService.max_pp_cached(_selected_set.osz_path, inner)
+	var cached := StarService.max_pp_cached(_selected_set.osz_path, inner) if is_nan(pre) else pre
 	if cached >= 0.0:
 		_maxpp_label.text = tr("Max. %s bei SS") % UiTheme.fmt_pp(cached)
 		return
@@ -4521,6 +4934,188 @@ func _exit_tree() -> void:
 	if _preview_task >= 0:
 		WorkerThreadPool.wait_for_task_completion(_preview_task)
 		_preview_task = -1
+	for t in _detail_tasks:
+		WorkerThreadPool.wait_for_task_completion(t)
+	_detail_tasks.clear()
+
+
+## Nach der Entprellung: Hintergrundbild und .osu-Details der Auswahl im Worker.
+func _start_detail_jobs() -> void:
+	if _selected_set == null:
+		return
+	_reap_detail_tasks()
+	_start_board_job()
+	var ms := _selected_set
+	var file := ms.osu_filename_at(_selected_diff)
+	var key := ms.osz_path + "|" + file
+	if not _tp_cache.has(key):
+		_detail_tasks.append(WorkerThreadPool.add_task(
+			_osu_info_job.bind(get_instance_id(), ms.osz_path, file, key), false, "browser-osu"))
+	_bg_gen += 1
+	if ms.background_file != "":
+		_detail_tasks.append(WorkerThreadPool.add_task(
+			_bg_job.bind(get_instance_id(), ms.osz_path, ms.background_file, _bg_gen), false, "browser-bg"))
+	else:
+		_bg.texture = null  # Map ohne Bild: kein Hintergrund der vorigen Map stehen lassen
+		_bg_next.texture = null
+
+
+func _reap_detail_tasks() -> void:
+	var keep: Array[int] = []
+	for t in _detail_tasks:
+		if WorkerThreadPool.is_task_completed(t):
+			WorkerThreadPool.wait_for_task_completion(t)
+		else:
+			keep.append(t)
+	_detail_tasks = keep
+
+
+## Worker: Timing-Points und HP-Drain aus der .osu lesen.
+static func _osu_info_job(owner_id: int, osz: String, file: String, key: String) -> void:
+	var bytes := OszImporter.read_file_bytes(osz, file)
+	var tps: Array = []
+	var hp := -1.0
+	if not bytes.is_empty():
+		var sect := ""
+		for raw_line in bytes.get_string_from_utf8().split("\n"):
+			var line := raw_line.strip_edges()
+			if line.begins_with("["):
+				sect = line
+				continue
+			if sect == "[Difficulty]" and line.begins_with("HPDrainRate:"):
+				hp = float(line.get_slice(":", 1).strip_edges())
+			elif sect == "[TimingPoints]" and line != "":
+				var tp := OsuParser._parse_timing_line(line)
+				if tp != null:
+					tps.append(tp)
+	var o: Object = instance_from_id(owner_id)
+	if o != null:
+		o.call_deferred(&"_on_osu_info", key, tps, hp)
+
+
+func _on_osu_info(key: String, tps: Array, hp: float) -> void:
+	_tp_cache[key] = tps
+	_hp_cache[key] = hp
+	if _selected_set == null:
+		return
+	if key != _selected_set.osz_path + "|" + _selected_set.osu_filename_at(_selected_diff):
+		return
+	_bpm_label.text = _bpm_text(_selected_set, _selected_diff)
+	_hp_val.text = _hp_text(_selected_set, _selected_diff)
+	if _preview_set == _selected_set:
+		_setup_beat_clock()
+
+
+func _hp_text(ms: MapSet, diff: int) -> String:
+	var key := ms.osz_path + "|" + ms.osu_filename_at(diff)
+	if not _hp_cache.has(key):
+		return "…"
+	var hp := float(_hp_cache[key])
+	return UiTheme.fmt_num(hp) if hp >= 0.0 else "—"
+
+
+## Worker: Map-Bild lesen, klein rechnen, weich zeichnen, Helligkeit messen.
+static func _bg_job(owner_id: int, osz: String, file: String, gen: int) -> void:
+	var src := decode_image(OszImporter.read_file_bytes(osz, file), file.get_extension().to_lower())
+	if src == null:
+		return
+	var sharp := src.duplicate() as Image
+	if sharp.get_width() > 1280:
+		sharp.resize(1280, maxi(int(round(1280.0 * sharp.get_height() / sharp.get_width())), 1),
+			Image.INTERPOLATE_LANCZOS)
+	var img := blur_image(src)
+	var o: Object = instance_from_id(owner_id)
+	if o != null:
+		o.call_deferred(&"_on_bg_ready", img, gen, image_luminance(img), sharp)
+
+
+## Bild aus Bytes (jpg/png/webp/bmp), 320 px breit, weich, wieder auf 960 px.
+static func bg_image(bytes: PackedByteArray, ext: String) -> Image:
+	var img := decode_image(bytes, ext)
+	return blur_image(img) if img != null else null
+
+
+## Bild aus Bytes (jpg/png/webp/bmp), RGB8; null wenn unlesbar.
+static func decode_image(bytes: PackedByteArray, ext: String) -> Image:
+	if bytes.is_empty():
+		return null
+	var img := Image.new()
+	var err := ERR_FILE_UNRECOGNIZED
+	match ext:
+		"png":
+			err = img.load_png_from_buffer(bytes)
+		"webp":
+			err = img.load_webp_from_buffer(bytes)
+		"bmp":
+			err = img.load_bmp_from_buffer(bytes)
+		_:
+			err = img.load_jpg_from_buffer(bytes)
+	if err != OK:
+		err = img.load_png_from_buffer(bytes) if ext != "png" else err
+	if err != OK or img.get_width() < 16 or img.get_height() < 16:
+		return null
+	img.convert(Image.FORMAT_RGB8)
+	return img
+
+
+## 640 px breit, in Halbschritten auf 80 px und bilinear zurueck: leicht unscharf.
+static func blur_image(src: Image) -> Image:
+	var img := src.duplicate() as Image
+	# In Halbschritten verkleinern (jeder Schritt mittelt 2x2, kein Aliasing),
+	# dann in Doppelschritten weich hochziehen: leicht unscharf, keine Bloecke.
+	var w := 640
+	var h := maxi(int(round(640.0 * img.get_height() / img.get_width())), 16)
+	img.resize(w, h, Image.INTERPOLATE_LANCZOS)
+	for i in 3:
+		w /= 2
+		h = maxi(h / 2, 4)
+		img.resize(w, h, Image.INTERPOLATE_BILINEAR)
+	img.resize(w * 2, h * 2, Image.INTERPOLATE_BILINEAR)  # Tiefpass-Zyklus
+	img.resize(w, h, Image.INTERPOLATE_BILINEAR)
+	for i in 3:
+		w *= 2
+		h *= 2
+		img.resize(w, h, Image.INTERPOLATE_BILINEAR)
+	return img
+
+
+static func image_luminance(img: Image) -> float:
+	var small := img.duplicate() as Image
+	small.resize(16, 9, Image.INTERPOLATE_BILINEAR)
+	var sum := 0.0
+	for y in 9:
+		for x in 16:
+			var c := small.get_pixel(x, y)
+			sum += c.r * 0.2126 + c.g * 0.7152 + c.b * 0.0722
+	return sum / 144.0
+
+
+## Hauptthread: nur hochladen und 0,35 s ueberblenden. Helle Bilder staerker dimmen.
+func _on_bg_ready(img: Image, gen: int, lum: float, sharp: Image) -> void:
+	if gen != _bg_gen or not is_inside_tree():
+		return
+	# Kachel: scharfes Bild unveraendert, Rahmen folgt seinem Seitenverhaeltnis.
+	_cover.texture = ImageTexture.create_from_image(sharp)
+	var asp := clampf(float(sharp.get_width()) / maxf(sharp.get_height(), 1.0), 0.6, 2.4)
+	if absf(asp - _stage_aspect) > 0.01:
+		_stage_aspect = asp
+		_layout_stage()
+	var tex := ImageTexture.create_from_image(img)
+	var k := clampf(BG_TARGET_LUM / maxf(lum, 0.01), 0.16, 0.55)
+	_bg_dim = k
+	if _bg_tween != null:
+		_bg_tween.kill()
+		_bg.texture = _bg_next.texture
+		_bg.modulate = Color(_bg_next.modulate, 1.0)
+	_bg_next.texture = tex
+	_bg_next.modulate = Color(k, k * 0.98, k * 0.96, 0.0)
+	_bg_tween = create_tween()
+	_bg_tween.tween_property(_bg_next, "modulate:a", 1.0, 0.35)
+	_bg_tween.tween_callback(func():
+		_bg.texture = tex
+		_bg.modulate = Color(_bg_next.modulate, 1.0)
+		_bg_next.modulate.a = 0.0
+		_bg_tween = null)
 
 
 ## Vorschau entprellt: schnelles Durchklicken laedt nicht bei jedem Schritt Audio.
@@ -4627,6 +5222,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if _automap_check != null:
 		return
+	if event.keycode == KEY_ESCAPE and _mods_fold != null and _mods_fold.visible:
+		_set_mods_open(false)  # Esc klappt erst die Mods zu
+		get_viewport().set_input_as_handled()
+		return
 	if event.keycode == KEY_ESCAPE:
 		if _import_overlay != null:
 			_close_import_panel()
@@ -4688,7 +5287,7 @@ func _scroll_to_selected(instant: bool = false) -> void:
 		r = _sel_row()
 		if r < 0:
 			return
-	_scroll_goal = clampf(_r_y[r] + _row_h(_r_kind[r]) * 0.5 - _view.size.y * 0.5, 0.0, _max_scroll())
+	_scroll_goal = clampf(_r_y[r] + _row_h(_r_kind[r]) * 0.5 - _view.size.y * 0.5, -_center_pad(), _max_scroll())
 	if instant:
 		_scroll_y = _scroll_goal
 		_list_dirty = true
@@ -5329,7 +5928,10 @@ var _bg_spent := 0
 func _update_list_top() -> void:
 	if _filter_stack == null or _list_mask == null:
 		return
-	_list_mask.offset_top = FILTER_Y + _filter_stack.get_combined_minimum_size().y
+	var top := FILTER_Y + _filter_stack.get_combined_minimum_size().y
+	if _filter_pop != null and _filter_pop.visible:
+		top = FILTER_Y + FILTER_H + 6 + _filter_pop.get_combined_minimum_size().y + 6
+	_list_mask.offset_top = top
 
 
 ## Filter-Reihen je Ansicht: die Sammlungs-Ansicht zeigt ihre Chips statt der
@@ -5343,6 +5945,10 @@ func _apply_filter_layout() -> void:
 	if _sv_chip != null:
 		_sv_chip.visible = not _collection_mode
 	_chips_row.visible = _collection_mode
+	if _filter_btn != null:
+		_filter_btn.visible = not _collection_mode
+		if _collection_mode:
+			_filter_pop.visible = false
 	_apply_recs_visibility()
 	_update_list_top()
 
@@ -5461,10 +6067,13 @@ func _refresh_star_label() -> void:
 		return
 	var src := _star_src()
 	if src == "mania" or int(_selected_set.meta_at(_selected_diff).get("mode", 0)) != 3:
-		_star_label.text = _stars_text(_selected_set.stars_at(_selected_diff))
+		var s0 := _selected_set.stars_at(_selected_diff)
+		_star_label.text = _stars_text(s0)
+		_star_label.add_theme_color_override("font_color", _star_color(s0))
 		return
 	var st := _mode_stars_known(_selected_set, _selected_diff)
 	_star_label.text = ScoreStore.mode_label(src) + " " + (_stars_text(st) if st >= 0.0 else "★ …")
+	_star_label.add_theme_color_override("font_color", _star_color(st) if st >= 0.0 else COL_DIM)
 
 
 ## Neue Modus-Sterne: Diff-Leiste des gewaehlten Sets sofort, Liste entprellt.
@@ -5507,7 +6116,7 @@ func _resort_keep() -> void:
 		return
 	var r2 := _set_row_of(_selected_set)
 	if r2 >= 0:
-		_scroll_y = clampf(_r_y[r2] - off, 0.0, _max_scroll())
+		_scroll_y = clampf(_r_y[r2] - off, -_center_pad(), _max_scroll())
 		_scroll_goal = _scroll_y
 		_list_dirty = true
 
@@ -6044,9 +6653,28 @@ static func _rec_translations() -> void:
 
 func _build_recs() -> void:
 	_rec_translations()
+	_rec_view = PanelContainer.new()
+	var rv_sb := StyleBoxFlat.new()
+	rv_sb.bg_color = Color(UiTheme.BG, 0.94)
+	rv_sb.set_corner_radius_all(4)
+	rv_sb.set_content_margin_all(14)
+	_rec_view.add_theme_stylebox_override("panel", rv_sb)
+	_rec_view.anchor_left = 1.0
+	_rec_view.anchor_right = 1.0
+	_rec_view.anchor_bottom = 1.0
+	_rec_view.offset_left = -(M + RIGHT_W)
+	_rec_view.offset_right = -M
+	_rec_view.offset_top = FILTER_Y
+	_rec_view.offset_bottom = -M
+	_rec_view.visible = false
+	add_child(_rec_view)
+	var rv_scroll := ScrollContainer.new()
+	rv_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_rec_view.add_child(rv_scroll)
 	_rec_box = VBoxContainer.new()
+	_rec_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_rec_box.add_theme_constant_override("separation", 8)
-	_filter_stack.add_child(_rec_box)
+	rv_scroll.add_child(_rec_box)
 	var head := HBoxContainer.new()
 	head.custom_minimum_size = Vector2(0, 28)
 	head.add_theme_constant_override("separation", 6)
@@ -6156,20 +6784,26 @@ func _set_recs_hidden(on: bool) -> void:
 func _apply_recs_visibility() -> void:
 	if _rec_box == null:
 		return
-	var hidden := bool(_rec.hidden)
 	# Sammlungs-Ansicht: keine Vorschlaege, dort zaehlt nur die eigene Liste.
-	var off := _collection_mode
-	_rec_box.visible = not hidden and not off
-	if _rec_chip != null:
-		_rec_chip.visible = hidden and not off  # nur zum Wieder-Einblenden
-	var open := not bool(_rec.collapsed)
+	var open := _foryou_mode and not _collection_mode
+	if _rec_view != null:
+		_rec_view.visible = open
+	if _list_mask != null:
+		_list_mask.visible = not open
+	# Sortier-Reihe und Filter-Feld gehoeren zur Liste: hinter dem Tab nicht durchscheinen.
+	if _filter_stack != null:
+		_filter_stack.visible = not open
+	if _filter_pop != null and open:
+		_filter_pop.visible = false
 	if _rec_body != null:
-		_rec_body.visible = open
-	_rec_fold_btn.icon = _rec_fold_icon(open)
+		_rec_body.visible = true
+	# Der Tab ersetzt Einklappen und Ausblenden: der Kopf ist nur noch Titel.
+	_rec_fold_btn.icon = null
+	_rec_fold_btn.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var starter := bool(_rec_res.get("starter", false))
 	for b in _rec_level_btns:
-		b.visible = open and not starter
-	_rec_hide_btn.visible = open
+		b.visible = not starter
+	_rec_hide_btn.visible = false
 	_restyle_rec_levels()
 	_update_list_top()
 
@@ -6186,8 +6820,8 @@ func _recs_refresh() -> void:
 	if _rec_box == null or DisplayServer.get_name() == "headless" or _rec_frozen:
 		return
 	_apply_recs_visibility()
-	if bool(_rec.hidden):
-		return
+	if not _foryou_mode:
+		return  # nur rechnen, wenn der Tab offen ist
 	if _rec_thread != null:
 		_rec_again = true
 		return
@@ -6306,7 +6940,8 @@ func _recs_render() -> void:
 		_rec_body = null
 	_rec_rows.clear()
 	_rec_on_rows.clear()
-	var n := rec_count(get_viewport_rect().size.y)
+	# Eigener Tab: volle Spaltenhoehe, Vorschlaege untereinander.
+	var n := maxi(rec_count(get_viewport_rect().size.y), 6)
 	var tall := n > 3
 	var starter := bool(_rec_res.get("starter", false))
 	var comfort := float(_rec_res.get("comfort", -1.0))

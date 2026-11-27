@@ -49,6 +49,8 @@ func _run() -> void:
 	_test_recs()
 	_test_menu_stack()
 	_test_mode_stars()
+	_test_panel_helpers()
+	_test_board_scores()
 	print("=== %d ok, %d fehlgeschlagen ===" % [_passed, _failed])
 	quit(1 if _failed > 0 else 0)
 
@@ -362,3 +364,54 @@ func _test_rows(b: Control, ms: MapSet, ms2: MapSet) -> void:
 	_ok(int(b.call("_set_row_of", ms2)) == 3 and int(b.call("_set_row_of", ms)) == 1, "Set-Zeile finden")
 	_ok(int(b.call("_row_state", 4)) == 2 and int(b.call("_row_state", 3)) == 1 and int(b.call("_row_state", 1)) == 0,
 		"Zustand: Diff gewaehlt, Set offen, normal")
+
+
+## Linkes Panel (Stufe 2a): Mod-Kuerzel, Datum der Bestenliste, Bild-Helfer.
+func _test_panel_helpers() -> void:
+	var codes: Array = SS.mods_code_list({"SV": true, "NF": true, "TB": true})
+	_ok(codes == ["NF", "SV", "TB"], "Mod-Kuerzel in fester Reihenfolge (%s)" % str(codes))
+	_ok(SS.mods_code_list({}).is_empty(), "keine Mods -> leere Liste")
+	_ok(SS.mods_code_list({"NF": false}).is_empty(), "abgeschaltete Mod zaehlt nicht")
+	var uniq := {}
+	for k in codes:
+		uniq[k] = true
+	_ok(uniq.size() == codes.size(), "keine doppelten Kuerzel")
+	_ok(SS.score_date_text("2026-11-27T10:00:00", true) == "27.11.26", "Datum de")
+	_ok(SS.score_date_text("2026-11-27T10:00:00", false) == "11/27/26", "Datum en")
+	_ok(SS.score_date_text("kaputt", true) == "", "unlesbares Datum -> leer")
+	_ok(SS.score_date_text("", false) == "", "leeres Datum -> leer")
+	_ok(SS.decode_image(PackedByteArray(), "png") == null, "leere Bytes -> kein Bild")
+	var img := Image.create(320, 180, false, Image.FORMAT_RGB8)
+	img.fill(Color(1, 1, 1))
+	_ok(absf(SS.image_luminance(img) - 1.0) < 0.01, "weisses Bild: Luminanz 1")
+	var blurred: Image = SS.blur_image(img)
+	_ok(blurred != null and blurred.get_width() == 640, "Weichzeichner liefert 640 px Breite")
+
+
+## Bestenliste im Worker: ohne Szenenbaum, eigener Name kommt als Parameter.
+func _test_board_scores() -> void:
+	const BTMP := "user://test_tmp/browser_board_scores.cfg"
+	DirAccess.make_dir_recursive_absolute("user://test_tmp")
+	var old_path: String = ScoreStore.PATH
+	var old_mig: String = ScoreStore._migrated_path
+	var cfg := ConfigFile.new()
+	cfg.set_value("meta", "schema", ScoreStore.SCHEMA)
+	cfg.set_value("history", ScoreStore._key("9 Z.osz", "Hard"), [
+		{"accuracy": 0.95, "score": 800000, "date": "2026-11-01T10:00:00"},
+		{"accuracy": 0.99, "score": 900000, "date": "2026-11-02T10:00:00", "failed": true},
+		{"accuracy": 0.90, "score": 700000, "date": "2026-11-03T10:00:00"}])
+	cfg.set_value("others", ScoreStore.map_id("9 Z.osz", "Hard", cfg), [
+		{"player": "Rival", "accuracy": 0.97, "score": 850000}])
+	cfg.save(BTMP)
+	ScoreStore.PATH = BTMP
+	var rows: Array = SS.board_scores("9 Z.osz", "Hard", 5, "", "Tester")
+	var one: Array = SS.board_scores("9 Z.osz", "Hard", 1, "", "T")
+	ScoreStore.PATH = old_path
+	ScoreStore._migrated_path = old_mig
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(BTMP))
+	_ok(rows.size() == 3, "Bestenliste: 2 eigene ohne Fail + 1 fremder (%d)" % rows.size())
+	if rows.size() == 3:
+		_ok(str(rows[0].get("player")) == "Rival" and not bool(rows[0].get("is_self")), "Fremder mit 97 % zuerst")
+		_ok(str(rows[1].get("player")) == "Tester" and bool(rows[1].get("is_self")), "eigener Name aus Parameter")
+		_ok(str(rows[2].get("mode")) == "mania", "Modus-Feld gesetzt")
+	_ok(one.size() == 1, "n begrenzt die Zeilen")
