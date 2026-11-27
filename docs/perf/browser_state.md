@@ -57,3 +57,18 @@ blendet Sortier-Reihe und Filter-Feld aus, sie schienen durch), Punkt 3 (Zahlen 
 docs/perf/browser.md), Punkt 4 (Tests `_test_panel_helpers`, `_test_board_scores`;
 tests/mv_tempo_play.gd klappt die Mods-Gruppe vor der Sichtbarkeitspruefung auf).
 Offen: Punkt 5 (`RuleModsHarness` wartet nicht auf die entprellte Bestenliste, fremde Datei).
+
+## Songauswahl "Plakat statt Formular" (Aufgabe select-look)
+
+Erledigt: linke Spalte ohne Kasten (Titel 48 px, Luft vor "Max pp" und vor Play),
+Text-Reiter mit Bernstein-Unterstrich, Play 200x52, Liste buendig rechts mit
+`curve_indent` (44 px * d^2, Test in tests/run_browser_filter_tests.gd).
+Set-Karten: nicht gewaehlt nach eigener Cover-Helligkeit abgedunkelt
+(`COVER_LUM` 0,18, Faktor 0,16..0,85), gewaehlt volles Cover, Titel weiss 24 px.
+Gewaehlte Diff: gleiche Schrift fett (FontVariation), gleiche Hoehe und Grundlinie.
+Mitte: Ecken 4 px, Schatten 12 px Alpha 0,25, Vorschau-Linie 2 px, Spektrum Alpha 0,35.
+For you: kein Kasten, Zeilen mit Linie unten, gewaehlt Bernstein 16 % + 2 px Strich.
+Filter-Chips mit Bernstein-Text, 16 px Abstand; Collections-Aktionen als Textknoepfe.
+Offen: Filter-Feld hat noch eine dunkle Flaeche (Overlay ueber der Liste, sonst
+unlesbar); neue CSV-Schluessel (`Type to search`, `SV-Stufe`) erscheinen erst nach
+einem Import (Editor/`--import`) uebersetzt.

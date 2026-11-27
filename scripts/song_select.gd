@@ -1017,7 +1017,7 @@ func _build_header() -> void:
 	score_row.add_child(grade_lbl)
 	for g in GRADE_CHIPS:
 		var gchip := _make_toggle(g, 13, 15)
-		gchip.custom_minimum_size = Vector2(46, SCORE_H)
+		gchip.custom_minimum_size = Vector2(0, SCORE_H)
 		gchip.tooltip_text = tr("Nur Maps mit Bestwert-Rang %s (mehrere möglich)") % g
 		var grade: String = g
 		gchip.pressed.connect(func():
@@ -3012,7 +3012,7 @@ func _coll_action(text: String, tip: String, on_press: Callable) -> Button:
 	b.focus_mode = Control.FOCUS_NONE
 	b.custom_minimum_size = Vector2(0, CHIPS_H)
 	b.add_theme_font_size_override("font_size", 13)
-	UiTheme.style_ghost_button(b, 15)
+	_text_btn(b, 13)
 	b.pressed.connect(on_press)
 	_chips_row.add_child(b)
 	return b
@@ -6841,9 +6841,9 @@ func _build_recs() -> void:
 	_rec_translations()
 	_rec_view = PanelContainer.new()
 	var rv_sb := StyleBoxFlat.new()
-	rv_sb.bg_color = Color(UiTheme.BG, 0.94)
-	rv_sb.set_corner_radius_all(4)
-	rv_sb.set_content_margin_all(14)
+	rv_sb.bg_color = Color(0, 0, 0, 0)  # kein Kasten: steht auf dem rechten Verlauf
+	rv_sb.set_content_margin_all(0)
+	rv_sb.content_margin_top = 12
 	_rec_view.add_theme_stylebox_override("panel", rv_sb)
 	_rec_view.anchor_left = 1.0
 	_rec_view.anchor_right = 1.0
@@ -7528,17 +7528,21 @@ void fragment() {
 
 ## Vorschlags-Zeile: dunkle Flaeche, gewaehlt mit Akzent-Rahmen.
 static func _style_row(btn: Button, selected: bool) -> void:
+	# Wie die Diff-Zeilen der Liste: dunkle Flaeche ohne Rahmen, 1 px Linie unten;
+	# gewaehlt Bernstein 16 % + 2 px Strich links, Hover 6 % heller.
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = REC_COL_ROW_SEL if selected else REC_COL_ROW
-	sb.set_corner_radius_all(12)
-	sb.anti_aliasing = true
-	sb.set_border_width_all(2 if selected else 1)
-	sb.border_color = UiTheme.ACCENT if selected else Color(1, 1, 1, 0.07)
+	sb.bg_color = Color(UiTheme.ACCENT, 0.16) if selected else Color(0, 0, 0, 0.45)
+	sb.border_width_bottom = 1
+	sb.border_color = ROW_LINE
+	if selected:
+		sb.border_width_left = 2
+		sb.border_color = UiTheme.ACCENT
+	sb.content_margin_left = 8
 	for st in ["normal", "hover", "pressed", "focus"]:
 		var box := sb
 		if st == "hover" and not selected:
 			box = sb.duplicate()
-			box.border_color = Color(1, 1, 1, 0.22)
+			box.bg_color = Color(HOVER_LIFT, HOVER_LIFT, HOVER_LIFT, 0.45 + HOVER_LIFT)
 		btn.add_theme_stylebox_override(st, box)
 
 
