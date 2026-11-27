@@ -8,7 +8,7 @@ Rohdatei zum automatischen Abrufen:
 `https://raw.githubusercontent.com/Vyrenbusiness-source/OMEN/main/docs/server/SERVER.md`
 Änderungsverlauf: `git log -p -- docs/server/SERVER.md` bzw. GitHub "History" dieser Datei.
 
-Stand: Client v1.44.0 · `min_version` = **1.30.0**
+Stand: Client v1.46.1 · `min_version` = **1.30.0**
 
 Hinweis (Client): der automatische Nachtrag sendet jetzt auch `mania5k`-`mania7k` (mit `keys`) und `trace` (mit `stars` statt `pp`). Felder unveraendert, gleiche wie beim direkten Senden. Minen-Laeufe und Laeufe mit fehlenden lokalen Feldern werden nicht nachgetragen.
 

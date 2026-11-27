@@ -67,6 +67,9 @@ func _meta() -> Dictionary:
 
 
 func _run() -> void:
+	# Erwartete Texte sind deutsch: nicht von der gespeicherten Sprache des Rechners abhaengen.
+	var _loc := TranslationServer.get_locale()
+	TranslationServer.set_locale("de")
 	# --- Body
 	var b := OnlineApi.build_body(_result(), _meta(), "mania")
 	for k in ["mode", "beatmap_md5", "beatmap_id", "beatmapset_id", "difficulty", "artist",
