@@ -695,6 +695,9 @@ static func _load_builtin(p_name: String, p_keys: int = 4) -> ManiaSkin:
 			s.arrow_layout = String(sec.get("layout", "")).strip_edges().to_lower() == "arrows"
 			for hx in String(sec.get("autocolors", "")).split(",", false):
 				s.auto_colors.append(Color.html(hx.strip_edges()))
+	# Layout steht im [OMEN]-Abschnitt, also erst nach _builtin_widths bekannt.
+	if s.arrow_layout and s.keys != 4:
+		_arrow_names(s)
 	return s
 
 
