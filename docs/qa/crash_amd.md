@@ -154,6 +154,28 @@ die Aenderung genau. Muster: Im Thread nur `Image` dekodieren und verkleinern
 - Thread-Gefahren und Shader: geprueft und oben belegt. Die Thread-Fixes liegen in fremden
   Dateien, die Zeilen dazu stehen unten.
 
+## Eingebaut in v1.44.0
+- `project.godot`: Autoload `CrashGuard` nach `GpuGuard`, `crash.*.translation`,
+  `run/flush_stdout_on_print=true`, Datei-Log fuer Release (`[debug] file_logging`).
+- Hauptmenue: `CrashNotice.show_if_pending(self)` mit "Ordner oeffnen" und "Bericht kopieren"
+  (Graphit + Bernstein). Einstellungen: Zeile "Absturzschutz" mit Stufe und "Zuruecksetzen".
+- Stufe 2 wirkt in `world_theme.gd` (`safe_simple()`: `resolve()` liefert Galaxie;
+  `safe_image()`: Bilder hoechstens 4096) und `world_backdrop.gd` (`theme_sky_material()`
+  gibt bei Stufe 2 keinen 8192er-Himmel). Die Welt meldet `WorldTheme` selbst an CrashGuard.
+  Die Phasen kommen aus den Szenenwechseln im Autoload. `mania_3d.gd` und `song_select.gd`
+  bleiben dafuer unveraendert.
+- Thread-Fixes: `osz_importer.gd` (Worker cached nur `Image`, Textur im Hauptthread; Aufruf aus
+  einem Nebenthread gibt eine leere `ImageTexture`, die der Hauptthread fuellt) und
+  `profile_panel.gd` (`_thumb_worker` nutzt `OszImporter.load_thumb_image()`, kein `get_image()`).
+- GpuGuard: `gpu_guard.gd` bleibt unveraendert. CrashGuard nimmt dessen OpenGL-Schalter zurueck
+  (`undo_gpu_safe()`), bis Stufe 3 trotzdem abstuerzte. Den sicheren Modus des Nutzers laesst
+  es stehen.
+- Offen: `export_presets.cfg` bleibt auf `export_d3d12=0`. Stufe 3 nutzt das D3D12 des Systems.
+  Scheitert das, faellt Godot auf Vulkan zurueck, und der Schleifenschutz greift.
+- Screenshot-Lauf: `--shot-menu --shot-crash-notice` liest eine von Hand gesetzte Wachmarke
+  und zeigt den Hinweis, schreibt aber keine Wachmarke.
+- Rang-Buchstaben in den Score-Zeilen des Profils: 30 px statt 20 px.
+
 ## Einbau (fremde Dateien, je eine Zeile)
 - `project.godot` [autoload], direkt nach `GpuGuard`:
   `CrashGuard="*res://scripts/system/crash_guard.gd"`

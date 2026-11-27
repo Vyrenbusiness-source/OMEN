@@ -115,10 +115,34 @@ static func snap_style(divisor: int, note: Color) -> Color:
 			clampf(note.s * float(st[1]), 0.0, 0.9), v)
 
 
+## Autoload CrashGuard ueber den Baum (kein harter Bezug: --script-Tests laden
+## diese Klasse auch ohne Autoloads). null = nicht da.
+static func crash_guard() -> Node:
+	var tree := Engine.get_main_loop() as SceneTree
+	if tree == null or tree.root == null:
+		return null
+	return tree.root.get_node_or_null(^"CrashGuard")
+
+
+## Absturzschutz ab Stufe 2: einfache Welt (Galaxie), keine Themen-Welten.
+static func safe_simple() -> bool:
+	var g := crash_guard()
+	return g != null and bool(g.call("simple_world"))
+
+
+## Absturzschutz: Bild auf die Texturgrenze der Stufe bringen (Hauptthread,
+## vor ImageTexture.create_from_image). Ohne Grenze unveraendert.
+static func safe_image(img: Image) -> Image:
+	var g := crash_guard()
+	if g == null or img == null:
+		return img
+	return g.call("fit_image", img)
+
+
 ## Asynchron vorladen (Hauptthread bleibt frei): Panorama + Ebenen der Welt.
 ## Beim Kartenwechsel/Ladebild aufrufen; get_cached() holt sie spaeter ohne Hitch.
 static func prefetch(theme: String) -> void:
-	if theme == GALAXY or theme == "":
+	if theme == GALAXY or theme == "" or safe_simple():
 		return
 	var dir := asset_dir(theme)
 	if not DirAccess.dir_exists_absolute(dir):
@@ -146,6 +170,16 @@ static func pick(beatmap: Beatmap, stars: float, theme_color: Color) -> String:
 
 ## Gewaehltes Thema: forced ("galaxy"/...) gewinnt, "" = automatisch.
 static func resolve(forced: String, beatmap: Beatmap, stars: float, theme_color: Color) -> String:
+	# Absturzschutz Stufe 2+: nur die Galaxie (4096er-Ebenen statt 8192er-Welten).
+	var t := GALAXY if safe_simple() else _resolve(forced, beatmap, stars, theme_color)
+	# Welt fuer den Absturzbericht (Phase bleibt, CrashGuard erkennt sie selbst).
+	var g := crash_guard()
+	if g != null:
+		g.call("set_phase", str(g.get("phase")), t)
+	return t
+
+
+static func _resolve(forced: String, beatmap: Beatmap, stars: float, theme_color: Color) -> String:
 	if NAMES.has(forced):
 		return forced
 	if beatmap == null:

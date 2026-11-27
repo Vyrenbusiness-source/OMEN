@@ -12,3 +12,4 @@ Ordner öffnen,Ordner öffnen,Open folder
 Bericht kopieren,Bericht kopieren,Copy report
 Kopiert,Kopiert,Copied
 Schließen,Schließen,Close
+"Nach Abstürzen startet OMEN in Stufen vorsichtiger. Nach 3 sauberen Starts geht es eine Stufe zurück","Nach Abstürzen startet OMEN in Stufen vorsichtiger. Nach 3 sauberen Starts geht es eine Stufe zurück","After crashes OMEN starts more carefully, step by step. After 3 clean starts it goes back one step"

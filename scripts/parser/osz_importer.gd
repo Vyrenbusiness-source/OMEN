@@ -30,7 +30,7 @@ static var _mutex := Mutex.new()
 static var _prepared := {}      # osz_path -> import-Dictionary (einmalig)
 static var _tasks := {}         # osz_path -> WorkerThreadPool-Task-ID
 static var _audio_cache := {}   # "osz|name" -> AudioStream (Einfuege-Reihenfolge = LRU)
-static var _image_cache := {}   # "osz|name" -> Texture2D
+static var _image_cache := {}   # "osz|name" -> Texture2D, oder Image (aus dem Worker, Textur folgt im Hauptthread)
 
 
 ## Auswahl im Hintergrund vorbereiten (idempotent). audio_name/bg_name duerfen
@@ -49,9 +49,11 @@ static func prepare(osz_path: String, audio_name: String, bg_name: String, versi
 static func _prepare_task(osz_path: String, audio_name: String, bg_name: String, version: String) -> void:
 	var t0 := Time.get_ticks_usec()
 	# Reihenfolge: Bild (Browser zeigt es zuerst), Audio, dann Vollparse.
+	# Bilder: im Worker nur dekodieren (Image). Die Textur entsteht erst im
+	# Hauptthread (load_image_texture), kein GPU-Upload aus dem Thread.
 	if bg_name != "" and _cache_get(_image_cache, _ckey(osz_path, bg_name)) == null:
 		_cache_put(_image_cache, _ckey(osz_path, bg_name),
-			_load_image_uncached(osz_path, bg_name), IMAGE_CACHE_MAX)
+			load_image(osz_path, bg_name), IMAGE_CACHE_MAX)
 	if audio_name != "" and _cache_get(_audio_cache, _ckey(osz_path, audio_name)) == null:
 		_cache_put(_audio_cache, _ckey(osz_path, audio_name),
 			_load_audio_uncached(osz_path, audio_name), AUDIO_CACHE_MAX)
@@ -63,7 +65,7 @@ static func _prepare_task(osz_path: String, audio_name: String, bg_name: String,
 		var bm: Beatmap = d.beatmap
 		if bm.version_name() == version and bm.background_file != "" 				and _cache_get(_image_cache, _ckey(osz_path, bm.background_file)) == null:
 			_cache_put(_image_cache, _ckey(osz_path, bm.background_file),
-				_load_image_uncached(osz_path, bm.background_file), IMAGE_CACHE_MAX)
+				load_image(osz_path, bm.background_file), IMAGE_CACHE_MAX)
 	_perf("Hintergrund: Auswahl vorbereitet", t0, osz_path)
 
 
@@ -259,6 +261,12 @@ static func load_image_texture(osz_path: String, inner_name: String) -> Texture2
 	if hit == null and _tasks.has(osz_path):
 		_wait_prepared(osz_path)
 		hit = _cache_get(_image_cache, key)
+	if hit is Image:
+		# Vom Worker dekodiert: Textur jetzt (Hauptthread) erzeugen und cachen.
+		var tex := texture_from_image(hit)
+		_cache_put(_image_cache, key, tex, IMAGE_CACHE_MAX)
+		_perf("Bild laden (Cache, Textur)", t0, osz_path)
+		return tex
 	if hit != null:
 		_perf("Bild laden (Cache)", t0, osz_path)
 		return hit
@@ -269,6 +277,14 @@ static func load_image_texture(osz_path: String, inner_name: String) -> Texture2
 
 
 static func _load_image_uncached(osz_path: String, inner_name: String) -> Texture2D:
+	return texture_from_image(load_image(osz_path, inner_name))
+
+
+## Bild aus dem Archiv nur dekodieren (Image, mit Mipmaps), keine Textur.
+## Thread-sicher: so duerfen Worker/Threads Bilder laden.
+static func load_image(osz_path: String, inner_name: String) -> Image:
+	if inner_name == "":
+		return null
 	var reader := ZIPReader.new()
 	if reader.open(osz_path) != OK:
 		return null
@@ -289,7 +305,50 @@ static func _load_image_uncached(osz_path: String, inner_name: String) -> Textur
 		return null
 	# Mipmaps erlauben weichen Blur (textureLod) z.B. im Main-Menue.
 	img.generate_mipmaps()
-	return ImageTexture.create_from_image(img)
+	return img
+
+
+
+## Kleines Vorschaubild (z. B. Profil-Score-Zeilen), thread-sicher: nur
+## dekodieren und auf max_w Breite verkleinern, keine Textur, kein get_image().
+static func load_thumb_image(osz_path: String, inner_name: String, max_w: int) -> Image:
+	var img := load_image(osz_path, inner_name)
+	if img == null:
+		return null
+	if img.has_mipmaps():
+		img.clear_mipmaps()
+	var w := img.get_width()
+	var h := img.get_height()
+	if w > max_w:
+		img.resize(max_w, maxi(int(float(max_w) * float(h) / float(w)), 8), Image.INTERPOLATE_LANCZOS)
+	return img
+
+## Textur aus einem dekodierten Bild. Im Hauptthread direkt (mit Texturgrenze
+## des Absturzschutzes, CrashGuard Stufe 2). Aus einem Nebenthread (z. B.
+## tournament_panel _hires_job): leere ImageTexture sofort, Bilddaten per
+## call_deferred im Hauptthread - kein Textur-Upload aus dem Thread.
+static func texture_from_image(img: Image) -> Texture2D:
+	if img == null:
+		return null
+	var tex := ImageTexture.new()
+	if OS.get_thread_caller_id() == OS.get_main_thread_id():
+		tex.set_image(_fit_for_guard(img))
+	else:
+		OszImporter._fill_texture.call_deferred(tex, img)
+	return tex
+
+
+static func _fill_texture(tex: ImageTexture, img: Image) -> void:
+	tex.set_image(_fit_for_guard(img))
+
+
+## CrashGuard.fit_image ueber den Baum (ohne harte Autoload-Abhaengigkeit).
+static func _fit_for_guard(img: Image) -> Image:
+	var tree := Engine.get_main_loop() as SceneTree
+	var g: Node = tree.root.get_node_or_null(^"CrashGuard") if tree != null and tree.root != null else null
+	if g == null:
+		return img
+	return g.call("fit_image", img)
 
 
 ## Bild nach Magic-Bytes dekodieren (nicht nach Endung). Kaputt/unbekannt: null.

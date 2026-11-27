@@ -751,6 +751,36 @@ func _page_gfx(pg: VBoxContainer) -> void:
 	_safe_hint = _hint_label(g, "Neustart des Spiels nötig, damit der Renderer wechselt.")
 	_safe_hint.add_theme_color_override("font_color", UiTheme.ACCENT)
 	_safe_hint.get_parent().visible = false
+	_crash_stage_row(g)
+
+
+## Absturzschutz (CrashGuard): aktuelle Heilstufe + Zuruecksetzen.
+func _crash_stage_row(g: VBoxContainer) -> void:
+	var box := HBoxContainer.new()
+	box.alignment = BoxContainer.ALIGNMENT_END
+	box.add_theme_constant_override("separation", 10)
+	var lab := Label.new()
+	lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lab.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	lab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	lab.add_theme_font_size_override("font_size", 13)
+	box.add_child(lab)
+	var btn := Button.new()
+	btn.text = tr("Zuruecksetzen")
+	UiTheme.style_ghost_button(btn, 8)
+	box.add_child(btn)
+	var paint := func():
+		lab.text = CrashGuard.stage_label()
+		lab.add_theme_color_override("font_color", UiTheme.ACCENT if CrashGuard.stage > 0 else UiTheme.DIM)
+		btn.disabled = CrashGuard.stage == 0
+	paint.call()
+	btn.pressed.connect(func():
+		CrashGuard.reset_stage()
+		paint.call())
+	var row := _row(g, "Absturzschutz", box,
+		"Nach Abstürzen startet OMEN in Stufen vorsichtiger. Nach 3 sauberen Starts geht es eine Stufe zurück")
+	row.set_meta("reset", Callable())
 
 
 func _page_keys(pg: VBoxContainer) -> void:

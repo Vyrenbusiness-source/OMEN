@@ -2,7 +2,7 @@ class_name CrashNotice
 extends PanelContainer
 
 ## Kleiner Hinweis im Hauptmenue nach einem harten Ende (CrashGuard).
-## Unten links, kein Modal: Spielen geht sofort weiter. Knoepfe:
+## Oben rechts, kein Modal: Spielen geht sofort weiter. Knoepfe:
 ## "Bericht kopieren" (Zwischenablage), "Ordner öffnen" (user://crash), "Schließen".
 ##
 ## Einbau im Hauptmenue (eine Zeile in _ready):
@@ -54,14 +54,18 @@ static func ensure_translations() -> void:
 func _ready() -> void:
 	ensure_translations()
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
-	grow_vertical = Control.GROW_DIRECTION_BEGIN
-	offset_left = 24
-	offset_bottom = -24
+	# Oben rechts unter "Now playing": unten links laege er ueber der Menue-Liste.
+	set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	offset_right = -32
+	offset_left = -32 - 420
+	offset_top = 96
 	custom_minimum_size = Vector2(420, 0)
+	# Graphit-Flaeche, Bernstein-Kante links (Stil der Seite, kein Alarm-Rot).
 	var sb := UiTheme.glass_box(10, 0.92, 0.2)
-	sb.border_width_left = 3
-	sb.border_color = UiTheme.BAD
+	sb.border_width_top = 0
+	sb.border_width_left = 2
+	sb.border_color = UiTheme.ACCENT
 	sb.content_margin_left = 18
 	sb.content_margin_right = 16
 	sb.content_margin_top = 12

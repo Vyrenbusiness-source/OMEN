@@ -37,6 +37,12 @@ var _library: MapLibrary
 var _set_by_file: Dictionary = {}
 # Lazy-Cover-Loader: [{rect: TextureRect, file: String}], sequentiell im Thread.
 var _thumb_jobs: Array = []
+## Rang-Buchstabe in den Score-Zeilen: gross genug, um ihn auf einen Blick
+## zu lesen (vorher 20 px, Nutzer: "Grade-Anzeige zu klein").
+const GRADE_FONT := 30
+const GRADE_BADGE_W := 62
+## Breite der Cover-Thumbs (Pixel) in den Score-Zeilen.
+const THUMB_W := 220
 var _thumb_thread: Thread
 var _closing := false
 var _thumb_cache: Dictionary = {}
@@ -764,15 +770,16 @@ func _play_row(e: Dictionary, mode: String) -> Control:
 	bb.content_margin_top = 2
 	bb.content_margin_bottom = 2
 	badge.add_theme_stylebox_override("panel", bb)
-	badge.custom_minimum_size = Vector2(46, 0)
+	badge.custom_minimum_size = Vector2(GRADE_BADGE_W, 0)
 	badge.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hb.add_child(badge)
 	var grade := Label.new()
 	grade.text = g if g != "" else "—"
 	grade.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	grade.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	grade.add_theme_font_override("font", UiTheme.heading_font(1))
-	grade.add_theme_font_size_override("font_size", 20)
+	grade.add_theme_font_size_override("font_size", GRADE_FONT)
 	grade.add_theme_color_override("font_color", gcol)
 	badge.add_child(grade)
 
@@ -898,22 +905,14 @@ func _thumb_worker(jobs: Array, gen: int) -> void:
 			var ms: MapSet = _set_by_file.get(file)
 			if ms == null:
 				continue
-			var tex: Texture2D = ms.background_texture()
-			if tex == null:
-				continue
-			img = tex.get_image()
+			# Thread-sicher: nur dekodieren + verkleinern, keine Textur und kein
+			# GPU-Readback aus dem Thread (Absturzgefahr auf AMD/Vulkan).
+			img = OszImporter.load_thumb_image(ms.osz_path, ms.background_file, THUMB_W)
 			if img == null:
 				continue
-			if img.is_compressed():
-				if img.decompress() != OK:
-					continue
-			var w := img.get_width()
-			var h := img.get_height()
-			if w > 220:
-				img.resize(220, maxi(int(220.0 * float(h) / float(w)), 8),
-						Image.INTERPOLATE_LANCZOS)
 			_thumb_cache[file] = img
 		call_deferred("_apply_thumb", job.rect, img)
+
 
 
 func _apply_thumb(rect: TextureRect, img: Image) -> void:

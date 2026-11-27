@@ -894,6 +894,8 @@ func _ready() -> void:
 
 	if GpuGuard.take_notice():
 		_show_gpu_notice()
+	# Absturzbericht nach hartem Ende (CrashGuard): Kopieren / Ordner oeffnen.
+	CrashNotice.show_if_pending(self)
 	GameSession.perf_since("Hauptmenue: _ready gesamt", t_ready)
 
 	var args := OS.get_cmdline_args()

@@ -70,6 +70,9 @@ static func theme_files(t: String) -> Dictionary:
 ## Ebene *_<key> (stars, embers, aurora, ...). Slot b = Slot a (palette_mix
 ## wird bei Themen nicht genutzt). null = Thema nicht baubar.
 static func theme_sky_material(theme: String) -> ShaderMaterial:
+	# Absturzschutz Stufe 2+: keine 8192er-Ebenen, Aufrufer nimmt die Galaxie.
+	if WorldTheme.safe_simple():
+		return null
 	var files := theme_files(theme)
 	if files.is_empty():
 		return null

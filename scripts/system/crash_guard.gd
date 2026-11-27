@@ -52,6 +52,9 @@ const LOAD_FRAMES := 90
 const LOG_TAIL_BYTES := 48000
 ## Hoechstens so viele Berichte behalten (aelteste fliegen raus).
 const MAX_REPORTS := 20
+## Startschalter fuer Screenshot-Laeufe (--shot-menu): wertet eine von Hand
+## gesetzte Wachmarke aus und zeigt den Hinweis, schreibt aber keine Wachmarke.
+const PREVIEW_ARG := "--shot-crash-notice"
 
 ## Szenen -> Phase (Dateiname ohne Pfad). Alles andere: Phase bleibt.
 const SCENE_PHASES := {
@@ -93,6 +96,8 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	if not should_guard():
 		set_process(false)
+		if (OS.get_cmdline_args() + OS.get_cmdline_user_args()).has(PREVIEW_ARG):
+			_preview()
 		return
 	_active = true
 	set_process(false)
@@ -112,6 +117,7 @@ func _ready() -> void:
 		prune_reports(CRASH_DIR, MAX_REPORTS)
 		if HEAL_PHASES.has(str(prev.get("phase", ""))):
 			clear_render_caches("user://")
+		_settle_gpu_guard(prev, prev_stage, stage)
 	elif prev.has("report") and notice_pending:
 		report_path = str(prev.get("report", ""))
 	_info = collect_info()
@@ -321,6 +327,45 @@ static func limit_image(img: Image, max_size: int) -> Image:
 	return img
 
 
+# ------------------------------------------------------------ GpuGuard
+
+## GpuGuard (Autoload davor) schaltet schon nach dem ersten Absturz auf OpenGL.
+## Mit CrashGuard greifen zuerst die Stufen: Hob dieser Absturz die Stufe und
+## war der abgestuerzte Lauf nicht schon im sicheren Grafikmodus, wird
+## GpuGuards Umschaltung zurueckgenommen. OpenGL kommt erst, wenn auch
+## Stufe 3 (D3D12) abstuerzt oder der Nutzer es selbst einschaltet.
+static func undo_gpu_safe(prev: Dictionary, prev_stage: int, new_stage: int) -> bool:
+	if not prev.has("gpu_safe") or bool(prev.get("gpu_safe", true)):
+		return false
+	return new_stage > prev_stage and prev_stage < STAGE_D3D12
+
+
+func _gpu_guard() -> Node:
+	return get_tree().root.get_node_or_null(^"GpuGuard") if is_inside_tree() else null
+
+
+func _settle_gpu_guard(prev: Dictionary, prev_stage: int, new_stage: int) -> void:
+	var gg := _gpu_guard()
+	if gg == null or not bool(gg.get("safe_mode")):
+		return
+	if undo_gpu_safe(prev, prev_stage, new_stage):
+		gg.call("set_safe_mode", false)
+
+
+## Screenshot-Lauf mit PREVIEW_ARG: Wachmarke nur lesen. Endete der "vorige
+## Lauf" unsauber (von Hand gesetzt), Bericht schreiben und Hinweis anbieten.
+func _preview() -> void:
+	var prev := read_state(STATE_PATH)
+	if not evaluate_start(prev):
+		return
+	var res := next_stage(int(prev.get("stage", 0)), int(prev.get("clean_runs", 0)), true, str(prev.get("phase", "")))
+	stage = res[0]
+	started_after_crash = true
+	notice_pending = true
+	var local_unix := Time.get_unix_time_from_system() + int(Time.get_time_zone_from_system().get("bias", 0)) * 60
+	report_path = write_report(CRASH_DIR, prev, read_last_log(LOG_DIR), local_unix)
+
+
 # -------------------------------------------------------------- Zustand
 
 static func read_state(path: String) -> Dictionary:
@@ -344,6 +389,8 @@ static func write_state(path: String, d: Dictionary) -> bool:
 
 func _save(clean: bool, counts: bool = true) -> void:
 	var d := _info.duplicate()
+	var gg := _gpu_guard()
+	d["gpu_safe"] = bool(gg.get("safe_mode")) if gg != null else false
 	d["started"] = true
 	d["clean"] = clean
 	d["counts"] = counts
