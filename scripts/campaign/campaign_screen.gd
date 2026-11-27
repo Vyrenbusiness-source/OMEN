@@ -1175,11 +1175,11 @@ func _build_detail() -> void:
 		var g := str(e.get("grade", ""))
 		var gx := 0.0
 		if g != "":
-			var gl := UiTheme.grade_label(g, UiTheme.grade_size(22, g), UiTheme.grade_color(g))
+			var gl := UiTheme.grade_label(g, UiTheme.grade_size(int(_px(22)), g, 2.0), UiTheme.grade_color(g))
 			gl.name = "StageGrade"
 			gl.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-			_put(gl, x, 534, 60, 42, _detail)
-			gx = 64.0
+			_put(gl, x, 538, 48, 46, _detail)
+			gx = 50.0
 		_put(_label(UiTheme.fmt_score(int(e.score)), 22.0, UiTheme.TEXT, true), x + gx, 540, 150, 30, _detail)
 		var plays := int(e.get("plays", 1))
 		_put(_label("%s  ·  %s" % [Campaign.acc_text(float(e.get("accuracy", 0.0))),
