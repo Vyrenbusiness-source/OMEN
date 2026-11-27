@@ -30,11 +30,7 @@ const QUALITY_COLOR := [
 	Color(1.0, 0.85, 0.42), Color(0.84, 0.97, 1.0), Color(0.47, 0.95, 0.62),
 	Color(0.42, 0.64, 1.0), Color(0.64, 0.66, 0.72), Color(1.0, 0.38, 0.42),
 ]
-const GRADE_COLOR := {
-	"SS": Color(1.0, 0.95, 0.80), "S": Color(1.0, 0.80, 0.40),
-	"A": Color(0.58, 0.86, 0.62), "B": Color(0.54, 0.75, 0.96),
-	"C": Color(0.78, 0.66, 0.94), "D": Color(0.90, 0.54, 0.47),
-}
+const GRADE_COLOR := UiTheme.GRADE_COLORS
 const FAIL_COLOR := UiTheme.BAD
 ## Mikro-Labels: hell genug fuer Kontrast auf Glas (nicht unter 12 px nutzen).
 const CAPTION := Color(0.68, 0.655, 0.615)
@@ -1932,13 +1928,22 @@ func _rank_row(e: Dictionary, row_h: float) -> Control:
 	sub.add_theme_color_override("font_color", CAPTION)
 	sub.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	sub.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	var score_px := 16 if _narrow else 19
+	var g := ""
 	if fin.is_empty():
 		sub.text = tr("spielt noch…")
 	else:
-		var g := "F" if bool(fin.get("failed", false)) else str(fin.get("grade", "D"))
-		sub.text = "%s  ·  %s  ·  %d %s" % [g, UiTheme.fmt_pct(float(fin.get("acc", 0.0)) * 100.0),
+		g = "F" if bool(fin.get("failed", false)) else str(fin.get("grade", "D"))
+		sub.text = "%s  ·  %d %s" % [UiTheme.fmt_pct(float(fin.get("acc", 0.0)) * 100.0),
 			int(fin.get("n_miss", 0)), tr("Miss")]
 	nv.add_child(sub)
+	# Rang als eigene Spalte, hoeher als die Score-Zahl (feste Breite: Zeilen fluchten).
+	var gpx := UiTheme.grade_size(score_px)
+	var gl := UiTheme.grade_label(g if g != "" else "–", UiTheme.grade_size(score_px, g),
+		UiTheme.grade_color(g, false, MUTED) if g != "" else MUTED)
+	gl.name = "Grade"
+	gl.custom_minimum_size = Vector2(roundi(gpx * 1.25), 0)
+	h.add_child(gl)
 	var rv := VBoxContainer.new()
 	rv.alignment = BoxContainer.ALIGNMENT_CENTER
 	rv.add_theme_constant_override("separation", -2)
@@ -1949,7 +1954,7 @@ func _rank_row(e: Dictionary, row_h: float) -> Control:
 	sl.text = UiTheme.fmt_score(int(fin.get("score", 0)) if not fin.is_empty() else int(e.get("score", 0)))
 	sl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	sl.add_theme_font_override("font", UiTheme.heading_font(0))
-	sl.add_theme_font_size_override("font_size", 16 if _narrow else 19)
+	sl.add_theme_font_size_override("font_size", score_px)
 	sl.add_theme_color_override("font_color", UiTheme.TEXT if not fin.is_empty() else MUTED)
 	sl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	rv.add_child(sl)
@@ -2447,6 +2452,12 @@ func _best_row(prev: Dictionary) -> Control:
 	if prev.is_empty():
 		row.add_child(_plain(tr("erster Lauf auf dieser Diff"), 15, CAPTION))
 		return row
+	var pg := str(prev.get("grade", ""))
+	if pg != "":
+		var gl := UiTheme.grade_label(pg, UiTheme.grade_size(15, pg), UiTheme.grade_color(pg))
+		gl.name = "BestGrade"
+		gl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(gl)
 	var parts: Array = [fmt_int(int(prev.get("score", 0))), fmt_pct(float(prev.get("accuracy", 0.0))),
 		"%s×" % fmt_int(int(prev.get("max_combo", 0)))]
 	if float(prev.get("pp", -1.0)) >= 0.0:

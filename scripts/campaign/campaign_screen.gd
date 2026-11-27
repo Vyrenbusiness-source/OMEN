@@ -1171,10 +1171,19 @@ func _build_detail() -> void:
 	# Bestwert
 	_put(_label(tr("Dein Bestwert"), 13.0, UiTheme.DIM), x, 520, gw, 20, _detail)
 	if e.has("score"):
-		_put(_label(UiTheme.fmt_score(int(e.score)), 22.0, UiTheme.TEXT, true), x, 540, 150, 30, _detail)
+		# Rang gross vor dem Score (hoeher als die 22-px-Score-Zahl), Farbe aus UiTheme.
+		var g := str(e.get("grade", ""))
+		var gx := 0.0
+		if g != "":
+			var gl := UiTheme.grade_label(g, UiTheme.grade_size(22, g), UiTheme.grade_color(g))
+			gl.name = "StageGrade"
+			gl.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+			_put(gl, x, 534, 60, 42, _detail)
+			gx = 64.0
+		_put(_label(UiTheme.fmt_score(int(e.score)), 22.0, UiTheme.TEXT, true), x + gx, 540, 150, 30, _detail)
 		var plays := int(e.get("plays", 1))
-		_put(_label("%s  ·  %s  ·  %s" % [Campaign.acc_text(float(e.get("accuracy", 0.0))), str(e.get("grade", "")),
-			tr("1 Lauf") if plays == 1 else tr("%d Läufe") % plays], 13.0, UiTheme.DIM), x + 150, 544, gw - 150, 26, _detail)
+		_put(_label("%s  ·  %s" % [Campaign.acc_text(float(e.get("accuracy", 0.0))),
+			tr("1 Lauf") if plays == 1 else tr("%d Läufe") % plays], 13.0, UiTheme.DIM), x + gx + 150, 544, gw - gx - 150, 26, _detail)
 	else:
 		_put(_label(tr("Noch nicht gespielt"), 15.0, UiTheme.DIM), x, 542, gw, 26, _detail)
 		var opens := _opens_text(st)
