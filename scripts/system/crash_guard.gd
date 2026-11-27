@@ -262,8 +262,17 @@ static func texture_limit(s: int) -> int:
 	return SAFE_TEXTURE_SIZE if s >= STAGE_SIMPLE else 0
 
 
+## Uebersetzungsschluessel (deutscher Text, translations/crash.csv).
+const STAGE_KEYS: Array[String] = [
+	"Normal",
+	"Stufe 1: Shader-Cache geleert",
+	"Stufe 2: einfache Welt, Texturen max. 4096",
+	"Stufe 3: Renderer D3D12",
+]
+
+
 static func stage_key(s: int) -> String:
-	return "CRASH_STAGE_%d" % clampi(s, STAGE_NONE, STAGE_MAX)
+	return STAGE_KEYS[clampi(s, STAGE_NONE, STAGE_MAX)]
 
 
 ## Startzeile fuer den Neustart mit D3D12, leer = kein Neustart noetig.
