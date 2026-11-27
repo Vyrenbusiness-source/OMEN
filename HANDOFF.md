@@ -281,3 +281,9 @@ Offen/klein: song_select.gd _bg_finished get_tree() null nach Verlassen; Relay-S
 - Offen Songauswahl: untere Leiste + Tastatur wie osu! (Pfeile, Enter, F2 Zufall, Tippen = Suche), 641 ms erste Liste bei 1900 Sets, RuleModsHarness wartet nicht auf die verzoegerte Bestenliste.
 - warmd v0.6.2 (godot.path-Meldung weg). Platte: Temp-Eintraege aelter 2 Tage geloescht (Nutzer-Okay), alte Worktrees entfernt; eine fremde Aufnahme-App (tonvera_rec_* in Temp) schreibt laufend.
 - v1.45.1 (27.11. spaet, Nutzer: "Songauswahl schaut nicht gut aus, linkes Fenster mega gross"): linkes Panel schmal (24 %, 420-520 px) und nur so hoch wie sein Inhalt (_fit_info), Liste 720 px breit und ohne Leerraum oben/unten (_center_pad = 0). Vom Haupt-Agent selbst per Screenshot 1080p geprueft (Nutzer will, dass der Haupt-Agent UI selbst ansieht, nicht nur Subagents).
+
+## Stand 2026-11-28 ~00:20 (v1.46.0 released)
+- Anlass: Spieler Circleguard, Server hat von ihm nur 76 Scores vom 08.11. (Backfill), seitdem keinen (docs/net/score_submit.md). Ursache auf seinem Rechner unbekannt.
+- Score-Upload robust: Warteschlange ohne Kopf-Blockade (tries je Eintrag, 5xx wandert ans Ende, nach 8 Versuchen verworfen), Laeufe ohne Anmeldung bleiben in der Queue (Senden nur unter passendem Profilnamen), 401 behaelt die Queue, NaN-sicherer Body, Eintraege entfernter Modi fliegen raus, Protokoll user://online_log.txt, Statuszeile im Ergebnisbild, Profil: letzter Fehler + "Jetzt senden" + "Protokoll oeffnen".
+- Automatischer Nachtrag (Nutzer-Wunsch): nach Start/Login/leerer Queue werden lokale Scores ohne online_id selbst nachgesendet; abgelehnte landen in "rejected". OFFEN: deckt nur Mania 4K (backfill_meta fest auf 4K); 5K-7K und Trace fehlen.
+- Naechster Schritt: Circleguard soll updaten und die Zeile im Profil bzw. online_log.txt melden.
