@@ -471,7 +471,8 @@ static func read_last_log(dir: String, tail_bytes: int = LOG_TAIL_BYTES) -> Stri
 		if not fn.ends_with(".log") or fn == "godot.log":
 			continue
 		var t := FileAccess.get_modified_time(dir.path_join(fn))
-		if t > best_t:
+		# Gleiche Sekunde: Name entscheidet (Godot haengt die Startzeit an).
+		if t > best_t or (t == best_t and fn > best):
 			best_t = t
 			best = fn
 	if best == "":

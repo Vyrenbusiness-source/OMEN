@@ -9,6 +9,7 @@ extends PanelContainer
 ##   CrashNotice.show_if_pending(self)
 
 const TR_CSV := "res://translations/crash.%s.translation"
+const GUARD_NODE := "CrashGuard"
 
 var report_path := ""
 var stage := 0
@@ -17,7 +18,8 @@ var _copy_btn: Button
 
 ## Hinweis anhaengen, falls CrashGuard einen aussteht. Liefert ihn oder null.
 static func show_if_pending(parent: Control) -> CrashNotice:
-	var g := parent.get_node_or_null("/root/CrashGuard")
+	# Autoload-Name als Wert: CrashGuard ist erst nach dem Einbau in project.godot da.
+	var g := parent.get_tree().root.get_node_or_null(NodePath(GUARD_NODE))
 	if g == null:
 		return null
 	var path: String = g.take_notice()
