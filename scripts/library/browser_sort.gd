@@ -157,46 +157,49 @@ static func _diff_rank(d: Dictionary) -> int:
 	return rank_order(str(d.get("rank", "")))
 
 
+const _RANK_FAST := {"SS": 0, "S": 1, "A": 2, "B": 3, "C": 4, "D": 5}
+const _FIELDS := {
+	"difficulty": ["stars"], "bpm": ["bpm"],
+	"length": ["duration_ms", "length_ms", "length"],
+	"date_added": ["date_added"], "last_played": ["last_played"],
+}
+
+
 ## Zahlenwert eines Diffs fuer key; negativ = fehlt.
 static func _diff_value(d: Dictionary, key: String) -> float:
-	match key:
-		"difficulty":
-			return _num(d, ["stars"])
-		"bpm":
-			return _num(d, ["bpm"])
-		"length":
-			return _num(d, ["duration_ms", "length_ms", "length"])
-		"date_added":
-			return _time(d, "date_added")
-		"last_played":
-			return _time(d, "last_played")
-		"rank":
-			var r := _diff_rank(d)
-			return -1.0 if r >= UNPLAYED else float(r)
+	if key == "rank":
+		var rv = d.get("rank", null)
+		if rv is String and _RANK_FAST.has(rv):
+			return float(_RANK_FAST[rv])
+		var r := rank_order(str(rv if rv != null else ""))
+		return -1.0 if r >= UNPLAYED else float(r)
+	var names: Array = _FIELDS.get(key, [])
+	for n in names:
+		var v = d.get(n, null)
+		if v is float or v is int:
+			return float(v)
+		if v != null:
+			if key == "date_added" or key == "last_played":
+				return _time(d, n)
+			return _num(d, [n])
 	return -1.0
 
 
 ## Zahlenwert eines Sets fuer numerische Keys; negativ = fehlt.
 static func _set_value(set: Dictionary, key: String) -> float:
-	var best := -1.0
-	if key == "date_added" or key == "last_played":
-		best = _time(set, key)
-	elif key == "bpm":
-		best = _num(set, ["bpm"])
-	elif key == "length":
-		best = _num(set, ["length", "duration_ms", "length_ms"])
-	elif key == "rank":
-		var r := rank_order(str(set.get("rank", "")))
-		if r < UNPLAYED:
-			best = float(r)
-	for d in _diffs_of(set):
+	var best := _diff_value(set, key)  # Set-eigener Wert (gleiche Feldnamen)
+	var ds = set.get("diffs", null)
+	if not (ds is Array):
+		return best
+	var is_rank := key == "rank"
+	for d in ds:
 		var v := _diff_value(d, key)
 		if v < 0.0:
 			continue
-		if key == "rank":
+		if is_rank:
 			best = v if best < 0.0 else minf(best, v)
-		else:
-			best = maxf(best, v)
+		elif v > best:
+			best = v
 	return best
 
 
@@ -427,7 +430,7 @@ static func group(entries: Array, mode: String, collections: Dictionary = {}) ->
 				tags.append([sk, l])
 			"difficulty":
 				var b := star_bucket(_entry_stars(e))
-				tags.append(["%02d" % (b + 1), star_bucket_title(b)])
+				tags.append(["%02d" % (b if b >= 0 else 99), star_bucket_title(b)])
 			"keys":
 				for k in _entry_keys(e):
 					tags.append([("%02d" % k) if k > 0 else "99", ("%dK" % k) if k > 0 else "Andere"])
