@@ -51,8 +51,17 @@ func _run() -> void:
 	_test_mode_stars()
 	_test_panel_helpers()
 	_test_board_scores()
+	_test_curve_indent()
 	print("=== %d ok, %d fehlgeschlagen ===" % [_passed, _failed])
 	quit(1 if _failed > 0 else 0)
+
+
+## Kartenkurve der Liste: x-Einzug = 44 px * d^2, d gekappt auf 0..1, symmetrisch.
+func _test_curve_indent() -> void:
+	_ok(is_equal_approx(SS.curve_indent(0.0), 0.0), "curve_indent: Mitte ohne Einzug")
+	_ok(is_equal_approx(SS.curve_indent(1.0), 44.0), "curve_indent: Rand 44 px")
+	_ok(is_equal_approx(SS.curve_indent(-0.5), 11.0), "curve_indent: -0.5 -> 11 px (symmetrisch)")
+	_ok(is_equal_approx(SS.curve_indent(2.0), 44.0), "curve_indent: ausserhalb gekappt auf 44 px")
 
 
 ## Fake-Scores: Mania und Trace in getrennten Sektionen (ScoreStore._sec).

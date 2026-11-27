@@ -961,7 +961,7 @@ func _build_header() -> void:
 	var filter_row := HBoxContainer.new()
 	filter_row.custom_minimum_size = Vector2(0, FILTER_H)
 	filter_row.alignment = BoxContainer.ALIGNMENT_END
-	filter_row.add_theme_constant_override("separation", 6)
+	filter_row.add_theme_constant_override("separation", 16)
 	_filter_pop_box.add_child(filter_row)
 	_filter_row = filter_row
 
@@ -990,7 +990,7 @@ func _build_header() -> void:
 	var score_row := HBoxContainer.new()
 	score_row.custom_minimum_size = Vector2(0, SCORE_H)
 	score_row.alignment = BoxContainer.ALIGNMENT_END
-	score_row.add_theme_constant_override("separation", 6)
+	score_row.add_theme_constant_override("separation", 16)
 	_filter_pop_box.add_child(score_row)
 	_score_chips_row = score_row
 	# Mit/Ohne Bestwert wie der SV-Chip: erneut klicken = wieder alle Maps.
@@ -1039,7 +1039,7 @@ func _build_header() -> void:
 	_chips_row = HFlowContainer.new()
 	_chips_row.custom_minimum_size = Vector2(0, CHIPS_H)
 	_chips_row.alignment = FlowContainer.ALIGNMENT_END
-	_chips_row.add_theme_constant_override("h_separation", 6)
+	_chips_row.add_theme_constant_override("h_separation", 16)
 	_chips_row.add_theme_constant_override("v_separation", 6)
 	_chips_row.visible = false
 	_filter_stack.add_child(_chips_row)
@@ -1349,7 +1349,7 @@ func _build_info_panel() -> void:
 	panel.add_child(vb)
 	vb.minimum_size_changed.connect(func(): _fit_info.call_deferred())
 
-	_title_label = _add_label(vb, "", 44, COL_TEXT)
+	_title_label = _add_label(vb, "", 48, COL_TEXT)
 	_title_label.add_theme_font_override("font", UiTheme.heading_font(1))
 	_title_label.add_theme_constant_override("line_spacing", -6)
 	_title_label.mouse_filter = Control.MOUSE_FILTER_PASS  # Tooltip mit dem vollen Titel
@@ -1395,6 +1395,7 @@ func _build_info_panel() -> void:
 	_od_val = _stat_pair(stats, "OD")
 	_hp_val = _stat_pair(stats, "HP")
 	vb.add_child(_rule_line())
+	_info_gap(vb, 4)  # mit Trennung 8 = 12 px mehr Luft vor "Max pp"
 	_stats_label = Label.new()  # nur noch fuer alte Aufrufer, nicht im Baum
 	_maxpp_label = _add_label(vb, "", 13, UiTheme.ACCENT2)
 	_maxpp_label.autowrap_mode = TextServer.AUTOWRAP_OFF
@@ -1415,7 +1416,7 @@ func _build_info_panel() -> void:
 	_tutorial_btn.pressed.connect(_start_mode_tutorial)
 	mode_row.add_child(_tutorial_btn)
 	_apply_tutorial_btn()
-	_info_gap(vb, 4)
+	_info_gap(vb, 28)  # 24 px mehr Luft zwischen Modus-Reitern und Play
 
 	# PLAY: kompakter Bernstein-Knopf, daneben "Mods" und "More" als Text.
 	var play := Button.new()
@@ -1724,10 +1725,10 @@ func _build_stage() -> void:
 	_stage_shadow = Panel.new()
 	var sh := StyleBoxFlat.new()
 	sh.bg_color = Color(0, 0, 0, 0.35)
-	sh.set_corner_radius_all(8)
-	sh.shadow_color = Color(0, 0, 0, 0.45)
-	sh.shadow_size = 28
-	sh.shadow_offset = Vector2(0, 10)
+	sh.set_corner_radius_all(4)
+	sh.shadow_color = Color(0, 0, 0, 0.25)
+	sh.shadow_size = 12
+	sh.shadow_offset = Vector2.ZERO
 	_stage_shadow.add_theme_stylebox_override("panel", sh)
 	_stage_shadow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_stage.add_child(_stage_shadow)
@@ -1736,7 +1737,7 @@ func _build_stage() -> void:
 	_stage_mask = Panel.new()
 	var mk := StyleBoxFlat.new()
 	mk.bg_color = Color.WHITE
-	mk.set_corner_radius_all(8)
+	mk.set_corner_radius_all(4)
 	mk.anti_aliasing = true
 	_stage_mask.add_theme_stylebox_override("panel", mk)
 	_stage_mask.clip_children = CanvasItem.CLIP_CHILDREN_ONLY
@@ -1752,7 +1753,7 @@ func _build_stage() -> void:
 	var rim := Panel.new()
 	var rb := StyleBoxFlat.new()
 	rb.bg_color = Color(0, 0, 0, 0)
-	rb.set_corner_radius_all(8)
+	rb.set_corner_radius_all(4)
 	rb.set_border_width_all(1)
 	rb.border_color = Color(1, 1, 1, 0.14)
 	rim.add_theme_stylebox_override("panel", rb)
@@ -1771,7 +1772,7 @@ func _build_stage() -> void:
 	_progress_bg.add_child(track)
 	_progress_fill = ColorRect.new()
 	_progress_fill.position = Vector2.ZERO
-	_progress_fill.size = Vector2(0, 3)
+	_progress_fill.size = Vector2(0, 2)
 	_progress_fill.color = COL_ACCENT
 	_progress_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_progress_bg.add_child(_progress_fill)
@@ -1781,7 +1782,7 @@ func _build_stage() -> void:
 	_stage_viz.name = "VisualizerSlot"
 	_stage_viz.bars = 48
 	_stage_viz.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_stage_viz.modulate.a = 0.5
+	_stage_viz.modulate.a = 0.35
 	_stage_viz.set_color(COL_ACCENT)
 	_stage.add_child(_stage_viz)
 
@@ -1819,7 +1820,7 @@ func _layout_stage() -> void:
 	var lw := maxf(w, 360.0)
 	var lx := (avail.x - lw) * 0.5
 	_progress_bg.position = Vector2(lx, top + h + gap)
-	_progress_bg.size = Vector2(lw, 3)
+	_progress_bg.size = Vector2(lw, 2)
 	_stage_viz.position = Vector2(lx, top + h + gap + 3.0 + gap)
 	_stage_viz.size = Vector2(lw, viz_h)
 
@@ -2200,6 +2201,7 @@ func _list_step(delta: float) -> void:
 		_bench_lay_us += Time.get_ticks_usec() - t
 
 
+var _emb_font: FontVariation = null  # gewaehlte Diff-Zeile: gleiche Schrift, fett
 var _cover_dim := {}  # osz_path -> Helligkeitsfaktor des Covers
 var _glyph_state := 0  # 0 = Liste noch nicht gesammelt, 1 = laeuft, 2 = fertig
 var _glyph_queue: PackedStringArray = []
@@ -2567,20 +2569,30 @@ func _style_list_row(node: Control, state: int) -> void:
 	var hov := bool(node.get_meta("hover", false))
 	var key := state * 2 + (1 if hov else 0)
 	node.set_meta("state", state)
-	if int(node.get_meta("st", -1)) == key:
+	var p: Dictionary = node.get_meta("p", {})
+	var cd := 1.0
+	if p.has("cover"):
+		var cms: MapSet = node.get_meta("ms", null)
+		cd = float(_cover_dim.get(cms.osz_path, 0.55)) if cms != null else 0.55
+	if int(node.get_meta("st", -1)) == key and float(node.get_meta("cd", -1.0)) == cd:
 		return
 	node.set_meta("st", key)
-	var p: Dictionary = node.get_meta("p", {})
+	node.set_meta("cd", cd)
 	if not p.has("bg"):
 		return
 	var lift := HOVER_LIFT if hov else 0.0
 	if p.has("cover"):
-		var v := (1.0 if state > 0 else 0.55) + lift
+		var sel := state > 0
+		# Nicht gewaehlt: nach eigener Cover-Helligkeit abgedunkelt (alle gleich dunkel),
+		# gewaehlt: volles Cover, Titel weiss und eine Stufe groesser.
+		var v := (1.0 if sel else cd) + lift
 		(p.cover as CanvasItem).modulate = Color(v, v, v)
 		(p.bg as ColorRect).color = Color(lift, lift, lift, 0.55)
-		var sel := state > 0
 		(p.strip as ColorRect).color = COL_ACCENT
 		(p.strip as CanvasItem).visible = sel
+		var st_t := p.title as Label
+		st_t.add_theme_font_size_override("font_size", 24 if sel else 22)
+		st_t.add_theme_color_override("font_color", Color(1, 1, 1) if sel else COL_TEXT)
 		return
 	var bg := Color(COL_ACCENT, 0.16) if state == 2 else Color(0, 0, 0, 0.55)
 	if hov:
@@ -2588,13 +2600,16 @@ func _style_list_row(node: Control, state: int) -> void:
 	(p.bg as ColorRect).color = bg
 	var t := p.title as Label
 	if state == 2:
-		if _bold_font == null:
-			_bold_font = UiTheme.heading_font(0)
-		t.add_theme_font_override("font", _bold_font)
-		t.add_theme_color_override("font_color", COL_TEXT.lightened(0.5))
+		# Gleiche Schrift, nur kraeftiger: gleiche Hoehe und Grundlinie wie die anderen Zeilen.
+		if _emb_font == null:
+			_emb_font = FontVariation.new()
+			_emb_font.base_font = t.get_theme_font("font")
+			_emb_font.variation_embolden = 0.9
+		t.add_theme_font_override("font", _emb_font)
+		t.add_theme_color_override("font_color", Color(1, 1, 1))
 	else:
 		t.remove_theme_font_override("font")
-		t.add_theme_color_override("font_color", COL_TEXT)
+		t.add_theme_color_override("font_color", COL_TEXT.darkened(0.12))
 
 
 func _on_row_pressed(node: Control) -> void:
@@ -2734,6 +2749,9 @@ static func cover_build(osz: String, bg_file: String, thumb: String) -> Image:
 
 ## Helligkeit fuer ein Cover: helle Bilder (weisser Hintergrund) staerker
 ## abdunkeln, damit Sterne, Rang und Titel lesbar bleiben (thread-sicher).
+const COVER_LUM := 0.18  # mittlere Helligkeit nicht gewaehlter Set-Karten
+
+
 static func cover_dim(img: Image) -> float:
 	if img == null or img.is_empty():
 		return 0.62
@@ -2747,7 +2765,8 @@ static func cover_dim(img: Image) -> float:
 		for x in 8:
 			lum += small.get_pixel(x, y).get_luminance()
 	lum /= 40.0
-	return clampf(0.30 / maxf(lum, 0.01), 0.34, 0.72)
+	# Jede nicht gewaehlte Karte gleich dunkel: Ziel-Helligkeit 0,22.
+	return clampf(COVER_LUM / maxf(lum, 0.01), 0.16, 0.85)
 
 
 func _cover_loaded(path: String, img: Image, dim: float = 0.62) -> void:
@@ -2765,6 +2784,7 @@ func _cover_loaded(path: String, img: Image, dim: float = 0.62) -> void:
 				and (node.get_meta("ms") as MapSet).osz_path == path:
 			(node.get_meta("p")["cover"] as TextureRect).texture = tex
 			node.set_meta("need_cover", false)
+			_style_list_row(node, int(node.get_meta("state", 0)))
 	if _cover_jobs.is_empty() and _cover_want.is_empty() and _perf_ready_t > 0:
 		GameSession.perf_since("Browser: sichtbare Cover geladen (seit _ready)", _perf_ready_t)
 		_perf_ready_t = 0
@@ -3321,9 +3341,9 @@ func _open_collection_popup() -> void:
 
 func _restyle_star_chips() -> void:
 	for i in _star_chips.size():
-		_apply_toggle(_star_chips[i], i == _star_filter)
+		_apply_toggle(_star_chips[i], i == _star_filter, true)
 	if _sv_chip != null:
-		_apply_toggle(_sv_chip, _sv_filter)
+		_apply_toggle(_sv_chip, _sv_filter, true)
 
 
 ## Filter des aktiven Modus (Sortierung, Bestwert, Noten); legt fehlende an.
@@ -3341,9 +3361,9 @@ func _sort_mode() -> int:
 func _restyle_score_chips() -> void:
 	var mf := _mode_filter()
 	for i in _best_chips.size():
-		_apply_toggle(_best_chips[i], i + BEST_WITH == int(mf["best"]))
+		_apply_toggle(_best_chips[i], i + BEST_WITH == int(mf["best"]), true)
 	for g in _grade_chips:
-		_apply_toggle(_grade_chips[g], (mf["grades"] as Array).has(g))
+		_apply_toggle(_grade_chips[g], (mf["grades"] as Array).has(g), true)
 	if _sort_btn != null and _sort_btn.selected != int(mf["sort"]):
 		_sort_btn.select(int(mf["sort"]))
 
@@ -4393,7 +4413,7 @@ func _online_avatar(who: String, px: int = 20) -> Control:
 	slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var circle := ColorRect.new()
 	circle.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	circle.color = Color(0.16, 0.30, 0.42)
+	circle.color = UiTheme.RAISED
 	var m := ShaderMaterial.new()
 	m.shader = load("res://shaders/avatar_circle.gdshader")
 	circle.material = m
@@ -4404,8 +4424,8 @@ func _online_avatar(who: String, px: int = 20) -> Control:
 	initial.text = who.strip_edges().substr(0, 1).to_upper()
 	initial.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	initial.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	initial.add_theme_font_size_override("font_size", 11)
-	initial.add_theme_color_override("font_color", Color(0.85, 0.93, 1.0))
+	initial.add_theme_font_size_override("font_size", maxi(11, px / 2))
+	initial.add_theme_color_override("font_color", COL_TEXT)
 	initial.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	slot.add_child(initial)
 	var api: OnlineApi = GameSession.online
