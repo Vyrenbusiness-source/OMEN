@@ -1444,7 +1444,10 @@ func _build_list() -> void:
 	_view.resized.connect(func():
 		_release_all()
 		_clamp_scroll()
-		_list_dirty = true)
+		_list_dirty = true
+		# Filter-Reihen aendern die Hoehe: Auswahl mittig halten, bis der Nutzer scrollt.
+		if not _user_scrolled:
+			_scroll_to_selected(true))
 	_list_mask.add_child(_view)
 
 	_vbar = VScrollBar.new()
@@ -1467,6 +1470,7 @@ func _build_list() -> void:
 			return
 		_scroll_y = v
 		_scroll_goal = v
+		_user_scrolled = true
 		_list_dirty = true)
 	_list_mask.add_child(_vbar)
 
@@ -1548,6 +1552,7 @@ var _cover_order: Array = []
 var _cover_want: Array = []            # sichtbare Sets ohne Cover, oben zuerst
 var _cover_jobs: Dictionary = {}       # osz_path -> WorkerThreadPool-Task
 var _preview_due := 0
+var _user_scrolled := false
 
 
 ## BrowserSort-Eingabe eines Sets (nur im Modus sichtbare Diffs, Modus-Sterne,
@@ -1708,6 +1713,7 @@ func _list_wheel(ev: InputEvent) -> bool:
 	var f := mb.factor if mb.factor > 0.0 else 1.0
 	var dir := -1.0 if mb.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0
 	_scroll_goal = clampf(_scroll_goal + dir * WHEEL_STEP * f, 0.0, _max_scroll())
+	_user_scrolled = true
 	return true
 
 
@@ -3458,7 +3464,7 @@ func _init_card_styles() -> void:
 	var g := Gradient.new()
 	g.offsets = PackedFloat32Array([0.0, 0.45, 1.0])
 	var sc := Color(0.045, 0.045, 0.06)
-	g.colors = PackedColorArray([Color(sc, 0.95), Color(sc, 0.84), Color(sc, 0.42)])
+	g.colors = PackedColorArray([Color(sc, 0.95), Color(sc, 0.86), Color(sc, 0.62)])
 	_shade_tex = GradientTexture2D.new()
 	_shade_tex.gradient = g
 	_shade_tex.width = 256
