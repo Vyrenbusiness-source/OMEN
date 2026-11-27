@@ -116,7 +116,7 @@ var _busy := false
 var _retry_t := 0.0
 var _pass_left := 0
 ## Liefert Dateiname -> Pfad aller lokalen Maps. Ohne Callable kein automatischer Nachtrag
-## (Tests, headless). Im echten Spiel setzt _connect_server LoginDialog.scan_osz_files.
+## (Tests, headless). Im echten Spiel setzt _connect_server _scan_osz_files.
 var catch_up_provider := Callable()
 ## Test-Hook: Callable() -> Array von ScoreStore-Bestwerten (sonst ScoreStore.best_plays).
 var catch_up_entries := Callable()
@@ -153,7 +153,7 @@ func _connect_server() -> void:
 		auth.call(server_name)
 		return
 	if not catch_up_provider.is_valid():
-		catch_up_provider = Callable(LoginDialog, "scan_osz_files")
+		catch_up_provider = Callable(self, "_scan_osz_files")
 	probe_server(auth)
 
 
@@ -1113,6 +1113,16 @@ func start_catch_up() -> bool:
 	_bf["auto"] = true
 	_log_line("catchup", 0, "start: %d local scores without online id" % int(_bf.total))
 	return true
+
+
+## Alle lokalen Maps (Dateiname -> Pfad).
+func _scan_osz_files() -> Dictionary:
+	var lib := MapLibrary.new()
+	lib.scan()
+	var out := {}
+	for ms in lib.mapsets:
+		out[str(ms.osz_path).get_file()] = str(ms.osz_path)
+	return out
 
 
 ## Anzahl lokaler Scores, die noch nicht online sind (fuer die Profilzeile).
