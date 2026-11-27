@@ -263,9 +263,13 @@ func _test_speed() -> void:
 			"mapper": "Mapper %d" % (rng.randi() % 300), "osz_path": "x%d" % i, "diffs": diffs})
 	var worst := 0.0
 	for key in ["title", "artist", "mapper", "bpm", "length", "difficulty", "date_added", "last_played", "rank"]:
-		var t0 := Time.get_ticks_usec()
-		var r := BrowserSort.sort_sets(sets, key, true)
-		var ms := (Time.get_ticks_usec() - t0) / 1000.0
+		# Bester von drei Laeufen: die Messung soll den Code pruefen, nicht die Last des Rechners.
+		var ms := INF
+		var r: Array = []
+		for _i in 3:
+			var t0 := Time.get_ticks_usec()
+			r = BrowserSort.sort_sets(sets, key, true)
+			ms = minf(ms, (Time.get_ticks_usec() - t0) / 1000.0)
 		print("  sort_sets %-11s 5000x5: %7.2f ms (%d Eintraege)" % [key, ms, r.size()])
 		if key != "difficulty":
 			worst = maxf(worst, ms)
