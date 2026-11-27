@@ -58,6 +58,7 @@ var has_mania_block := false
 ## toent sie mit der Notenfarbe. auto_colors = Palette des Generators je Spalte
 ## ([OMEN] AutoColors), also die Farben des Modus "auto".
 var tintable := false
+var arrow_layout := false   ## [OMEN] Layout: arrows -> 5K-7K nach arrow_dir (Pfeile, Mitte Raute)
 var auto_colors: Array = []
 ## Nur der Fallback-Skin (Balken fuer importierte Skins ohne Notenbilder): Noten-
 ## bilder werden mit der Palette eingefaerbt, weil der osu!-Pfad nicht toent.
@@ -691,8 +692,12 @@ static func _load_builtin(p_name: String, p_keys: int = 4) -> ManiaSkin:
 			for fn in String(sec.get("files", "")).split(",", false):
 				s._files[fn.strip_edges().to_lower() + "@2x"] = fn.strip_edges() + "@2x.png"
 			s.tintable = String(sec.get("tint", "0")).strip_edges() == "1"
+			s.arrow_layout = String(sec.get("layout", "")).strip_edges().to_lower() == "arrows"
 			for hx in String(sec.get("autocolors", "")).split(",", false):
 				s.auto_colors.append(Color.html(hx.strip_edges()))
+	# Layout steht im [OMEN]-Abschnitt, also erst nach _builtin_widths bekannt.
+	if s.arrow_layout and s.keys != 4:
+		_arrow_names(s)
 	return s
 
 
@@ -721,6 +726,36 @@ static func _builtin_widths(s: ManiaSkin, text: String) -> void:
 			var base4 := pick_name_4k(m4, k4)
 			if base4 != "":
 				s._names[pre + str(i)] = base4
+	if s.arrow_layout and s.keys != 4:
+		_arrow_names(s)
+
+
+## Pfeil-Richtung der Spalte: 0 links, 1 unten, 2 oben, 3 rechts, -1 = Mitte (Raute).
+## 4K: l/u/o/r. 5K-7K: linke Haelfte l,u,o,... von aussen nach innen, rechte Haelfte
+## gespiegelt (r,o,u,...), ungerade Spaltenzahl: Mitte = Raute.
+static func arrow_dir(col: int, count: int) -> int:
+	if count <= 4:
+		return clampi(col, 0, 3)
+	if count % 2 == 1 and col == count / 2:
+		return -1
+	var left := col < count / 2
+	var i := col if left else count - 1 - col
+	var seq := [0, 1, 2] if left else [3, 2, 1]
+	return seq[i % 3]
+
+
+## Bildnamen fuer 5K-7K im Pfeil-Layout: arrow<Richtung> bzw. arrowS (Raute).
+static func _arrow_names(s: ManiaSkin) -> void:
+	for i in s.keys:
+		var d := arrow_dir(i, s.keys)
+		var n := "mania-arrow" + ("S" if d < 0 else str(d))
+		var k := "mania-karrow" + ("S" if d < 0 else str(d))
+		s._names["note_%d" % i] = n
+		s._names["head_%d" % i] = n + "H"
+		s._names["body_%d" % i] = n + "L"
+		s._names["tail_%d" % i] = n + "T"
+		s._names["key_%d" % i] = k
+		s._names["keyd_%d" % i] = k + "D"
 
 
 ## Bildname einer 4K-Spalte aus dem [Mania]-Block (NoteImage0, KeyImage1D ...), "" = Standard.
