@@ -844,6 +844,9 @@ func _picker_shots() -> void:
 
 func _exit_tree() -> void:
 	Lobby.stop_discovery()
+	# Der Hinweis haengt nur im Baum, solange man allein im Raum ist: sonst hier freigeben.
+	if is_queued_for_deletion() and is_instance_valid(_alone_hint) and _alone_hint.get_parent() == null:
+		_alone_hint.free()
 
 
 # ---------------------------------------------------------------------------
