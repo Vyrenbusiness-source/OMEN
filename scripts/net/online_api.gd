@@ -37,6 +37,13 @@ const QUEUE_PATH := "user://online_queue.json"
 const TIMEOUT_S := 15.0
 const RETRY_S := 120.0
 const QUEUE_MAX := 200
+## Fehlversuche mit 5xx, danach wird ein Eintrag verworfen (Kopf-Blockade vermeiden).
+const TRIES_MAX := 8
+const LOG_PATH := "user://online_log.txt"
+const LOG_MAX := 200
+const CATCH_UP_DELAY_S := 5.0
+## Modi, die es nicht mehr gibt: Queue-Eintraege dazu werden beim Laden entfernt.
+const DEAD_MODES := ["orbit", "rally", "dirigent", "rebound"]
 const LEADERBOARD_LIMIT := 50
 ## Alte Scores: Pause zwischen zwei Uploads und nach 429.
 const BACKFILL_INTERVAL_S := 1.0
@@ -68,16 +75,23 @@ var server_name := SERVER_OLD
 var base_url := BASE_URL
 var cfg_path := CFG_PATH
 var queue_path := QUEUE_PATH
+var log_path := LOG_PATH
 ## Test-Hook: Callable(method, url, headers, body_text, done: Callable(code, text)).
 var transport := Callable()
 
 var token := ""
 var user_id := ""
 var username := ""
+## Zuletzt angemeldeter Name (bleibt nach Abmelden): Eintraege ohne Login gehoeren ihm.
+var last_user := ""
 ## true, sobald der Server 426 meldete (Client zu alt).
 var update_required := false
 ## Zuletzt gemeldeter Submit-Status ("", "ok", "queued", "update", "error").
 var last_status := ""
+## Letzter Fehler: {"text": String, "time": String} (leer = keiner).
+var last_error := {"text": "", "time": ""}
+## Zustand des letzten Laufs: "" | sent | waiting | failed | no_login | update, dazu Grund.
+var last_submit := {"state": "", "reason": ""}
 
 ## Test-Hook fuer den Alte-Scores-Upload: Callable(osz_path, version) -> meta (synchron).
 var bf_meta_provider := Callable()
@@ -100,6 +114,15 @@ var avatar: Texture2D = null
 var _queue: Array = []
 var _busy := false
 var _retry_t := 0.0
+var _pass_left := 0
+## Liefert Dateiname -> Pfad aller lokalen Maps. Ohne Callable kein automatischer Nachtrag
+## (Tests, headless). Im echten Spiel setzt _connect_server LoginDialog.scan_osz_files.
+var catch_up_provider := Callable()
+## Test-Hook: Callable() -> Array von ScoreStore-Bestwerten (sonst ScoreStore.best_plays).
+var catch_up_entries := Callable()
+var _uid_n := 0
+var _latest_uid := ""
+var _catch_t := -1.0
 var _registered_md5: Dictionary = {}
 var _bf_in_flight := false
 var _bf_log: Array = []
@@ -125,9 +148,12 @@ func _connect_server() -> void:
 	var auth := func(_server: String) -> void:
 		if logged_in():
 			check_auth()
+			schedule_catch_up(CATCH_UP_DELAY_S)
 	if DisplayServer.get_name() == "headless" or transport.is_valid():
 		auth.call(server_name)
 		return
+	if not catch_up_provider.is_valid():
+		catch_up_provider = Callable(LoginDialog, "scan_osz_files")
 	probe_server(auth)
 
 
@@ -216,6 +242,7 @@ func probe_server(done: Callable = Callable()) -> void:
 
 func _process(delta: float) -> void:
 	_bf_process(delta)
+	_catch_process(delta)
 	if _queue.is_empty() or _busy or update_required:
 		return
 	_retry_t += delta
@@ -259,6 +286,9 @@ func load_auth() -> void:
 	token = str(cfg.get_value("auth", "token", ""))
 	user_id = str(cfg.get_value("auth", "user_id", ""))
 	username = str(cfg.get_value("auth", "username", ""))
+	last_user = str(cfg.get_value("auth", "last_user", username))
+	if username != "":
+		last_user = username
 
 
 func _save_auth() -> void:
@@ -268,10 +298,13 @@ func _save_auth() -> void:
 	cfg.set_value("auth", "token", token)
 	cfg.set_value("auth", "user_id", user_id)
 	cfg.set_value("auth", "username", username)
+	cfg.set_value("auth", "last_user", last_user)
 	cfg.save(cfg_path)
 
 
 func logout() -> void:
+	if username != "":
+		last_user = username
 	token = ""
 	user_id = ""
 	username = ""
@@ -309,6 +342,7 @@ func login(p_username: String, password: String, done: Callable = Callable()) ->
 			if r.ok:
 				_set_auth(r)
 				_pump()
+				schedule_catch_up(CATCH_UP_DELAY_S)
 				refresh_avatar()
 			_call(done, r.ok, str(r.message)))
 
@@ -343,6 +377,7 @@ func _set_auth(r: Dictionary) -> void:
 	token = str(r.token)
 	user_id = str(r.user_id)
 	username = str(r.username)
+	last_user = username
 	_save_auth()
 	state_changed.emit()
 
@@ -430,12 +465,19 @@ static func _md5_bytes(bytes: PackedByteArray) -> String:
 	return h.finish().hex_encode()
 
 
+## NaN/inf -> dflt (JSON "nan" scheitert beim Server), sonst auf lo..hi begrenzt.
+static func _fin(v: float, lo: float, hi: float, dflt: float) -> float:
+	if is_nan(v) or is_inf(v):
+		return dflt
+	return clampf(v, lo, hi)
+
+
 ## Body fuer POST /score. result = ManiaCore.stats() (+ "pp"), meta s. meta_from_beatmap.
 ## mode "mania" liefert pp, "trace" liefert stars (result.stars bzw. meta.stars,
 ## Mania-Sterne). Counts (n300 ...) immer wie Mania.
 static func build_body(result: Dictionary, meta: Dictionary, mode: String = "mania") -> Dictionary:
 	var mods: Array = result.get("mods", [])
-	var factor := float(result.get("mod_mult", mod_factor(mods)))
+	var factor := _fin(float(result.get("mod_mult", mod_factor(mods))), 0.0, 10.0, 1.0)
 	var body := {
 		"mode": mode,
 		"beatmap_md5": str(meta.get("md5", "")),
@@ -450,7 +492,7 @@ static func build_body(result: Dictionary, meta: Dictionary, mode: String = "man
 		"score": int(result.get("score", 0)),
 		"mods": mods,
 		"mod_mult": factor,
-		"accuracy": float(result.get("accuracy", 0.0)),
+		"accuracy": _fin(float(result.get("accuracy", 0.0)), -INF, INF, 0.0),
 		"grade": str(result.get("grade", "D")),
 		"max_combo": int(result.get("max_combo", 0)),
 		"count_max": int(result.get("n_max", result.get("count_max", 0))),
@@ -464,9 +506,9 @@ static func build_body(result: Dictionary, meta: Dictionary, mode: String = "man
 		"date": str(result.get("date", Time.get_datetime_string_from_system(true))),
 	}
 	if not ManiaKeys.is_mania_online(mode):
-		body["stars"] = float(result.get("stars", meta.get("stars", 0.0)))
+		body["stars"] = maxf(_fin(float(result.get("stars", meta.get("stars", 0.0))), -INF, INF, 0.0), 0.0)
 	else:
-		body["pp"] = maxf(float(result.get("pp", 0.0)), 0.0)
+		body["pp"] = maxf(_fin(float(result.get("pp", 0.0)), -INF, INF, 0.0), 0.0)
 		# 5K-7K: eigener Modus "mania<n>k" plus Feld "keys" (4K-Body bleibt unveraendert).
 		if mode != "mania":
 			body["keys"] = ManiaKeys.keys_of_online_mode(mode)
@@ -488,7 +530,7 @@ static func build_register_body(meta: Dictionary, mode: String) -> Dictionary:
 		"creator": str(meta.get("creator", "")),
 		"length_ms": int(meta.get("length_ms", 0)),
 		"total_notes": int(meta.get("total_notes", 0)),
-		"stars": maxf(float(meta.get("stars", 0.0)), 0.0),
+		"stars": maxf(_fin(float(meta.get("stars", 0.0)), -INF, INF, 0.0), 0.0),
 	}
 
 
@@ -516,10 +558,10 @@ static func classify_submit(code: int, text: String) -> Dictionary:
 
 
 ## Nach jedem gewerteten Lauf. mode "mania" (5K-7K: "mania<n>k") | "trace".
-## false = nichts gesendet
-## (Online aus / nicht angemeldet / keine md5).
+## false = nichts eingereiht (Online aus / keine md5 / Auto-Map). Ohne Anmeldung kommt der
+## Lauf trotzdem in die Warteschlange und geht nach dem naechsten Login raus.
 func submit(result: Dictionary, meta: Dictionary, mode: String = "mania") -> bool:
-	if not enabled() or not logged_in() or str(meta.get("md5", "")) == "":
+	if not enabled() or str(meta.get("md5", "")) == "":
 		return false
 	if is_auto_map(meta):
 		return false  # aus eigener Musik erzeugt: immer unranked, nie online
@@ -530,29 +572,58 @@ func submit(result: Dictionary, meta: Dictionary, mode: String = "mania") -> boo
 	var rc := replay_content_for(osz, ver, mode, score)
 	if rc != "":
 		body["replay_content"] = rc
+	_uid_n += 1
 	var entry := {
 		"body": body,
 		"reg": build_register_body(meta, mode),
 		"registered": false,
+		"tries": 0,
+		# Profilname: nur dieser Spieler sendet den Eintrag.
+		"user": username if logged_in() else last_user,
+		"uid": "%d-%d" % [Time.get_ticks_usec(), _uid_n],
 		# Lokaler Eintrag, an den die Server-ID (online_id) kommt.
 		"local": {"osz_file": osz.get_file(), "version": ver,
 			"mode": "mania" if ManiaKeys.is_mania_online(mode) else mode, "score": score},
 	}
+	_latest_uid = str(entry.uid)
 	_queue.append(entry)
 	while _queue.size() > QUEUE_MAX:
 		_queue.pop_front()
 	save_queue()
 	last_status = "queued"
+	_log_line("queued", 0, "", entry)
+	_set_submit(entry, "waiting" if logged_in() else "no_login", "")
 	state_changed.emit()
 	_pump()
 	return true
 
 
+## Neuer Durchlauf: jeder Eintrag hoechstens einmal pro Aufruf.
 func _pump() -> void:
 	if _busy or _queue.is_empty() or not enabled() or not logged_in() or update_required:
 		return
+	_pass_left = _queue.size()
+	_next()
+
+
+## Naechster sendbarer Eintrag (gehoert dem angemeldeten Namen oder niemandem), oder -1.
+func _next_idx() -> int:
+	for i in _queue.size():
+		var u := str((_queue[i] as Dictionary).get("user", ""))
+		if u == "" or u == username:
+			return i
+	return -1
+
+
+func _next() -> void:
+	if _busy or not enabled() or not logged_in() or update_required or _pass_left <= 0:
+		return
+	var i := _next_idx()
+	if i < 0:
+		return
+	_pass_left -= 1
 	_busy = true
-	_send_entry(_queue[0])
+	_send_entry(_queue[i])
 
 
 func _send_entry(entry: Dictionary) -> void:
@@ -564,26 +635,91 @@ func _on_score_reply(entry: Dictionary, code: int, text: String) -> void:
 	var r := classify_submit(code, text)
 	var kind := str(r.kind)
 	last_code = str(r.code)
-	if kind == "ok":
-		_store_online_id(entry.get("local", {}), str(r.score_id))
-		var md5 := str(entry.reg.get("beatmap_md5", ""))
-		if ManiaKeys.is_mania_online(str(entry.body.get("mode", ""))) and str(r.pp_source) == "client" 				and md5 != "" and not _registered_md5.has(md5):
-			_register_map(entry.reg, func(): _finish_entry("ok"))
-		else:
-			_finish_entry("ok")
-	elif kind == "update":
-		update_required = true
-		_finish_entry("update", true)
-	elif kind == "auth":
-		_busy = false
-		last_status = "error"
-		logout()
-	elif kind == "rate":
-		_finish_entry("error", true)
-	elif kind == "drop":
-		_finish_entry("error")
-	else:
-		_finish_entry("error", true)
+	var msg := str(r.message)
+	match kind:
+		"ok":
+			_log_line("sent", code, "", entry)
+			_set_submit(entry, "sent", "")
+			_store_online_id(entry.get("local", {}), str(r.score_id))
+			var md5 := str(entry.reg.get("beatmap_md5", ""))
+			if ManiaKeys.is_mania_online(str(entry.body.get("mode", ""))) and str(r.pp_source) == "client" \
+					and md5 != "" and not _registered_md5.has(md5):
+				_register_map(entry.reg, func(): _finish_entry(entry, "ok"))
+			else:
+				_finish_entry(entry, "ok")
+		"update":
+			update_required = true
+			_note_error(code, msg)
+			_log_line("update", code, msg, entry)
+			_set_submit(entry, "update", short_reason(code, msg))
+			_busy = false
+			last_status = "update"
+			save_queue()
+			state_changed.emit()
+		"auth":
+			# Warteschlange bleibt: nach dem naechsten Login geht sie raus.
+			_note_error(code, msg)
+			_log_line("auth", code, msg, entry)
+			_set_submit(entry, "no_login", short_reason(code, msg))
+			_busy = false
+			last_status = "error"
+			save_queue()
+			logout()
+		"rate":
+			_note_error(code, msg)
+			_log_line("retry", code, msg, entry)
+			_set_submit(entry, "waiting", short_reason(code, msg))
+			_requeue(entry)
+			_pass_left = 0   # Server bremst: bis zum naechsten Takt warten
+			_busy = false
+			last_status = "error"
+			save_queue()
+			state_changed.emit()
+		"drop":
+			_note_error(code, msg)
+			_log_line("dropped", code, msg, entry)
+			_set_submit(entry, "failed", short_reason(code, msg))
+			_finish_entry(entry, "error")
+		_:
+			_note_error(code, msg)
+			if code <= 0:
+				# Kein Server erreichbar: kein Fehlversuch, Durchlauf stoppt.
+				_log_line("retry", code, msg, entry)
+				_set_submit(entry, "waiting", short_reason(code, msg))
+				_busy = false
+				last_status = "error"
+				save_queue()
+				state_changed.emit()
+				return
+			entry["tries"] = int(entry.get("tries", 0)) + 1
+			if int(entry.tries) >= TRIES_MAX:
+				_log_line("dropped", code, "%d tries: %s" % [int(entry.tries), msg], entry)
+				_set_submit(entry, "failed", short_reason(code, msg))
+				_finish_entry(entry, "error")
+			else:
+				_log_line("retry", code, msg, entry)
+				_set_submit(entry, "waiting", short_reason(code, msg))
+				_requeue(entry)
+				_busy = false
+				last_status = "error"
+				save_queue()
+				state_changed.emit()
+				_next()
+
+
+func _queue_index(entry: Dictionary) -> int:
+	for i in _queue.size():
+		if is_same(_queue[i], entry):
+			return i
+	return -1
+
+
+## Eintrag ans Ende der Warteschlange.
+func _requeue(entry: Dictionary) -> void:
+	var i := _queue_index(entry)
+	if i >= 0:
+		_queue.remove_at(i)
+		_queue.append(entry)
 
 
 ## Server kennt die Map nur per Client-pp: einmal Metadaten + .osu schicken
@@ -605,19 +741,108 @@ func _register_map(reg: Dictionary, done: Callable) -> void:
 			done.call()))
 
 
-## keep=true: Eintrag bleibt fuer spaeter in der Warteschlange, der Lauf stoppt.
-func _finish_entry(status: String, keep: bool = false) -> void:
+## Eintrag ist erledigt (gesendet oder verworfen): raus aus der Warteschlange, weiter
+## mit dem naechsten. Ist die Warteschlange leer, sucht der Client nach ungesendeten
+## lokalen Scores (catch-up).
+func _finish_entry(entry: Dictionary, status: String) -> void:
 	_busy = false
 	last_status = status
-	if keep:
-		save_queue()
-		state_changed.emit()
-		return
-	if not _queue.is_empty():
-		_queue.pop_front()
+	var i := _queue_index(entry)
+	if i >= 0:
+		_queue.remove_at(i)
 	save_queue()
 	state_changed.emit()
+	if _queue.is_empty():
+		schedule_catch_up(CATCH_UP_DELAY_S)
+	_next()
+
+
+# --- Protokoll und sichtbarer Zustand -------------------------------------------
+
+func _note_error(code: int, msg: String) -> void:
+	last_error = {"text": ("HTTP %d: %s" % [code, msg]) if code > 0 else msg,
+		"time": Time.get_datetime_string_from_system(false, true)}
+
+
+func _set_submit(entry: Dictionary, state: String, reason: String) -> void:
+	if str(entry.get("uid", "")) == _latest_uid or _latest_uid == "":
+		last_submit = {"state": state, "reason": reason}
+
+
+## Kurzer Klartext zu HTTP-Code + Servertext.
+static func short_reason(code: int, msg: String) -> String:
+	var t := TranslationServer
+	if code <= 0:
+		return t.translate("Server nicht erreichbar")
+	if code == 401:
+		return t.translate("Anmeldung abgelaufen")
+	if code == 426:
+		return t.translate("Update nötig")
+	if code == 429:
+		return t.translate("Server ausgelastet")
+	if code >= 500:
+		return t.translate("Serverfehler")
+	var m := msg.strip_edges()
+	if m == "" or m == "HTTP %d" % code:
+		return t.translate("Server lehnt ab") + " (%d)" % code
+	return t.translate("Server lehnt ab") + ": " + m.left(60)
+
+
+## Statuszeile fuers Ergebnisbild: Zustand + Grund -> Text.
+static func status_text(state: String, reason: String) -> String:
+	var t := TranslationServer
+	match state:
+		"sent":
+			return t.translate("Online: gesendet")
+		"waiting", "update":
+			if reason == "":
+				return t.translate("Online: wird gesendet")
+			return t.translate("Online: wartet (%s)") % reason
+		"failed":
+			return t.translate("Online: nicht gesendet: %s") % reason
+		"no_login":
+			return t.translate("Online: nicht angemeldet")
+	return ""
+
+
+func status_line() -> String:
+	return status_text(str(last_submit.state), str(last_submit.reason))
+
+
+## Eine Zeile an user://online_log.txt (hoechstens LOG_MAX Zeilen). Nie Token, Passwort
+## oder Replay-Inhalt.
+func _log_line(action: String, code: int, text: String, entry: Dictionary = {}) -> void:
+	var what := "\t"
+	var b: Variant = entry.get("body", {})
+	if b is Dictionary and not (b as Dictionary).is_empty():
+		what = "%s\t%s [%s]" % [str(b.get("mode", "")), str(b.get("title", "")), str(b.get("difficulty", ""))]
+	var line := "%s\t%s\t%d\t%s\t%s\t%s" % [Time.get_datetime_string_from_system(false, true),
+		action, code, text.left(160), what, client_version()]
+	line = line.replace("\r", " ").replace("\n", " ")
+	var lines: PackedStringArray = []
+	if FileAccess.file_exists(log_path):
+		for l in FileAccess.get_file_as_string(log_path).split("\n", false):
+			lines.append(l)
+	lines.append(line)
+	if lines.size() > LOG_MAX:
+		lines = lines.slice(lines.size() - LOG_MAX)
+	var f := FileAccess.open(log_path, FileAccess.WRITE)
+	if f != null:
+		f.store_string("\n".join(lines) + "\n")
+
+
+## Protokolldatei im Dateimanager oeffnen.
+func open_log() -> void:
+	if not FileAccess.file_exists(log_path):
+		_log_line("info", 0, "log opened")
+	OS.shell_open(ProjectSettings.globalize_path(log_path))
+
+
+## "Jetzt senden": Warteschlange anstossen, danach nach ungesendeten Scores suchen.
+func send_now() -> void:
+	_retry_t = 0.0
 	_pump()
+	schedule_catch_up(1.0)
 
 
 func save_queue() -> void:
@@ -634,6 +859,8 @@ func load_queue() -> void:
 	if d is Array:
 		for e in d:
 			if e is Dictionary and e.has("body") and e.has("reg"):
+				if str((e.body as Dictionary).get("mode", "")) in DEAD_MODES:
+					continue   # Modus gibt es nicht mehr
 				_queue.append(e)
 
 
@@ -702,6 +929,8 @@ static func backfill_candidates(entries: Array, done_keys: Array, osz_files: Dic
 			continue
 		if bool(e.get("unranked", false)) or bool(e.get("failed", false)) or str(e.get("grade", "")) == "F":
 			continue
+		if str(e.get("online_id", "")) != "":
+			continue   # Server hat ihn schon
 		var f := str(e.get("osz_file", "")).get_file()
 		var v := str(e.get("version", ""))
 		var key := backfill_key(f, v)
@@ -759,7 +988,7 @@ static func _cfg_list(cfg: ConfigFile, key: String) -> Array:
 ## dieser Merker-Version uebersprungen ("skipped": Map fehlt, Server lehnt ab).
 func backfill_done_keys() -> Array:
 	var cfg := _bf_cfg()
-	return _cfg_list(cfg, "sent") + _cfg_list(cfg, "skipped")
+	return _cfg_list(cfg, "sent") + _cfg_list(cfg, "skipped") + _cfg_list(cfg, "rejected")
 
 
 ## Vom Server angenommene Keys.
@@ -767,7 +996,23 @@ func backfill_sent_keys() -> Array:
 	return _cfg_list(_bf_cfg(), "sent")
 
 
-## list: "sent" | "skipped"
+## Vom Server abgelehnter Score (4xx): nie wieder senden, Grund merken.
+func _bf_reject(key: String, reason: String) -> void:
+	_bf_mark(key, "rejected")
+	var cfg := _bf_cfg()
+	var d: Variant = cfg.get_value("backfill", "rejected_reason", {})
+	var dd: Dictionary = (d as Dictionary).duplicate() if d is Dictionary else {}
+	dd[key] = reason.left(120)
+	cfg.set_value("backfill", "rejected_reason", dd)
+	cfg.save(cfg_path)
+
+
+func backfill_rejected() -> Dictionary:
+	var d: Variant = _bf_cfg().get_value("backfill", "rejected_reason", {})
+	return (d as Dictionary).duplicate() if d is Dictionary else {}
+
+
+## list: "sent" | "skipped" | "rejected"
 func _bf_mark(key: String, list: String = "sent") -> void:
 	var cfg := _bf_cfg()
 	var keys := _cfg_list(cfg, list)
@@ -833,6 +1078,48 @@ func start_backfill(osz_files: Dictionary, entries: Array = []) -> bool:
 	return true
 
 
+## Automatischer Nachtrag nach Login, Spielstart und leerer Warteschlange: lokale Scores
+## ohne online_id leise im Hintergrund senden (BACKFILL_INTERVAL_S Takt, 429 -> Pause).
+func schedule_catch_up(delay: float) -> void:
+	if enabled() and logged_in() and catch_up_provider.is_valid():
+		_catch_t = maxf(delay, 0.0)
+
+
+func _catch_process(delta: float) -> void:
+	if _catch_t < 0.0:
+		return
+	_catch_t -= delta
+	if _catch_t >= 0.0:
+		return
+	_catch_t = -1.0
+	if _busy or not _queue.is_empty() or bool(_bf.running):
+		_catch_t = 30.0   # Warteschlange zuerst, dann nachtragen
+		return
+	start_catch_up()
+
+
+## Startet den Nachtrag sofort. false = nichts zu tun.
+func start_catch_up() -> bool:
+	if not enabled() or not logged_in() or update_required or bool(_bf.running) \
+			or not catch_up_provider.is_valid():
+		return false
+	var entries: Array = catch_up_entries.call() if catch_up_entries.is_valid() \
+		else ScoreStore.best_plays(99999, "")
+	if entries.is_empty():
+		return false
+	var files: Dictionary = catch_up_provider.call()
+	if not start_backfill(files, entries):
+		return false
+	_bf["auto"] = true
+	_log_line("catchup", 0, "start: %d local scores without online id" % int(_bf.total))
+	return true
+
+
+## Anzahl lokaler Scores, die noch nicht online sind (fuer die Profilzeile).
+func catch_up_pending(osz_files: Dictionary) -> int:
+	return backfill_pending(osz_files)
+
+
 func cancel_backfill() -> void:
 	if bool(_bf.running):
 		_bf["cancel"] = true
@@ -841,6 +1128,9 @@ func cancel_backfill() -> void:
 
 
 func _bf_end(state: String) -> void:
+	if bool(_bf.get("running", false)) and bool(_bf.get("auto", false)):
+		_log_line("catchup", 0, "end %s: sent %d, skipped %d of %d" % [state, int(_bf.sent),
+			int(_bf.skipped), int(_bf.total)])
 	_bf["running"] = false
 	_bf["state"] = state
 	_bf_in_flight = false
@@ -956,7 +1246,10 @@ func _bf_on_reply(c: Dictionary, reg: Dictionary, code: int, text: String) -> vo
 			else:
 				_bf_advance(bf_interval)
 		"drop":
-			_bf_mark(str(c.key), "skipped")
+			_note_error(code, str(r.message))
+			_bf_reject(str(c.key), "HTTP %d %s" % [code, str(r.message)])
+			_log_line("dropped", code, "catch-up: " + str(r.message), {"body": {"mode": "mania",
+				"title": str(c.key).get_slice("|", 0), "difficulty": str(c.version)}})
 			_bf["skipped"] = int(_bf.skipped) + 1
 			_bf_advance(bf_interval)
 		"rate":
@@ -967,12 +1260,16 @@ func _bf_on_reply(c: Dictionary, reg: Dictionary, code: int, text: String) -> vo
 				_bf_step()
 		"update":
 			update_required = true
+			_log_line("update", code, str(r.message))
 			_bf_end("update")
 			state_changed.emit()
 		"auth":
+			_log_line("auth", code, str(r.message))
 			_bf_end("auth")
 			logout()
 		_:
+			_note_error(code, str(r.message))
+			_log_line("retry", code, "catch-up: " + str(r.message))
 			_bf_end("error")
 
 
