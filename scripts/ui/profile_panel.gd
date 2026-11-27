@@ -328,11 +328,24 @@ func _build_account() -> void:
 		row.add_child(fill)
 		if api.queue_size() > 0:
 			row.add_child(_acct_label(tr("%d Score(s) warten auf Senden") % api.queue_size()))
+		elif api.backfill_running() and bool(api._bf.get("auto", false)):
+			row.add_child(_acct_label(tr("%d Score(s) werden gesendet") % maxi(
+				int(api.backfill_state().total) - int(api.backfill_state().done), 1)))
+		elif api.backfill_pending(_osz_files()) == 0:
+			row.add_child(_acct_label(tr("Alle Scores sind online")))
 		if api.update_required:
 			row.add_child(_acct_label(tr("Update nötig, um Scores zu senden")))
+		if api.queue_size() > 0 or api.update_required:
+			row.add_child(_acct_btn(tr("Jetzt senden"), false, func(): api.send_now()))
+		row.add_child(_acct_btn(tr("Protokoll öffnen"), false, func(): api.open_log()))
 		row.add_child(_acct_btn(tr("Profil im Browser"), true,
 			func(): api.open_profile(api.username)))
 		row.add_child(_acct_btn(tr("Abmelden"), false, func(): api.logout()))
+		if str(api.last_error.text) != "":
+			var erow := HBoxContainer.new()
+			_acct.add_child(erow)
+			erow.add_child(_acct_label(tr("Letzter Fehler: %s (%s)") % [
+				str(api.last_error.text).left(80), str(api.last_error.time)]))
 		_build_backfill(api)
 		return
 	match _acct_step:

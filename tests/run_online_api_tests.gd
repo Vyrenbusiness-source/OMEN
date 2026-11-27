@@ -8,6 +8,7 @@ extends SceneTree
 
 const TMP_CFG := "user://test_tmp/online_test.cfg"
 const TMP_Q := "user://test_tmp/online_queue_test.json"
+const TMP_LOG := "user://test_tmp/online_log_test.txt"
 
 var _failed := 0
 var _done := false
@@ -44,6 +45,8 @@ func _api() -> OnlineApi:
 	var a := OnlineApi.new()
 	a.cfg_path = TMP_CFG
 	a.queue_path = TMP_Q
+	a.log_path = TMP_LOG
+	DirAccess.remove_absolute(TMP_LOG)
 	a.api_key = "k"
 	a.token = "tok"
 	a.transport = _fake
@@ -123,7 +126,8 @@ func _run() -> void:
 	off.free()
 	var nolog := _api()
 	nolog.token = ""
-	_check(not nolog.submit(_result(), _meta()), "ohne Login: kein Submit")
+	_check(nolog.submit(_result(), _meta()) and nolog.queue_size() == 1 and _log.is_empty(),
+		"ohne Login: Lauf wartet in der Queue, kein Netz")
 	nolog.free()
 
 	# --- Submit ok
@@ -289,11 +293,14 @@ func _run() -> void:
 	a.leaderboard("trace", "abc", 0, func(_ok, _e, _m): pass)
 	_check(not ("beatmap_id" in _log[0].url), "beatmap_id nur wenn > 0")
 
+	_submit_tests()
 	_backfill_tests()
+	_catch_up_tests()
 
 	a.free()
 	DirAccess.remove_absolute(TMP_Q)
 	DirAccess.remove_absolute(TMP_CFG)
+	DirAccess.remove_absolute(TMP_LOG)
 	print("FAILED: %d" % _failed if _failed > 0 else "ALL OK")
 	quit(1 if _failed > 0 else 0)
 
@@ -534,3 +541,159 @@ func _backfill_tests() -> void:
 	nl.token = ""
 	_check(not nl.start_backfill(files, entries), "ohne Login kein Backfill")
 	nl.free()
+
+
+func _meta_n(i: int) -> Dictionary:
+	var m := _meta()
+	m["md5"] = "md5_%d" % i
+	m["difficulty"] = "D%d" % i
+	return m
+
+
+func _log_text() -> String:
+	return FileAccess.get_file_as_string(TMP_LOG) if FileAccess.file_exists(TMP_LOG) else ""
+
+
+## Kopf-Blockade, Versuchszaehler, Protokoll, Login-Pflicht, NaN, alte Modi.
+func _submit_tests() -> void:
+	# 1) Kopf mit 500: spaetere Scores gehen trotzdem raus; Kopf wandert ans Ende.
+	var a := _api()
+	_script = [[500, "{}"], [500, "{}"], [200, "{}"]]
+	a._queue.append({"body": OnlineApi.build_body(_result(), _meta_n(1)), "reg": {"beatmap_md5": "md5_1"}, "tries": 0})
+	a.submit(_result(), _meta_n(2))
+	# submit() startet den Durchlauf: Kopf (500) -> Ende, Eintrag 2 (500) -> Ende, dann Pass leer
+	_check(a.queue_size() == 2 and _log.size() == 2, "Pass: jeder Eintrag einmal (%d Requests)" % _log.size())
+	_check(int(a._queue[0].tries) == 1 and int(a._queue[1].tries) == 1, "tries zaehlt je Eintrag")
+	_script = [[500, "{}"], [200, "{}"]]
+	_log.clear()
+	a._pump()
+	_check(a.queue_size() == 1 and _log.size() == 2, "500 am Kopf sperrt den naechsten nicht")
+	var b: Dictionary = JSON.parse_string(_log[1].body)
+	_check(str(b.beatmap_md5) == "md5_2" or str(b.beatmap_md5) == "md5_1", "zweiter Eintrag gesendet")
+	# tries persistiert
+	var q: Variant = JSON.parse_string(FileAccess.get_file_as_string(TMP_Q))
+	_check(q is Array and q.size() == 1 and int(q[0].tries) >= 1, "tries in Queue-Datei")
+	# nach 8 Fehlversuchen verworfen
+	a._queue.clear()
+	a._queue.append({"body": OnlineApi.build_body(_result(), _meta_n(3)), "reg": {"beatmap_md5": "md5_3"}, "tries": 7})
+	_script = [[502, "{\"error\":\"bad gateway\"}"]]
+	a._pump()
+	_check(a.queue_size() == 0 and "dropped" in _log_text(), "8. Fehlversuch: verworfen und protokolliert")
+	# Netzfehler (0) zaehlt nicht
+	a._queue.clear()
+	a._queue.append({"body": OnlineApi.build_body(_result(), _meta_n(4)), "reg": {"beatmap_md5": "md5_4"}, "tries": 0})
+	a._queue.append({"body": OnlineApi.build_body(_result(), _meta_n(5)), "reg": {"beatmap_md5": "md5_5"}, "tries": 0})
+	_script = [[0, ""]]
+	_log.clear()
+	a._pump()
+	_check(a.queue_size() == 2 and _log.size() == 1 and int(a._queue[0].tries) == 0,
+		"Netzfehler: kein Versuch gezaehlt, Durchlauf stoppt")
+	a.free()
+
+	# 429: Eintrag ans Ende, Durchlauf stoppt, Versuch zaehlt nicht
+	a = _api()
+	a._queue.append({"body": OnlineApi.build_body(_result(), _meta_n(6)), "reg": {"beatmap_md5": "md5_6"}, "tries": 0})
+	a._queue.append({"body": OnlineApi.build_body(_result(), _meta_n(7)), "reg": {"beatmap_md5": "md5_7"}, "tries": 0})
+	_script = [[429, "{\"code\":\"too_fast\"}"]]
+	a._pump()
+	_check(a.queue_size() == 2 and _log.size() == 1 and str(a._queue[1].reg.beatmap_md5) == "md5_6"
+		and int(a._queue[1].tries) == 0, "429: Kopf ans Ende, Pause")
+
+	# 2) 4xx: Protokoll mit Grund, last_error, Statuszeile; kein Token im Protokoll
+	a.free()
+	a = _api()
+	_script = [[422, "{\"code\":\"counts_mismatch\"}"]]
+	a.submit(_result(), _meta_n(8))
+	var lt := _log_text()
+	_check(a.queue_size() == 0 and "dropped" in lt and "422" in lt and "counts_mismatch" in lt
+		and "D8" in lt and not ("tok" in lt.replace("\t", " ").split(" ")), "4xx: Protokoll mit Code, Grund, Map")
+	_check(a.last_error.text.contains("counts_mismatch") and a.last_error.time != "", "last_error gesetzt")
+	_check(a.last_submit.state == "failed" and "counts_mismatch" in a.status_line(), "Statuszeile: nicht gesendet + Grund")
+	_script = [[200, "{}"]]
+	a.submit(_result(), _meta_n(9))
+	_check(a.last_submit.state == "sent" and a.status_line() == "Online: gesendet", "Statuszeile: gesendet")
+	# Protokoll bleibt <= 200 Zeilen
+	for i in 230:
+		a._log_line("retry", 500, "x")
+	_check(_log_text().split("\n", false).size() == OnlineApi.LOG_MAX, "Protokoll rotiert auf %d Zeilen" % OnlineApi.LOG_MAX)
+	a.free()
+
+	# 3) 401: Queue bleibt, Lauf ohne Login geht nach Login raus; fremder Name bleibt liegen
+	a = _api()
+	a.username = "Cy"
+	_script = [[401, "{}"]]
+	a.submit(_result(), _meta_n(10))
+	_check(not a.logged_in() and a.queue_size() == 1 and a.last_submit.state == "no_login", "401: Queue bleibt")
+	_log.clear()
+	_check(a.submit(_result(), _meta_n(11)) and a.queue_size() == 2 and _log.is_empty(), "ohne Login: eingereiht")
+	_script = [[200, "{}"], [200, "{}"]]
+	a.token = "t2"
+	a._set_auth({"token": "t2", "user_id": "1", "username": "Cy"})
+	a._pump()
+	_check(a.queue_size() == 0 and _log.size() == 2, "nach Login gesendet")
+	a._queue.append({"body": OnlineApi.build_body(_result(), _meta_n(12)), "reg": {"beatmap_md5": "md5_12"},
+		"tries": 0, "user": "Anderer"})
+	_log.clear()
+	a._pump()
+	_check(a.queue_size() == 1 and _log.is_empty(), "Eintrag eines anderen Profilnamens bleibt liegen")
+	a.free()
+
+	# 4) NaN/inf
+	var nan_res := _result()
+	nan_res["accuracy"] = NAN
+	nan_res["pp"] = INF
+	nan_res["mod_mult"] = NAN
+	var nb := OnlineApi.build_body(nan_res, _meta())
+	var txt := JSON.stringify(nb)
+	_check(float(nb.accuracy) == 0.0 and float(nb.pp) == 0.0 and float(nb.mod_mult) == 1.0
+		and not ("nan" in txt) and not ("inf" in txt), "build_body: NaN/inf abgesichert")
+	nan_res["stars"] = NAN
+	_check(float(OnlineApi.build_body(nan_res, _meta(), "trace").stars) == 0.0, "stars NaN -> 0")
+
+	# 5) Alte Modi beim Laden entfernt
+	a = _api()
+	var good := {"body": OnlineApi.build_body(_result(), _meta_n(1)), "reg": {}}
+	var dead := {"body": OnlineApi.build_body(_result(), _meta_n(2), "orbit"), "reg": {}}
+	var f := FileAccess.open(TMP_Q, FileAccess.WRITE)
+	f.store_string(JSON.stringify([good, dead]))
+	f.close()
+	a.load_queue()
+	_check(a.queue_size() == 1, "Queue: Eintrag mit entferntem Modus weg")
+	a.free()
+
+
+## Automatischer Nachtrag: ohne online_id -> gesendet, abgelehnt -> nie wieder, Duplikat -> gesendet.
+func _catch_up_tests() -> void:
+	var a := _api()
+	a.bf_interval = 0.0
+	a.bf_rate_wait = 0.0
+	a.bf_meta_provider = func(_p: String, v: String) -> Dictionary:
+		var m := _meta()
+		m["md5"] = "md5_" + v
+		m["difficulty"] = v
+		m["total_notes"] = 60
+		return m
+	var files := {"a.osz": "/x/a.osz"}
+	var entries := [_entry("a.osz", "Neu", 60), _entry("a.osz", "Nein", 60),
+		_entry("a.osz", "Dup", 60), _entry("a.osz", "Schon", 60, {"online_id": "77"})]
+	a.catch_up_provider = func() -> Dictionary: return files
+	a.catch_up_entries = func() -> Array: return entries
+	_script = [[200, "{}"], [422, "{\"code\":\"bad_replay\"}"], [200, "{\"duplicate\":true}"]]
+	_check(a.start_catch_up(), "Nachtrag startet")
+	var st := a.backfill_state()
+	var sent := 0
+	for l in _log:
+		if l.url.ends_with("/score"):
+			sent += 1
+	_check(sent == 3 and st.state == "finished", "3 Scores ohne online_id gesendet, mit online_id nicht (%d)" % sent)
+	var sk := a.backfill_sent_keys()
+	_check(sk.has("a.osz|Neu") and sk.has("a.osz|Dup"), "angenommen + Duplikat = gesendet")
+	_check(a.backfill_rejected().has("a.osz|Nein") and "bad_replay" in str(a.backfill_rejected()["a.osz|Nein"]),
+		"abgelehnt: mit Grund gemerkt")
+	_check("catchup" in _log_text() and "dropped" in _log_text(), "Protokoll: Nachtrag-Zeilen")
+	_log.clear()
+	_check(not a.start_catch_up() and _log.is_empty(), "abgelehnter Score wird nie wieder gesendet")
+	# ohne Login nichts
+	a.token = ""
+	_check(not a.start_catch_up(), "ohne Login kein Nachtrag")
+	a.free()

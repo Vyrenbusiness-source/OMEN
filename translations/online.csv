@@ -42,3 +42,19 @@ Deine alten Bestwerte werden hochgeladen.,Deine alten Bestwerte werden hochgelad
 "Konto im Browser anlegen, E-Mail bestätigen, dann hier anmelden.","Konto im Browser anlegen, E-Mail bestätigen, dann hier anmelden.","Create the account in your browser, confirm the email, then sign in here."
 "Profilbild von butzebot.com, dort änderbar","Profilbild von butzebot.com, dort änderbar","Profile picture from butzebot.com, change it there"
 Es werden nur deine Mania-Bestwerte hochgeladen.,Es werden nur deine Mania-Bestwerte hochgeladen.,Only your Mania bests are uploaded.
+Online: gesendet,Online: gesendet,Online: sent
+Online: wird gesendet,Online: wird gesendet,Online: sending
+Online: wartet (%s),Online: wartet (%s),Online: waiting (%s)
+Online: nicht gesendet: %s,Online: nicht gesendet: %s,Online: not sent: %s
+Online: nicht angemeldet,Online: nicht angemeldet,Online: not signed in
+Server nicht erreichbar,Server nicht erreichbar,Server not reachable
+Anmeldung abgelaufen,Anmeldung abgelaufen,Sign-in expired
+Update nötig,Update nötig,Update needed
+Server ausgelastet,Server ausgelastet,Server busy
+Serverfehler,Serverfehler,Server error
+Server lehnt ab,Server lehnt ab,Server rejected it
+%d Score(s) werden gesendet,%d Score(s) werden gesendet,Sending %d score(s)
+Alle Scores sind online,Alle Scores sind online,All scores are online
+Jetzt senden,Jetzt senden,Send now
+Protokoll öffnen,Protokoll öffnen,Open log
+Letzter Fehler: %s (%s),Letzter Fehler: %s (%s),Last error: %s (%s)
