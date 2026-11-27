@@ -351,6 +351,9 @@ func _case_browser() -> void:
 				btns.append(n)
 		if btns.size() == 3 and sc.get("_selected_set") != null:
 			break
+	# Tempo-Knoepfe stehen in der Mods-Gruppe, die erst ein Klick auf "Mods" aufklappt.
+	if current_scene != null and current_scene.has_method("_set_mods_open"):
+		current_scene.call("_set_mods_open", true)
 	await create_timer(1.5).timeout
 	var vis := 0
 	for b in btns:

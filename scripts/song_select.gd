@@ -3846,18 +3846,43 @@ func _start_board_job() -> void:
 	var ver := _selected_set.version_name_at(_selected_diff)
 	_detail_tasks.append(WorkerThreadPool.add_task(_board_job.bind(get_instance_id(), _board_gen,
 		_selected_set.osz_path, ver, _selected_set.osu_filename_at(_selected_diff), _board_mode(),
-		_play_mode == "mania", _lb_online), false, "browser-board"))
+		_play_mode == "mania", _lb_online, ScoreStore._self_name()), false, "browser-board"))
 
 
-## Worker: Max-pp aus dem Cache und Top-Scores lesen (nur Dateien, kein Szenenzugriff
-## ausser dem Profilnamen in ScoreStore._self_name, der nur gelesen wird).
+## Worker: Max-pp aus dem Cache und Top-Scores lesen (nur Dateien, kein Szenenzugriff;
+## den Profilnamen liest _start_board_job im Hauptthread und reicht ihn als player herein).
 static func _board_job(owner_id: int, gen: int, osz: String, ver: String, inner: String,
-		score_mode: String, want_pp: bool, online: bool) -> void:
+		score_mode: String, want_pp: bool, online: bool, player: String) -> void:
 	var pp := StarService.max_pp_cached(osz, inner) if want_pp else NAN
-	var tops: Array = [] if online else ScoreStore.top_scores_all(osz, ver, 5, score_mode)
+	var tops: Array = [] if online else board_scores(osz, ver, 5, score_mode, player)
 	var o: Object = instance_from_id(owner_id)
 	if o != null:
 		o.call_deferred(&"_on_board_data", gen, pp, tops)
+
+
+## Wie ScoreStore.top_scores_all, aber ohne Szenenbaum (Worker-tauglich):
+## eigene Scores bekommen den uebergebenen Namen.
+static func board_scores(osz: String, ver: String, n: int, mode: String, player: String) -> Array:
+	var cfg := ConfigFile.new()
+	var loaded := ScoreStore._load(cfg) == OK
+	var out: Array = []
+	for e in ScoreStore.top_scores(osz, ver, ScoreStore.HISTORY_CAP, mode):
+		var d: Dictionary = (e as Dictionary).duplicate()
+		d["player"] = player
+		d["is_self"] = true
+		d["mode"] = ScoreStore.mode_name(mode)
+		out.append(d)
+	if loaded:
+		var others: Array = cfg.get_value(ScoreStore._sec("others", mode),
+				ScoreStore.map_id(osz, ver, cfg), [])
+		for o in others:
+			if o is Dictionary:
+				var d: Dictionary = (o as Dictionary).duplicate()
+				d["is_self"] = false
+				d["mode"] = ScoreStore.mode_name(mode)
+				out.append(d)
+	out.sort_custom(func(a, b): return ScoreStore.ranks_higher(a, b))
+	return out.slice(0, n)
 
 
 ## Hauptthread: Bestenliste bauen (eigene + Mitspieler, beste zuerst), Max-pp, Replay.
@@ -6765,6 +6790,11 @@ func _apply_recs_visibility() -> void:
 		_rec_view.visible = open
 	if _list_mask != null:
 		_list_mask.visible = not open
+	# Sortier-Reihe und Filter-Feld gehoeren zur Liste: hinter dem Tab nicht durchscheinen.
+	if _filter_stack != null:
+		_filter_stack.visible = not open
+	if _filter_pop != null and open:
+		_filter_pop.visible = false
 	if _rec_body != null:
 		_rec_body.visible = true
 	# Der Tab ersetzt Einklappen und Ausblenden: der Kopf ist nur noch Titel.

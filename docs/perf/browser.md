@@ -46,3 +46,28 @@ gemessen; ihr Scroll-Wert bei 1x (4,6 ms) enthaelt also denselben Anlauf.
 Offen fuer Stufe 2: Hintergrund-Vorbereitung der Auswahl blockiert in den ersten
 etwa 0,5 s nach dem Start einzelne Frames (bis 41 ms); bei 1900 Sets dauert die
 erste Liste 641 ms (Sortieren und Gruppieren aller Sets im Hauptthread).
+
+## Stufe 2a: Auswahlwechsel (linkes Panel, Hintergrund, Bestenliste)
+
+Neu im Bench: `BENCH_RAPID` waehlt 40-mal im Abstand von 33 ms ein anderes Set
+(schnelles Durchwechseln) und misst danach noch 1,5 s weiter (entprellte Jobs
+laufen in dieser Zeit fertig). `_bt()` schreibt Abschnitte ueber 1 ms als
+`BENCH_RAPID_SLOW`.
+
+Vorher kostete jede Auswahl im Hauptthread 19-25 ms: Max-pp (stars.cfg laden,
+10 ms), Bestenliste (scores laden, 8 ms), weicher Hintergrund (Textur-Readback),
+Timing-Points (Zip lesen fuer BPM). Jetzt: Texte sofort, alles andere nach
+140 ms (`DETAIL_DELAY_MS`) im WorkerThreadPool (`_osu_info_job`, `_bg_job`,
+`_board_job`); der Hauptthread laedt nur Texturen hoch und baut die Zeilen.
+Den Profilnamen liest `_start_board_job` im Hauptthread (kein Szenenzugriff im Worker).
+
+1920x1080, 74 Sets, warm:
+
+| Lauf | Set-Wechsel Median / max | Schnelles Durchwechseln: laengster Frame | p99 | Frames > 8 ms |
+|---|---|---|---|---|
+| vorher (Stufe 1) | 21,1 ms / 25 ms | – | – | – |
+| nachher, Lauf 1 | 2,9 ms / – | 18,5 ms | 2,07 ms | 1 von 5092 |
+| nachher, Lauf 2 (Board-Job ohne Szenenbaum) | 4,4 ms / 8,7 ms | 6,6 ms | 2,53 ms | 0 von 4080 |
+
+Scrollen im selben Lauf 2: laengster Frame 5,1 ms, p99 4,0 ms, 0 von 158 Frames > 8 ms,
+erste Liste 272 ms.

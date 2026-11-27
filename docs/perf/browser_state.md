@@ -47,3 +47,13 @@ Offen (alter Plan, Stand Handoff 1; Punkte 1-4 oben erledigt):
 3. Mitte: `_cover`-Kachel weg. Map-Bild als Vollbild-Hintergrund: Worker liest das Bild (`OszImporter.read_file_bytes` + decode wie `cover_build`), verkleinert auf 320 px, zieht weich auf 960 px hoch, Helligkeit nach Luminanz (wie `cover_dim`, Ziel ~0,2), Hauptthread nur Upload + 0,35 s Ueberblendung zweier TextureRects. Spektrum + Vorschau-Linie unten in der Mitte lassen.
 4. Tempo (Ursachen gefunden): pro Auswahl im Hauptthread `UiTheme.blurred_texture(quick, 8)` (Textur-Readback von der GPU + Resizes), `_timing_points` (Zip lesen + parsen fuer BPM), `_load_fullres_bg` (Vollbild-Textur mit Mipmaps hochladen), Bestenliste neu bauen. Plan: Texte sofort, Rest entprellt (~140 ms, `_detail_due` in `_prepare_step`), Timing-Points/HP und Hintergrund im WorkerThreadPool (statische Jobs mit instance_id wie `_maxpp_job`, in `_exit_tree` abwarten), PREPARE_DELAY_MS 100 -> 350. Bench um schnelles Durchwechseln (alle 33 ms, 40 Wechsel, 1,5 s Nachlauf, max Frame / Frames > 8 ms) erweitern, Zahlen in browser.md.
 5. Texte ueber tr() in translations/browser.csv (en+de), .translation neu importieren. Tests: statische Helfer (osu-Kopf-Parser, BPM-Bereich, Datum) in tests/run_browser_filter_tests.gd.
+
+## Abschluss (Handoff 3)
+
+Erledigt: Punkt 1 (`board_scores` in song_select.gd, Profilname aus dem Hauptthread als
+Parameter von `_board_job`, kein Thread-ERROR mehr, eigener Name sichtbar), Punkt 2
+(1080p: scharfe Kachel mittig zwischen Panel und Liste, weicher Hintergrund; For-you-Tab
+blendet Sortier-Reihe und Filter-Feld aus, sie schienen durch), Punkt 3 (Zahlen in
+docs/perf/browser.md), Punkt 4 (Tests `_test_panel_helpers`, `_test_board_scores`;
+tests/mv_tempo_play.gd klappt die Mods-Gruppe vor der Sichtbarkeitspruefung auf).
+Offen: Punkt 5 (`RuleModsHarness` wartet nicht auf die entprellte Bestenliste, fremde Datei).
