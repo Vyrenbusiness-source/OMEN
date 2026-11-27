@@ -135,18 +135,18 @@ func _threads(dir: String) -> void:
 
 	# Profil-Thumbs: im Thread nur dekodieren und verkleinern.
 	var th2 := Thread.new()
-	th2.start(func(): return ProfilePanel.thumb_image(osz, "Sub/COVER.png"))
+	th2.start(func(): return OszImporter.load_thumb_image(osz, "Sub/COVER.png", 220))
 	var thumb: Image = th2.wait_to_finish()
-	_check(thumb != null and thumb.get_width() == ProfilePanel.THUMB_W and thumb.get_height() == 110,
+	_check(thumb != null and thumb.get_width() == 220 and thumb.get_height() == 110,
 		"Profil-Thumb im Thread: Image 220x110")
-	_check(ProfilePanel.thumb_image(osz, "") == null and ProfilePanel.thumb_image(osz, "fehlt.png") == null,
+	_check(OszImporter.load_thumb_image(osz, "", 220) == null and OszImporter.load_thumb_image(osz, "fehlt.png", 220) == null,
 		"Profil-Thumb ohne Bild: null")
 	var src := FileAccess.get_file_as_string("res://scripts/ui/profile_panel.gd")
 	var a := src.find("func _thumb_worker(")
 	var b := src.find("
 func ", a + 10)
 	var body := src.substr(a, b - a)
-	_check(a >= 0 and not body.contains("get_image(") and not body.contains("background_texture("),
+	_check(a >= 0 and body.contains("load_thumb_image(") and not body.contains("get_image(") 			and not body.contains("background_texture("),
 		"_thumb_worker: kein get_image()/keine Textur im Thread")
 	var osrc := FileAccess.get_file_as_string("res://scripts/parser/osz_importer.gd")
 	var pa := osrc.find("static func _prepare_task(")

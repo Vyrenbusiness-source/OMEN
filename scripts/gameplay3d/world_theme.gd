@@ -171,8 +171,15 @@ static func pick(beatmap: Beatmap, stars: float, theme_color: Color) -> String:
 ## Gewaehltes Thema: forced ("galaxy"/...) gewinnt, "" = automatisch.
 static func resolve(forced: String, beatmap: Beatmap, stars: float, theme_color: Color) -> String:
 	# Absturzschutz Stufe 2+: nur die Galaxie (4096er-Ebenen statt 8192er-Welten).
-	if safe_simple():
-		return GALAXY
+	var t := GALAXY if safe_simple() else _resolve(forced, beatmap, stars, theme_color)
+	# Welt fuer den Absturzbericht (Phase bleibt, CrashGuard erkennt sie selbst).
+	var g := crash_guard()
+	if g != null:
+		g.call("set_phase", str(g.get("phase")), t)
+	return t
+
+
+static func _resolve(forced: String, beatmap: Beatmap, stars: float, theme_color: Color) -> String:
 	if NAMES.has(forced):
 		return forced
 	if beatmap == null:

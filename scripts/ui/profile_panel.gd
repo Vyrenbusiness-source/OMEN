@@ -905,32 +905,14 @@ func _thumb_worker(jobs: Array, gen: int) -> void:
 			var ms: MapSet = _set_by_file.get(file)
 			if ms == null:
 				continue
-			img = thumb_image(ms.osz_path, ms.background_file)
+			# Thread-sicher: nur dekodieren + verkleinern, keine Textur und kein
+			# GPU-Readback aus dem Thread (Absturzgefahr auf AMD/Vulkan).
+			img = OszImporter.load_thumb_image(ms.osz_path, ms.background_file, THUMB_W)
 			if img == null:
 				continue
 			_thumb_cache[file] = img
 		call_deferred("_apply_thumb", job.rect, img)
 
-
-## Cover-Bild fuer eine Score-Zeile, thread-sicher: nur aus dem Archiv
-## dekodieren und verkleinern. Keine Textur und kein get_image() im Thread
-## (GPU-Readback aus einem Nebenthread = Absturzgefahr auf AMD/Vulkan).
-static func thumb_image(osz_path: String, bg_file: String, max_w: int = THUMB_W) -> Image:
-	if bg_file == "":
-		return null
-	var img := OszImporter.load_image(osz_path, bg_file)
-	if img == null:
-		return null
-	if img.is_compressed() and img.decompress() != OK:
-		return null
-	if img.has_mipmaps():
-		img.clear_mipmaps()
-	var w := img.get_width()
-	var h := img.get_height()
-	if w > max_w:
-		img.resize(max_w, maxi(int(float(max_w) * float(h) / float(w)), 8),
-				Image.INTERPOLATE_LANCZOS)
-	return img
 
 
 func _apply_thumb(rect: TextureRect, img: Image) -> void:

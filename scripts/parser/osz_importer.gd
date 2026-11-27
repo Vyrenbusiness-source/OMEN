@@ -308,6 +308,21 @@ static func load_image(osz_path: String, inner_name: String) -> Image:
 	return img
 
 
+
+## Kleines Vorschaubild (z. B. Profil-Score-Zeilen), thread-sicher: nur
+## dekodieren und auf max_w Breite verkleinern, keine Textur, kein get_image().
+static func load_thumb_image(osz_path: String, inner_name: String, max_w: int) -> Image:
+	var img := load_image(osz_path, inner_name)
+	if img == null:
+		return null
+	if img.has_mipmaps():
+		img.clear_mipmaps()
+	var w := img.get_width()
+	var h := img.get_height()
+	if w > max_w:
+		img.resize(max_w, maxi(int(float(max_w) * float(h) / float(w)), 8), Image.INTERPOLATE_LANCZOS)
+	return img
+
 ## Textur aus einem dekodierten Bild. Im Hauptthread direkt (mit Texturgrenze
 ## des Absturzschutzes, CrashGuard Stufe 2). Aus einem Nebenthread (z. B.
 ## tournament_panel _hires_job): leere ImageTexture sofort, Bilddaten per
