@@ -39,9 +39,9 @@ var tutorial := false
 var is_replay := false
 var replay_events: Array = []
 ## Herkunft der Replay-Events (ReplayStore-Modus): "mania" ({t, lane, down})
-## oder "orbit"/"orbit_last" (OrbitCore-Events, Szene orbit.tscn).
+## oder "trace"/"trace_last" (Mania-Events, Szene trace.tscn).
 var replay_mode := "mania"
-## Orbit: Songzeit, zu der der aufgezeichnete Lauf endete (meta.end_ms, -1 = bis zum Ende).
+## Trace: Songzeit, zu der der aufgezeichnete Lauf endete (meta.end_ms, -1 = bis zum Ende).
 var replay_end_ms := -1.0
 
 ## Clip-Export (zweiter Prozess, siehe ClipExporter): --clip <md5> spielt das
@@ -193,8 +193,8 @@ func _make_chat(force: bool = false) -> void:
 
 
 ## Replay zur md5 in der Bibliothek suchen (md5 = "<osz-Dateiname>|<version>"),
-## Auswahl setzen und die Mania- bzw. (clip_mode orbit*) Orbit-Szene im
-## Replay-Modus starten.
+## Auswahl setzen und die Szene des Replay-Modus (ClipExporter.scene_for_mode)
+## im Replay-Modus starten.
 func _start_clip() -> void:
 	await get_tree().process_frame
 	var replay_path := ReplayStore.path_for_key(clip_md5, clip_mode)
@@ -226,9 +226,9 @@ func _start_clip() -> void:
 
 
 ## Clip-Modus: sobald die Results stehen (Mania3D._ended), 3 s warten, dann beenden.
-## Chat-Taste F nur ausserhalb der Spielszenen: F ist in Rebound/Rally/Mania eine
-## Spieltaste. ChatOverlay kennt nur Mania/Orbit, darum sperrt GameSession die Eingabe
-## des Overlays in allen sechs Modi (und im Bild des Szenenwechsels, Szene == null).
+## Chat-Taste F nur ausserhalb der Spielszenen: F ist in Mania und Trace eine
+## Spieltaste, darum sperrt GameSession die Eingabe des Overlays in allen
+## Spielszenen (und im Bild des Szenenwechsels, Szene == null).
 static func chat_input_allowed(scene_path: String) -> bool:
 	return scene_path != "" and playtime_mode_of(scene_path) == null
 
@@ -385,7 +385,7 @@ static func _replay_mods(data: Dictionary) -> Dictionary:
 	var m = meta.get("mods", {}) if meta is Dictionary else {}
 	if not (m is Dictionary):
 		return {}
-	# Alle gespeicherten Mods uebernehmen (Mania SV/NF, Orbit HD/FI/PR, SV-Stufe),
+	# Alle gespeicherten Mods uebernehmen (Mania SV/NF, Trace-Mods, SV-Stufe),
 	# damit Replays und Clips exakt mit denselben Mods laufen.
 	var out := {"SV": bool(m.get("SV", false)), "NF": bool(m.get("NF", false))}
 	for k in m:
@@ -462,18 +462,10 @@ func _arm_playtime() -> void:
 	t.start()
 
 
-## Modus einer Szene fuer die Spielzeit: "" = Mania, sonst Modus-ID ("orbit" ...), null = keine Gameplay-Szene.
+## Modus einer Szene fuer die Spielzeit: "" = Mania, sonst Modus-ID ("trace"), null = keine Gameplay-Szene.
 static func playtime_mode_of(scene_path: String) -> Variant:
-	if scene_path.ends_with("orbit.tscn"):
-		return "orbit"
-	if scene_path.ends_with("rally.tscn"):
-		return "rally"
-	if scene_path.ends_with("dirigent.tscn"):
-		return "dirigent"
 	if scene_path.ends_with("trace.tscn"):
 		return "trace"
-	if scene_path.ends_with("rebound.tscn"):
-		return "rebound"
 	if scene_path.ends_with("mania_3d.tscn") or scene_path.ends_with("gameplay_3d.tscn"):
 		return ""
 	return null

@@ -6,27 +6,19 @@ extends RefCounted
 ## Wiedergabe speist dieselben Events zeitgenau wieder in den ManiaCore ein.
 ##
 ## Modus: "mania" (Standard, user://replays/<md5>.json, Format unveraendert),
-## "orbit" (bester Orbit-Lauf, user://replays/orbit/<md5>.json) oder
-## "orbit_last" (letzter Orbit-Lauf, user://replays/orbit/last/<md5>.json).
-## Orbit-Events sind kompakt [t, code, a] (OrbitCore.EV_*), meta.mode =
-## "orbit". Alles liegt getrennt: ein Orbit-Lauf ueberschreibt nie das
-## Mania-Replay derselben Diff.
+## "trace" (bester Trace-Lauf, user://replays/trace/<md5>.json) oder
+## "trace_last" (letzter Trace-Lauf, user://replays/trace/last/<md5>.json).
+## Trace-Events wie Mania [t, lane, down], meta.mode = "trace". Alles liegt
+## getrennt: ein Trace-Lauf ueberschreibt nie das Mania-Replay derselben Diff.
+## Ordner entfernter Modi (v1.44.0) bleiben liegen; unbekannte Replay-Modi
+## laden nie (load_key liefert {}), damit sie nie als Mania abgespielt werden.
 
 const DIR := "user://replays"
-const MODE_ORBIT_BEST := "orbit"
-const MODE_ORBIT_LAST := "orbit_last"
-## Rally/Dirigent wie Orbit: je Modus bester ("rally") und letzter Lauf ("rally_last").
-const MODE_RALLY_BEST := "rally"
-const MODE_RALLY_LAST := "rally_last"
-const MODE_DIRIGENT_BEST := "dirigent"
-const MODE_DIRIGENT_LAST := "dirigent_last"
-## Trace/Rebound (Mania-4K-Wertung, Mania-Events [t, lane, down]) ebenso getrennt.
+## Trace (Mania-4K-Wertung, Mania-Events [t, lane, down]) getrennt von Mania.
 const MODE_TRACE_BEST := "trace"
 const MODE_TRACE_LAST := "trace_last"
-const MODE_REBOUND_BEST := "rebound"
-const MODE_REBOUND_LAST := "rebound_last"
 ## Spielmodi mit eigener Ablage (bester + letzter Lauf); Mania bleibt im alten Ordner.
-const OWN_DIR_MODES := ["orbit", "rally", "dirigent", "trace", "rebound"]
+const OWN_DIR_MODES := ["trace"]
 
 
 ## Replay-Schluessel (= Dateiname ohne .json, auch fuer --clip <md5>).
@@ -37,26 +29,19 @@ static func key(osz_path: String, version: String) -> String:
 ## Ordner je Modus (Mania bleibt im alten Ordner).
 static func dir_for(mode: String = "mania") -> String:
 	match mode:
-		MODE_ORBIT_BEST: return DIR + "/orbit"
-		MODE_ORBIT_LAST: return DIR + "/orbit/last"
-		MODE_RALLY_BEST: return DIR + "/rally"
-		MODE_RALLY_LAST: return DIR + "/rally/last"
-		MODE_DIRIGENT_BEST: return DIR + "/dirigent"
-		MODE_DIRIGENT_LAST: return DIR + "/dirigent/last"
 		MODE_TRACE_BEST: return DIR + "/trace"
 		MODE_TRACE_LAST: return DIR + "/trace/last"
-		MODE_REBOUND_BEST: return DIR + "/rebound"
-		MODE_REBOUND_LAST: return DIR + "/rebound/last"
 	return DIR
 
 
-static func is_orbit(mode: String) -> bool:
-	return mode == MODE_ORBIT_BEST or mode == MODE_ORBIT_LAST
-
-
-## Spielmodus hinter einem Replay-Modus: "mania", "orbit", "rally", "dirigent", "trace", "rebound".
+## Spielmodus hinter einem Replay-Modus: "mania" oder "trace".
 static func base_mode(mode: String) -> String:
 	return mode.trim_suffix("_last") if mode != "mania" else "mania"
+
+
+## true fuer "mania" und die Replay-Modi aus OWN_DIR_MODES (bester/letzter Lauf).
+static func known_mode(mode: String) -> bool:
+	return mode == "mania" or base_mode(mode) in OWN_DIR_MODES
 
 
 ## Replay-Modus fuer den besten bzw. letzten Lauf eines Spielmodus.
@@ -103,6 +88,8 @@ static func load_replay(osz_path: String, version: String, mode: String = "mania
 
 ## Wie load_replay, aber ueber den Schluessel (Clip-Prozess).
 static func load_key(md5: String, mode: String = "mania") -> Dictionary:
+	if not known_mode(mode):
+		return {}
 	var path := path_for_key(md5, mode)
 	if not FileAccess.file_exists(path):
 		return {}
@@ -112,5 +99,9 @@ static func load_key(md5: String, mode: String = "mania") -> Dictionary:
 	var parsed = JSON.parse_string(f.get_as_text())
 	f.close()
 	if parsed is Dictionary and parsed.has("events"):
+		# Replay eines entfernten oder fremden Modus: still ueberspringen.
+		var meta = parsed.get("meta", {})
+		if meta is Dictionary and not ScoreStore.known_mode(str(meta.get("mode", ""))):
+			return {}
 		return parsed
 	return {}
