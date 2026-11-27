@@ -142,12 +142,32 @@ static func osu_header(text: String) -> Dictionary:
 	return h
 
 
-## Diff spielbar in OMEN? osu!standard immer, Mania als 4K bis 7K (ManiaKeys).
+## Diff spielbar in OMEN? Nur Mania als 4K bis 7K (ManiaKeys); osu!standard nie.
 static func header_usable(h: Dictionary) -> bool:
-	var m := int(h.get("mode", -1))
-	if m == 0:
+	return int(h.get("mode", -1)) == 3 and ManiaKeys.supported(int(h.get("keys", 0)))
+
+
+## Hat die .osz mindestens eine spielbare Mania-Diff (4K bis 7K)? Nicht lesbar:
+## true (dann entscheidet die Bibliothek wie bisher).
+static func osz_has_mania(path: String) -> bool:
+	var z := ZIPReader.new()
+	if z.open(path) != OK:
 		return true
-	return m == 3 and ManiaKeys.supported(int(h.get("keys", 0)))
+	var ok := false
+	for f in z.get_files():
+		if f.to_lower().ends_with(".osu") and header_usable(osu_header(z.read_file(f).get_string_from_utf8())):
+			ok = true
+			break
+	z.close()
+	return ok
+
+
+## Hinweis fuer Sets ohne spielbare Mania-Diff (z. B. nur osu!standard): nicht
+## importiert. Eine einzelne Map ohne weitere Importe bekommt einen eigenen Satz.
+static func skip_text(skipped: int, imported: int) -> String:
+	if skipped == 1 and imported == 0:
+		return TranslationServer.translate("Keine Mania-Schwierigkeit in dieser Map, nicht importiert")
+	return TranslationServer.translate("%d ohne Mania-Schwierigkeit, nicht importiert") % skipped
 
 
 ## Ueberblick ueber einen Map-Ordner:
@@ -410,6 +430,9 @@ func run(folders: Array, osz_files: Array, maps_dir: String, audio_files: Array 
 		var fp := String(f)
 		if is_duplicate(idx, set_id_of(fp.get_file()), fp.get_file()):
 			res.dup += 1
+		elif not osz_has_mania(fp):
+			# Nur osu!standard o. ae.: in OMEN unsichtbar, also gar nicht erst uebernehmen.
+			res.skipped += 1
 		else:
 			var dest := lib.import_external(fp)
 			if dest == "":

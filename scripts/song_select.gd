@@ -4159,7 +4159,7 @@ func _on_import_finished(res: Dictionary) -> void:
 	if int(res.get("dup", 0)) > 0:
 		parts.append(tr("%d schon vorhanden") % int(res.dup))
 	if int(res.get("skipped", 0)) > 0:
-		parts.append(tr("%d ohne 4K bis 7K oder Standard") % int(res.skipped))
+		parts.append(SongImport.skip_text(int(res.skipped), imported.size()))
 	if int(res.get("failed", 0)) > 0:
 		parts.append(tr("%d fehlgeschlagen") % int(res.failed))
 	for e in res.get("errors", []):

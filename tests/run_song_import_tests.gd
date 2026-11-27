@@ -24,8 +24,8 @@ func _initialize() -> void:
 
 	# Fake-Songs-Ordner: std, 4K, 8K, Taiko, gemischt (4K + 8K), Duplikat. 5K-7K sind spielbar
 	# (ManiaKeys, mv-keys); 8K bleibt der Fall "Tastenzahl nicht unterstuetzt".
-	_make_set(songs.path_join("101 Artist A - Std Song"), 101, [[0, 4, "Normal"]], true)
-	_make_set(songs.path_join("102 Artist B - Mania Four"), 102, [[3, 4, "4K Hard"]])
+	_make_set(songs.path_join("101 Artist A - Std Song"), 101, [[0, 4, "Normal"]])
+	_make_set(songs.path_join("102 Artist B - Mania Four"), 102, [[3, 4, "4K Hard"]], true)
 	_make_set(songs.path_join("103 Artist C - Mania Seven"), 103, [[3, 8, "8K"]])
 	_make_set(songs.path_join("104 Artist D - Taiko"), 104, [[1, 5, "Oni"]])
 	_make_set(songs.path_join("105 Artist E - Mixed"), 105, [[3, 4, "4K"], [3, 8, "8K"]])
@@ -39,7 +39,7 @@ func _initialize() -> void:
 	# --- Kopf-Parser / Filter ---
 	var h := SongImport.osu_header(_osu(3, 4, "X", 7))
 	_ok(int(h.mode) == 3 and int(h.keys) == 4 and int(h.set_id) == 7, "osu_header liest Mode/Keys/Set-ID")
-	_ok(SongImport.header_usable({"mode": 0, "keys": 9}), "std nutzbar")
+	_ok(not SongImport.header_usable({"mode": 0, "keys": 4}), "osu!standard nicht nutzbar")
 	_ok(SongImport.header_usable({"mode": 3, "keys": 4}), "4K nutzbar")
 	_ok(SongImport.header_usable({"mode": 3, "keys": 7}), "7K nutzbar (5K-7K)")
 	_ok(not SongImport.header_usable({"mode": 3, "keys": 8}), "8K uebersprungen")
@@ -69,12 +69,13 @@ func _initialize() -> void:
 	job.progress.connect(func(_d, _t, _p): steps[0] += 1)
 	var res := job.run(folders, [], maps)
 	_ok(int(res.total) == 7, "total 7")
-	_ok(res.imported.size() == 3, "3 Sets uebernommen (std, 4K, gemischt): %d" % res.imported.size())
-	_ok(int(res.dup) == 2, "2 Duplikate uebersprungen: %d" % int(res.dup))
-	_ok(int(res.skipped) == 2, "2 Sets ohne 4K/std uebersprungen: %d" % int(res.skipped))
+	_ok(res.imported.size() == 2, "2 Sets uebernommen (4K, gemischt): %d" % res.imported.size())
+	_ok(int(res.dup) == 1, "1 Duplikat uebersprungen (Set 106): %d" % int(res.dup))
+	_ok(int(res.skipped) == 4, "4 Sets ohne Mania 4K-7K (2x nur osu!standard, 8K, Taiko) uebersprungen: %d" % int(res.skipped))
 	_ok(int(res.failed) == 0, "keine Fehler")
 	_ok(steps[0] == 7, "Fortschritt pro Ordner gemeldet: %d" % steps[0])
-	_ok(FileAccess.file_exists(maps.path_join("101 Artist A - Std Song.osz")), "Dateiname = Ordnername.osz")
+	_ok(FileAccess.file_exists(maps.path_join("102 Artist B - Mania Four.osz")), "Dateiname = Ordnername.osz")
+	_ok(not FileAccess.file_exists(maps.path_join("101 Artist A - Std Song.osz")), "Set nur mit osu!standard nicht in der Bibliothek")
 
 	# --- ZIP lesbar, 8K-Diff nicht mit eingepackt, Video draussen ---
 	var mixed := OszImporter._import_uncached(maps.path_join("105 Artist E - Mixed.osz"))
@@ -82,10 +83,8 @@ func _initialize() -> void:
 	if mixed.ok and not mixed.difficulties.is_empty():
 		var bm: Beatmap = mixed.difficulties[0].beatmap
 		_ok(bm.is_mania() and bm.column_count() == 4, "4K-Diff parst als Mania 4K")
-	var std := OszImporter._import_uncached(maps.path_join("101 Artist A - Std Song.osz"))
-	_ok(std.ok and std.difficulties.size() == 1 and int(std.difficulties[0].beatmap.mode()) == 0, "std-Set lesbar durch OszImporter")
 	var zr := ZIPReader.new()
-	if zr.open(maps.path_join("101 Artist A - Std Song.osz")) == OK:
+	if zr.open(maps.path_join("102 Artist B - Mania Four.osz")) == OK:
 		var inner := zr.get_files()
 		_ok(inner.has("audio.mp3") and inner.has("bg.jpg"), "Audio und Bild mitgepackt")
 		_ok(inner.has("sb/layer.png"), "Unterordner mitgepackt")
@@ -96,7 +95,7 @@ func _initialize() -> void:
 
 	# --- Zweiter Lauf: alles schon da ---
 	var again := job.run(folders, [], maps)
-	_ok(again.imported.is_empty() and int(again.dup) == 5, "zweiter Lauf: nichts neu, 5 Duplikate (%d)" % int(again.dup))
+	_ok(again.imported.is_empty() and int(again.dup) == 3, "zweiter Lauf: nichts neu, 3 Duplikate (%d)" % int(again.dup))
 
 	# --- Thread-Job + Abbrechen ---
 	var maps2 := root.path_join("maps2")
@@ -105,7 +104,7 @@ func _initialize() -> void:
 	tj.start(folders, [], maps2)
 	_ok(tj.is_running(), "Thread-Job laeuft")
 	var tres := tj.wait()
-	_ok(not tj.is_running() and tres.imported.size() == 5, "Thread-Job: 5 Sets (leere Bibliothek): %d" % tres.imported.size())
+	_ok(not tj.is_running() and tres.imported.size() == 3, "Thread-Job: 3 Sets (leere Bibliothek): %d" % tres.imported.size())
 	var cj := SongImport.new()
 	cj.prebuild_library = false
 	cj.cancel()
@@ -121,6 +120,21 @@ func _initialize() -> void:
 	_ok(ores.imported.size() == 1, ".osz kopiert")
 	ores = oj.run([], [src_osz], maps4)
 	_ok(ores.imported.is_empty() and int(ores.dup) == 1, ".osz zweimal -> Duplikat")
+	# .osz nur mit osu!standard: nicht uebernommen, klarer Hinweis.
+	var std_osz := root.path_join("std_only.osz")
+	var zp := ZIPPacker.new()
+	zp.open(std_osz)
+	zp.start_file("a.osu")
+	zp.write_file("osu file format v14\n\n[General]\nMode: 0\n\n[Metadata]\nTitle:Std\n\n[Difficulty]\nCircleSize:4\n".to_utf8_buffer())
+	zp.close_file()
+	zp.close()
+	_ok(not SongImport.osz_has_mania(std_osz) and SongImport.osz_has_mania(src_osz), "osz_has_mania")
+	var sres := oj.run([], [std_osz], maps4)
+	_ok(sres.imported.is_empty() and int(sres.skipped) == 1, ".osz nur osu!standard: nicht importiert, gezaehlt")
+	var left := Array(DirAccess.get_files_at(maps4)).filter(func(n): return str(n).contains("std_only"))
+	_ok(left.is_empty(), ".osz nur osu!standard: nicht in der Bibliothek")
+	_ok(SongImport.skip_text(1, 0) == TranslationServer.translate("Keine Mania-Schwierigkeit in dieser Map, nicht importiert")
+		and SongImport.skip_text(2, 1).begins_with("2 "), "Hinweistext ohne Mania-Diff")
 
 	# --- Drop-Sortierung ---
 	var c := SongImport.classify(PackedStringArray([src_osz, songs, "C:/x/song.MP3", "C:/x/readme.txt",
