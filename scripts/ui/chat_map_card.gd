@@ -14,6 +14,8 @@ extends PanelContainer
 const COVER := 74.0
 ## Mindesthoehe Map- und Score-Karte (Cover + Knopfzeile + Raender), beide gleich hoch.
 const CARD_H := 120.0
+## Rang-Buchstabe der Score-Karte: das groesste Element der Karte.
+const GRADE_PX := 44
 
 var kind := "map"
 var info: Dictionary = {}
@@ -129,17 +131,14 @@ static func tr2(de: String, en: String) -> String:
 	return en if t == de and not UiTheme.is_german() else t
 
 
+## Rang-Farbe aus UiTheme; osu-Raenge (X/XH = SS, SH = S) werden zugeordnet.
 static func grade_color(g: String) -> Color:
 	match g.to_upper():
-		"X", "XH", "SS", "SSH", "S", "SH":
-			return UiTheme.ACCENT
-		"A":
-			return UiTheme.GOOD
-		"B":
-			return UiTheme.ACCENT2
-		"D", "F":
-			return UiTheme.BAD
-	return UiTheme.DIM
+		"X", "XH", "SSH":
+			return UiTheme.grade_color("SS")
+		"SH":
+			return UiTheme.grade_color("S")
+	return UiTheme.grade_color(g.to_upper(), false, UiTheme.DIM)
 
 
 # --- Aufbau ---------------------------------------------------------------------
@@ -232,12 +231,10 @@ func _build() -> void:
 	_side = VBoxContainer.new()
 	_side.alignment = BoxContainer.ALIGNMENT_CENTER
 	_side.add_theme_constant_override("separation", 2)
-	_side.custom_minimum_size = Vector2(38, 0)
+	_side.custom_minimum_size = Vector2(GRADE_PX * 1.3, 0)
 	_side.visible = kind == "score"
 	row.add_child(_side)
-	_grade = _label(30, UiTheme.DIM)
-	_grade.add_theme_font_override("font", UiTheme.heading_font(0))
-	_grade.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_grade = UiTheme.grade_label("", GRADE_PX, UiTheme.DIM)
 	_side.add_child(_grade)
 	_badge_slot = HBoxContainer.new()
 	_badge_slot.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -353,8 +350,8 @@ func _refresh_score(owned: bool, dl: float) -> void:
 	_sub.tooltip_text = t.sub
 	_who.text = t.who
 	_extra.text = t.stats
-	_grade.text = t.grade
-	_grade.add_theme_color_override("font_color", grade_color(t.grade))
+	UiTheme.style_grade(_grade, t.grade, GRADE_PX if t.grade.length() < 2 else roundi(GRADE_PX * 0.8),
+		grade_color(t.grade))
 	_set_badge(t.mode)
 	var b := score_buttons(info, owned, dl)
 	_btn_a.visible = b.replay
