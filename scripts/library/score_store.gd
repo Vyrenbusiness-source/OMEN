@@ -168,6 +168,22 @@ static func _tag(entry: Dictionary, result: Dictionary, mode: String) -> Diction
 	return entry
 
 
+## Felder, die der Online-Submit (OnlineApi.build_body + RuleMods.extend_body) sendet
+## und der Nachtrag braucht: dieselben Werte wie im result, nichts neu berechnet.
+## Fehlt ein Wert im result, bleibt das Feld weg (kein erfundener Wert).
+static func _run_fields(entry: Dictionary, result: Dictionary) -> void:
+	if result.has("mod_mult"):
+		entry["mod_mult"] = float(result.mod_mult)
+	if result.has("mines"):
+		entry["mines"] = int(result.mines)
+		entry["mine_hits"] = int(result.get("mine_hits", 0))
+	if float(result.get("stars", -1.0)) >= 0.0:
+		entry["stars"] = float(result.stars)
+	if result.has("keys"):
+		entry["keys"] = int(result.keys)
+	entry["client_version"] = OnlineApi.client_version()
+
+
 ## Zuletzt gespeichertes Ergebnis (fuer den Vergleich im Results-Screen):
 ## {key, mode, score, is_new_best, previous}. Leer, solange nichts gespeichert.
 static var last_submit: Dictionary = {}
@@ -191,8 +207,10 @@ static func previous_best_for(osz_file: String, version: String, mode: String, s
 ## "mode". Alte Dateien: alles bleibt Mania (keine Daten verloren); nur
 ## Verlaufs-Eintraege, die schon "mode" = anderer Modus tragen, wandern in
 ## dessen Sektionen. 3 = alte Mania-Arcade-Scores auf ScoreV1 umgerechnet
-## (_rescore_legacy).
-const SCHEMA := 3
+## (_rescore_legacy). 4 = Laeufe tragen alle Felder des Online-Submits (siehe
+## _run_fields); alte Eintraege bleiben unveraendert, fehlende Felder fehlen weiter.
+## Vor dem ersten Schreiben im neuen Schema entsteht PATH + ".bak" der alten Datei.
+const SCHEMA := 4
 static var _migrated_path := ""
 
 
@@ -204,9 +222,18 @@ static func _load(cfg: ConfigFile) -> Error:
 		cfg.set_value("meta", "schema", SCHEMA)
 	elif _migrated_path != PATH:
 		_migrated_path = PATH
+		if int(cfg.get_value("meta", "schema", 1)) < SCHEMA:
+			_backup_file()
 		if migrate(cfg):
 			cfg.save(PATH)
 	return err
+
+
+## Kopie der alten Datei als PATH + ".bak" (vorhandene .bak bleibt: sie ist aelter).
+static func _backup_file() -> void:
+	var bak := PATH + ".bak"
+	if FileAccess.file_exists(PATH) and not FileAccess.file_exists(bak):
+		DirAccess.copy_absolute(PATH, bak)
 
 
 ## Migriert cfg in-place; true, wenn sich etwas geaendert hat.
@@ -218,6 +245,7 @@ static func migrate(cfg: ConfigFile) -> bool:
 		_split_modes(cfg)
 	if schema < 3:
 		_rescore_legacy(cfg)
+	# Schema 4: nur neue Eintraege tragen mehr Felder, nichts umzuschreiben.
 	cfg.set_value("meta", "schema", SCHEMA)
 	return true
 
@@ -468,6 +496,7 @@ static func submit(osz_file: String, version: String, result: Dictionary, mode: 
 		# Modi ohne pp: Sterne des Laufs fuers Modus-Rating (fehlt: Standard).
 		if uses_points(mode) and float(result.get("stars", -1.0)) >= 0.0:
 			entry["stars"] = float(result.stars)
+		_run_fields(entry, result)
 		cfg.set_value(_sec("scores", mode), key, _tag(entry, result, mode))
 	var plays := int(cfg.get_value(_sec("plays", mode), key, 0)) + 1
 	cfg.set_value(_sec("plays", mode), key, plays)
@@ -522,6 +551,7 @@ static func log_play(osz_file: String, version: String, map_label: String, resul
 		if result.has(k):
 			entry[k] = int(result[k])
 	_tag(entry, result, mode)
+	_run_fields(entry, result)
 	var hist: Array = cfg.get_value(_sec("history", mode), key, [])
 	hist.append(entry)
 	while hist.size() > HISTORY_CAP:

@@ -912,7 +912,7 @@ static func backfill_mode_of(e: Dictionary) -> String:
 ## mit falschen Werten in eine falsche Rangliste.
 static func backfill_blocker(e: Dictionary, online_mode: String) -> String:
 	var mods: Array = ScoreStore._mods_of(e)
-	if online_mode == RuleMods.MINES_SCORE_MODE or mods.has(RuleMods.MN):
+	if (online_mode == RuleMods.MINES_SCORE_MODE or mods.has(RuleMods.MN)) and not (e.has("mines") and e.has("mine_hits")):
 		return "Minen: Zaehler (mines/mine_hits) fehlen im lokalen Eintrag"
 	if not mods.is_empty() and not e.has("mod_mult"):
 		return "mod_mult fehlt (Mods %s)" % ",".join(mods)
