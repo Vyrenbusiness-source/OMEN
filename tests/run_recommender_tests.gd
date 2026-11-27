@@ -663,7 +663,7 @@ func _fake_mirror_json() -> String:
 
 func _test_online_parse() -> void:
 	print("-- Online-Antwort (Fake-Daten)")
-	var p: Dictionary = OnlineBrowser.quiet_parse(_fake_mirror_json(), 3)
+	var p: Dictionary = OnlineBrowser.quiet_parse(_fake_mirror_json())
 	_ok(bool(p.ok) and (p.results as Array).size() == 2 and int(p.raw) == 4, "nur ranked 4K-Sets (%d)" % (p.results as Array).size())
 	_ok(str(p.results[0].genre) == "electronic" and str(p.results[0].preview_url).begins_with("https://"),
 		"Genre-Name und Vorschau-Adresse")

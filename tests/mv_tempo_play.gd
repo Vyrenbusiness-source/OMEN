@@ -1,6 +1,5 @@
 extends "res://tests/live_qa.gd"
 
-const BotPlan := preload("res://tests/bot_plan.gd")
 
 ## Echter Spiel-Lauf fuer mv-tempo (Uebungsmodus + Turbo) in der Mania-Szene, mit
 ## Screenshots. Nutzt Fixture/Eingabe-Hilfen aus tests/live_qa.gd. Kein Teil von
