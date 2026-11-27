@@ -109,38 +109,53 @@ func _test_best_filter() -> void:
 	_ok(not SS.passes_best_filter("", SS.BEST_ALL, ["S"]), "Note gewaehlt: ohne Bestwert weg")
 
 
-func _rows() -> Array:
+## Drei Sets wie _sort_set() sie fuer BrowserSort baut.
+func _sets() -> Array:
 	return [
-		{"i": 0, "stars": 3.0, "last": "", "plays": 0, "mtime": 100},
-		{"i": 1, "stars": 5.0, "last": "2026-11-06T09:00:00", "plays": 2, "mtime": 300},
-		{"i": 2, "stars": 1.0, "last": "2026-11-07T12:00:00", "plays": 7, "mtime": 200},
-		{"i": 3, "stars": 3.0, "last": "", "plays": 2, "mtime": 300},
+		{"title": "B", "artist": "Zed", "mapper": "m", "osz_path": "b.osz", "date_added": 300, "diffs": [
+			{"version": "Hard", "stars": 4.0, "mode": 3, "keys": 7, "rank": "A", "_i": 0},
+			{"version": "Easy", "stars": 1.5, "mode": 3, "keys": 4, "_i": 1}]},
+		{"title": "a", "artist": "Alpha", "mapper": "m", "osz_path": "a.osz", "date_added": 100, "diffs": [
+			{"version": "X", "stars": 3.0, "mode": 3, "keys": 4, "rank": "SS",
+				"last_played": "2026-11-07T12:00:00", "_i": 0}]},
+		{"title": "C", "artist": "1nd", "mapper": "m", "osz_path": "c.osz", "date_added": 200, "diffs": [
+			{"version": "N", "stars": 2.0, "mode": 3, "keys": 4, "_i": 0}]},
 	]
 
 
-func _order(rows: Array) -> Array:
-	return rows.map(func(r): return int(r["i"]))
+func _titles(groups: Array, gi: int = 0) -> Array:
+	return (groups[gi]["entries"] as Array).map(func(e): return str(e["set"]["title"]))
 
 
 func _test_sort() -> void:
-	var r := _rows()
-	SS.sort_rows(r, SS.SORT_TITLE)
-	_ok(_order(r) == [0, 1, 2, 3], "Titel: Bibliotheks-Reihenfolge")
-	r = _rows()
-	SS.sort_rows(r, SS.SORT_STARS_UP)
-	_ok(_order(r) == [2, 0, 3, 1], "Sterne aufsteigend, Gleichstand stabil (%s)" % str(_order(r)))
-	r = _rows()
-	SS.sort_rows(r, SS.SORT_STARS_DOWN)
-	_ok(_order(r) == [1, 0, 3, 2], "Sterne absteigend (%s)" % str(_order(r)))
-	r = _rows()
-	SS.sort_rows(r, SS.SORT_RECENT)
-	_ok(_order(r) == [2, 1, 0, 3], "Zuletzt gespielt, ungespielte hinten (%s)" % str(_order(r)))
-	r = _rows()
-	SS.sort_rows(r, SS.SORT_DOWNLOADED)
-	_ok(_order(r) == [1, 3, 2, 0], "Zuletzt heruntergeladen (%s)" % str(_order(r)))
-	r = _rows()
-	SS.sort_rows(r, SS.SORT_MOST_PLAYED)
-	_ok(_order(r) == [2, 1, 3, 0], "Meistgespielt (%s)" % str(_order(r)))
+	_ok(SS.SORT_KEYS.size() == 9 and SS.SORT_NAMES.size() == 9, "9 Sortierungen wie osu!")
+	_ok(SS.GROUP_KEYS == ["none", "artist", "difficulty", "keys", "rank", "collections"], "6 Gruppierungen")
+	_ok(SS.GROUP_NAMES.size() == SS.GROUP_KEYS.size(), "Gruppen-Namen vollstaendig")
+	_ok(SS.sort_from_v1(0) == SS.SORT_TITLE and SS.sort_from_v1(1) == SS.SORT_DIFFICULTY
+		and SS.sort_from_v1(3) == SS.SORT_RECENT and SS.sort_from_v1(4) == SS.SORT_ADDED
+		and SS.sort_from_v1(99) == SS.SORT_RECENT, "alte Sortier-Nummern umgestellt")
+	var g: Array = SS.browser_entries(_sets(), SS.SORT_TITLE, 0)
+	_ok(g.size() == 1 and _titles(g) == ["a", "B", "C"], "Titel, ohne Gross/Klein (%s)" % str(_titles(g)))
+	_ok((g[0]["entries"] as Array).all(func(e): return int(e["diff_index"]) == -1), "ein Eintrag je Set")
+	g = SS.browser_entries(_sets(), SS.SORT_DIFFICULTY, 0)
+	var stars: Array = (g[0]["entries"] as Array).map(func(e): return float(e["set"]["diffs"][e["diff_index"]]["stars"]))
+	_ok(stars == [1.5, 2.0, 3.0, 4.0], "Schwierigkeit: jede Diff einzeln, aufsteigend (%s)" % str(stars))
+	g = SS.browser_entries(_sets(), SS.SORT_RANK, 0)
+	_ok(_titles(g) == ["a", "B", "C"], "Rang: SS vor A vor ungespielt (%s)" % str(_titles(g)))
+	g = SS.browser_entries(_sets(), SS.SORT_RECENT, 0)
+	_ok(_titles(g)[0] == "a", "Zuletzt gespielt zuerst")
+	g = SS.browser_entries(_sets(), SS.SORT_ADDED, 0)
+	_ok(_titles(g) == ["B", "C", "a"], "Hinzugefuegt: neueste zuerst (%s)" % str(_titles(g)))
+	g = SS.browser_entries(_sets(), SS.SORT_TITLE, SS.GROUP_KEYS.find("keys"))
+	_ok(g.size() == 2 and g[0]["title"] == "4K" and g[1]["title"] == "7K" and _titles(g, 1) == ["B"],
+		"Gruppe Tasten: 4K, 7K")
+	g = SS.browser_entries(_sets(), SS.SORT_TITLE, SS.GROUP_KEYS.find("artist"))
+	_ok(g[0]["title"] == "0-9" and g[1]["title"] == "A", "Gruppe Interpret: 0-9 vor A")
+	g = SS.browser_entries(_sets(), SS.SORT_TITLE, SS.GROUP_KEYS.find("collections"), {"Fav": ["c.osz"]})
+	_ok(g.size() == 2 and g[0]["title"] == "Fav" and _titles(g, 0) == ["C"] and g[1]["title"] == "Keine Sammlung",
+		"Gruppe Sammlungen")
+	g = SS.browser_entries(_sets(), SS.SORT_TITLE, SS.GROUP_KEYS.find("rank"))
+	_ok(g[0]["title"] == "SS" and g[-1]["title"] == "Ungespielt", "Gruppe Rang: SS zuerst, ungespielt zuletzt")
 
 
 func _test_mode_filter() -> void:
@@ -155,7 +170,7 @@ func _test_mode_filter() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("browser", "mode_filters", {
 		"mania": {"sort": SS.SORT_RECENT, "best": SS.BEST_WITHOUT, "grades": []},
-		"trace": {"sort": SS.SORT_MOST_PLAYED, "best": SS.BEST_WITH, "grades": ["SS"]}})
+		"trace": {"sort": SS.SORT_RANK, "best": SS.BEST_WITH, "grades": ["SS"]}})
 	var path := "user://test_tmp/browser_filter_state.cfg"
 	cfg.save(path)
 	var back := ConfigFile.new()
@@ -164,7 +179,7 @@ func _test_mode_filter() -> void:
 	var m: Dictionary = SS.sanitize_mode_filter(mfs.get("mania", {}))
 	var o: Dictionary = SS.sanitize_mode_filter(mfs.get("trace", {}))
 	_ok(m["sort"] == SS.SORT_RECENT and m["best"] == SS.BEST_WITHOUT, "Mania-Filter nach Neustart")
-	_ok(o["sort"] == SS.SORT_MOST_PLAYED and o["grades"] == ["SS"], "Trace-Filter nach Neustart")
+	_ok(o["sort"] == SS.SORT_RANK and o["grades"] == ["SS"], "Trace-Filter nach Neustart")
 	DirAccess.remove_absolute(path)
 
 
@@ -176,9 +191,9 @@ func _test_modes() -> void:
 	_ok(SS.PLAY_MODES == Array(ScoreStore.MODES), "Browser-Modi = ScoreStore.MODES")
 	var mf := {}
 	for m in SS.PLAY_MODES:
-		mf[m] = SS.sanitize_mode_filter({"sort": SS.SORT_RECENT if m == "trace" else SS.SORT_MOST_PLAYED, "grades": ["S"] if m == "trace" else []})
+		mf[m] = SS.sanitize_mode_filter({"sort": SS.SORT_RECENT if m == "trace" else SS.SORT_RANK, "grades": ["S"] if m == "trace" else []})
 	_ok(mf["trace"]["sort"] == SS.SORT_RECENT and mf["trace"]["grades"] == ["S"] and mf["mania"]["grades"] == []
-		and mf["mania"]["sort"] == SS.SORT_MOST_PLAYED, "Modus-Filter getrennt")
+		and mf["mania"]["sort"] == SS.SORT_RANK, "Modus-Filter getrennt")
 
 
 ## "Zuletzt heruntergeladen" nutzt die Aenderungszeit der Datei.
@@ -303,7 +318,47 @@ func _test_mode_stars() -> void:
 		var rows := []
 		for m in [ms, ms2]:
 			rows.append({"ms": m, "i": rows.size(), "stars": m.max_visible_stars(b.call("_vm"), b.call("_mode_star_map", m))})
-		SS.sort_rows(rows, SS.SORT_STARS_DOWN)
-		var first: MapSet = rows[0].ms
-		_ok(first == (ms2 if mode == "mania" else ms), "Sortierung Sterne absteigend (%s)" % mode)
+		_ok(rows.size() == 2, "Sterne-Maximum je Set (%s)" % mode)
+	# Liste: Sortierung "Schwierigkeit" nach Modus-Sternen, schwerste Diff zuletzt.
+	tc[StarService._trace_key("mode_stars_none.osz|1", "Insane.osu")] = 6.0
+	b.set("_score_index", {"mania": {}, "trace": {}})
+	for mode in ["mania", "trace"]:
+		b.set("_play_mode", mode)
+		b.set("_sort_cache", {})
+		var g: Array = SS.browser_entries([b.call("_sort_set", ms), b.call("_sort_set", ms2)], SS.SORT_DIFFICULTY, 0)
+		var last: Dictionary = (g[0]["entries"] as Array)[-1]
+		_ok(last["set"]["_ms"] == (ms2 if mode == "mania" else ms), "Sortierung Schwierigkeit (%s)" % mode)
+	_test_rows(b, ms, ms2)
 	b.free()
+
+
+## Virtuelle Liste: Zeilen aus Eintraegen, aufgeklapptes Set, Gruppenkoepfe, Auswahl.
+func _test_rows(b: Control, ms: MapSet, ms2: MapSet) -> void:
+	b.set("_play_mode", "mania")
+	b.set("_sort_cache", {})
+	b.set("_e_ms", [ms, ms2])
+	b.set("_e_di", PackedInt32Array([-1, -1]))
+	b.set("_e_g", PackedInt32Array([0, 1]))
+	b.set("_selected_set", ms)
+	b.set("_selected_diff", 2)
+	b.set("_group_mode", 0)
+	b.call("_rebuild_rows")
+	var kinds: PackedInt32Array = b.get("_r_kind")
+	_ok(Array(kinds) == [SS.ROW_SET, SS.ROW_DIFF, SS.ROW_DIFF, SS.ROW_DIFF, SS.ROW_DIFF, SS.ROW_SET],
+		"gewaehltes Set klappt auf: 4 Diff-Zeilen (%s)" % str(kinds))
+	_ok(Array(b.get("_r_di")).slice(1, 5) == [0, 1, 2, 3], "Diffs aufsteigend nach Sternen")
+	_ok(int(b.call("_sel_row")) == 3, "Auswahl = Diff-Zeile der gewaehlten Diff")
+	var ys: PackedFloat32Array = b.get("_r_y")
+	_ok(is_equal_approx(ys[1] - ys[0], SS.SET_H + SS.ROW_GAP) and is_equal_approx(ys[2] - ys[1], SS.DIFF_H + SS.ROW_GAP),
+		"feste Zeilenhoehen")
+	_ok(is_equal_approx(float(b.get("_content_h")), ys[5] + SS.SET_H + SS.ROW_GAP + SS.LIST_TOP_PAD), "Gesamthoehe")
+	b.set("_group_mode", SS.GROUP_KEYS.find("keys"))
+	b.set("_selected_set", ms2)
+	b.set("_selected_diff", 0)
+	b.call("_rebuild_rows")
+	kinds = b.get("_r_kind")
+	_ok(Array(kinds) == [SS.ROW_GROUP, SS.ROW_SET, SS.ROW_GROUP, SS.ROW_SET, SS.ROW_DIFF],
+		"Gruppenkoepfe, nur das gewaehlte Set offen (%s)" % str(kinds))
+	_ok(int(b.call("_set_row_of", ms2)) == 3 and int(b.call("_set_row_of", ms)) == 1, "Set-Zeile finden")
+	_ok(int(b.call("_row_state", 4)) == 2 and int(b.call("_row_state", 3)) == 1 and int(b.call("_row_state", 1)) == 0,
+		"Zustand: Diff gewaehlt, Set offen, normal")
