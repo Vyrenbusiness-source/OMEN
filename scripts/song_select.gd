@@ -233,6 +233,15 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_library = MapLibrary.new()
 	_library.scan()
+	var mult = _arg_value("--bench-mult")
+	if mult != null and OS.get_cmdline_args().has("--bench-browser"):
+		# Messung: Bibliothek N-fach (Kopien im Speicher) fuer grosse Listen.
+		var base: Array = _library.mapsets.duplicate()
+		for k in range(1, clampi(int(mult), 1, 100)):
+			for src in base:
+				var cp := MapSet.from_dict(src.osz_path, src.to_dict())
+				cp.title = "%s %d" % [src.title, k]
+				_library.mapsets.append(cp)
 	GameSession.perf_since("Browser: Library-Scan gesamt", _perf_ready_t)
 	# SV-Erkennung fuer alte Cache-Eintraege im Hintergrund nachrechnen.
 	_library.start_sv_backfill(_on_sv_backfill_done)
@@ -356,6 +365,8 @@ func _ready() -> void:
 		add_child.call_deferred(SettingsPanel.new())
 	elif OS.get_cmdline_args().has("--rules-harness"):
 		RuleModsHarness.run_browser(self)   # Harness: Regel-Mods per Klick, Minen-Liste, Replay
+	elif OS.get_cmdline_args().has("--bench-browser"):
+		_bench_browser.call_deferred()  # Messung fuer docs/perf/browser.md
 	elif OS.get_cmdline_args().has("--shot"):
 		_capture_screenshot_and_quit()
 
@@ -383,6 +394,72 @@ func _debug_pick() -> Array:
 				continue
 			return [ms, i]
 	return []
+
+
+## --bench-browser: Zeit bis zur ersten sichtbaren Liste, laengster Frame beim
+## Durchscrollen der ganzen Bibliothek (VSync aus) und Zeit je Set-Wechsel.
+## Ergebnis als eine BENCH-Zeile, dann Ende. Werte in docs/perf/browser.md.
+func _bench_browser() -> void:
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	await RenderingServer.frame_post_draw
+	var first_ms := (Time.get_ticks_usec() - _perf_ready_t) / 1000.0
+	for i in 60:
+		await get_tree().process_frame
+	var total := _bench_content_h()
+	var view := _bench_view_h()
+	var frames := PackedFloat32Array()
+	var y := 0.0
+	var last := Time.get_ticks_usec()
+	var stop_at := Time.get_ticks_msec() + 90000
+	while y < total - view and Time.get_ticks_msec() < stop_at:
+		y += 40.0
+		_bench_scroll(y)
+		await get_tree().process_frame
+		var now := Time.get_ticks_usec()
+		frames.append((now - last) / 1000.0)
+		last = now
+	var sorted := frames.duplicate()
+	sorted.sort()
+	var worst := sorted[-1] if not sorted.is_empty() else 0.0
+	var p99 := sorted[int(sorted.size() * 0.99)] if not sorted.is_empty() else 0.0
+	var over := 0
+	var sum := 0.0
+	for f in frames:
+		sum += f
+		if f > 8.0:
+			over += 1
+	var sw := PackedFloat32Array()
+	var n := mini(_filtered.size(), 20)
+	for k in n:
+		var ms: MapSet = _filtered[(k * 7919) % _filtered.size()]
+		var t0 := Time.get_ticks_usec()
+		_select_set(ms, _hardest(ms))
+		_scroll_to_selected()
+		await RenderingServer.frame_post_draw
+		sw.append((Time.get_ticks_usec() - t0) / 1000.0)
+		await get_tree().create_timer(0.05).timeout
+	var sws := sw.duplicate()
+	sws.sort()
+	print("BENCH sets=%d content_px=%d first_list_ms=%.1f scroll_frames=%d max_frame_ms=%.2f p99_ms=%.2f avg_ms=%.2f frames_over_8ms=%d switch_median_ms=%.1f switch_max_ms=%.1f" % [
+		_filtered.size(), int(total), first_ms, frames.size(), worst, p99,
+		sum / maxf(frames.size(), 1.0), over, sws[sws.size() / 2] if not sws.is_empty() else 0.0,
+		sws[-1] if not sws.is_empty() else 0.0])
+	_preview.stop()
+	get_tree().quit()
+
+
+func _bench_content_h() -> float:
+	return _list_box.size.y
+
+
+func _bench_view_h() -> float:
+	return _scroll.size.y
+
+
+func _bench_scroll(y: float) -> void:
+	if _scroll_tween != null and _scroll_tween.is_valid():
+		_scroll_tween.kill()
+	_scroll.scroll_vertical = int(y)
 
 
 ## Lade-Messung: Map wechseln (Auswahl -> Vorschau-Ton), kurz warten, SPIELEN.
