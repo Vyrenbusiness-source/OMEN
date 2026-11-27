@@ -57,52 +57,10 @@ var key_lanes: Array[int] = [KEY_D, KEY_F, KEY_J, KEY_K]
 ## (ManiaKeys.DEFAULTS). Schluessel 5/6/7 -> Array[int].
 var key_lanes_k: Dictionary = {5: ManiaKeys.default_keys(5), 6: ManiaKeys.default_keys(6),
 		7: ManiaKeys.default_keys(7)}
-## Orbit-Modus: Taste A / Taste B (Namen aus der Bahnen-Zeit: inner = A,
-## outer = B; zusaetzlich immer Maus links = A, Maus rechts = B).
-var orbit_key_inner: int = KEY_Z
-var orbit_key_outer: int = KEY_X
-## Dirigent: Taste A / Taste B (zusaetzlich immer Maus links = A, rechts = B).
-## Eigene Belegung; alte Configs ohne Eintrag uebernehmen die Orbit-Tasten.
-var dirigent_key_a: int = KEY_Z
-var dirigent_key_b: int = KEY_X
-var orbit_guides: bool = true
 ## Trace: Fadentempo (Welt-px je Sekunde, nur Optik); Standard ~1,2 s Vorlauf auf 720p.
 var trace_speed: int = 520
-## Orbit-Aussehen: Notengroesse in Prozent (90-120), Vorschau des naechsten Takts, Bahn-Deckkraft in Prozent (30-100).
-var orbit_note_size: int = 100
-var orbit_preview: bool = true
-var orbit_path_alpha: int = 100
-## Orbit-Vorlauf: Satelliten-Runden bis zum Treffer. 0 = Auto aus AR
-## (orbit_laps_for_ar), sonst 1-4 Runden fuer jede Map.
-var orbit_laps: int = 0
-## Orbit-Zielgroesse in Prozent (90-120) und Cursor-Groesse in Prozent (50-150).
-var orbit_target_size: int = 100
-var orbit_cursor_size: int = 100
-## Musik-Reaktion des Orbit-Felds: 0 = aus, 1 = dezent, 2 = voll.
-var orbit_music: int = 1
-## Tasten-Beschriftung in der naechsten Note: 0 = auto (leichte Maps, Tutorial), 1 = an, 2 = aus.
-var orbit_key_hint: int = 0
-## Rally: Flugzeit eines Balls vom Gegnerschlag bis zur Schlaegerlinie (ms, 450-1400).
-const RALLY_FLIGHT_MIN := 450
-const RALLY_FLIGHT_MAX := 1400
-const RALLY_FLIGHT_DEFAULT := 800
-var rally_flight_ms: int = RALLY_FLIGHT_DEFAULT
-## Rally: 3 oder 4 Zonen (Standard 3), je Zonenzahl eine eigene Belegung
-## (3: links / Mitte / rechts, 4: Zone 1-4; alte Configs ohne Eintrag uebernehmen
-## fuer 4 Zonen die Mania-4K-Tasten).
-const RALLY_ZONES_DEFAULT := 3
-var rally_zones: int = RALLY_ZONES_DEFAULT
-var rally_keys_3: Array[int] = [KEY_F, KEY_J, KEY_K]
-var rally_keys_4: Array[int] = [KEY_D, KEY_F, KEY_J, KEY_K]
 ## Trace: eigene Tasten, Spalte 0..3 = links / runter / hoch / rechts (Pfeiltasten).
 var trace_keys: Array[int] = [KEY_LEFT, KEY_DOWN, KEY_UP, KEY_RIGHT]
-## Orbit-Hintergrund: 0 = Welt (3D-Welt wie im 3D-Modus, Auswahl world_theme;
-## ohne Welten-Paket automatisch Map-Bild), 1 = Map-Bild (abgedunkelt, bg_dim),
-## 2 = Aus (schwarz). CLI: --orbit-bg=world|map|off.
-const ORBIT_BG_WORLD := 0
-const ORBIT_BG_MAP := 1
-const ORBIT_BG_OFF := 2
-var orbit_background: int = ORBIT_BG_WORLD
 ## Scroll Speed wie osu!lazer (1..40, ganzzahlig, Default 8 wie lazer). Rein
 ## visuell: Timing-Fenster unveraendert. Zeit von der Feldoberkante bis zur
 ## Trefferlinie = SCROLL_MAX_TIME_RANGE / scroll_speed (lazer
@@ -154,13 +112,11 @@ var bg_dim: float = 0.3
 var _bg_dim_cli := -1.0
 var _bg_dim_saved := 0.3
 var bg_blur: bool = true
-## Unschaerfe des Map-Bilds in Orbit, Rally und Dirigent (Mania 2D: bg_blur):
+## Unschaerfe des Map-Bilds in Trace (Mania 2D: bg_blur):
 ## 0 = scharf, 100 = sehr weich. Standard 80 ("stark").
 var modes_bg_blur: int = 80
-## Deckkraft des Map-Bilds in Orbit, Rally und Dirigent (0 = kein Map-Bild).
+## Deckkraft des Map-Bilds in Trace (0 = kein Map-Bild).
 var modes_bg_dim: float = 0.2
-## Rebound: Fallzeit des hereinfallenden Balls in ms (600-1600, nur Optik).
-var rebound_drop_ms: int = 1000
 ## 2D-Notenform: 0 = Balken (flache Rechtecke), 1 = Kreis (runde Noten,
 ## Holds mit runden Enden, Receptors als Ringe).
 var note_style_2d: int = 0
@@ -508,31 +464,11 @@ func load_settings(path: String = PATH) -> void:
 		for i in n:
 			ks[i] = int(cfg.get_value("keys", "k%d_%d" % [n, i], ks[i]))
 		key_lanes_k[n] = ks
-	var rk3 := [KEY_F, KEY_J, KEY_K]
-	for i in 3:
-		rally_keys_3[i] = int(cfg.get_value("keys", "rally3_%d" % i, rk3[i]))
-	for i in 4:
-		rally_keys_4[i] = int(cfg.get_value("keys", "rally4_%d" % i, key_lanes[i]))
-	rally_zones = 4 if int(cfg.get_value("game", "rally_zones", RALLY_ZONES_DEFAULT)) == 4 else 3
+	# Schluessel entfernter Modi (orbit_*, rally*, dirigent_*, rebound_* bis v1.43)
+	# bleiben in alten Dateien liegen und werden nicht mehr gelesen.
 	for i in 4:
 		trace_keys[i] = int(cfg.get_value("keys", "trace%d" % i, trace_keys[i]))
-	orbit_key_inner = int(cfg.get_value("keys", "orbit_inner", KEY_Z))
-	orbit_key_outer = int(cfg.get_value("keys", "orbit_outer", KEY_X))
-	dirigent_key_a = int(cfg.get_value("keys", "dirigent_a", orbit_key_inner))
-	dirigent_key_b = int(cfg.get_value("keys", "dirigent_b", orbit_key_outer))
-	orbit_guides = bool(cfg.get_value("game", "orbit_guides", true))
 	trace_speed = clampi(int(cfg.get_value("game", "trace_speed", 520)), 300, 900)
-	orbit_note_size = clampi(int(cfg.get_value("game", "orbit_note_size", 100)), 90, 120)
-	orbit_preview = bool(cfg.get_value("game", "orbit_preview", true))
-	orbit_path_alpha = clampi(int(cfg.get_value("game", "orbit_path_alpha", 100)), 30, 100)
-	orbit_music = clampi(int(cfg.get_value("game", "orbit_music", 1)), 0, 2)
-	orbit_laps = clampi(int(cfg.get_value("game", "orbit_laps", 0)), 0, 4)
-	orbit_target_size = clampi(int(cfg.get_value("game", "orbit_target_size", 100)), 90, 120)
-	orbit_cursor_size = clampi(int(cfg.get_value("game", "orbit_cursor_size", 100)), 50, 150)
-	orbit_key_hint = clampi(int(cfg.get_value("game", "orbit_key_hint", 0)), 0, 2)
-	rally_flight_ms = clampi(int(cfg.get_value("game", "rally_flight_ms", RALLY_FLIGHT_DEFAULT)),
-			RALLY_FLIGHT_MIN, RALLY_FLIGHT_MAX)
-	orbit_background = clampi(int(cfg.get_value("game", "orbit_background", ORBIT_BG_WORLD)), ORBIT_BG_WORLD, ORBIT_BG_OFF)
 	_legacy_mania_scroll = float(cfg.get_value("game", "mania_scroll_legacy", -1.0))
 	if cfg.has_section_key("game", "scroll_speed"):
 		scroll_speed = clamp_scroll_speed(cfg.get_value("game", "scroll_speed", SCROLL_SPEED_DEFAULT))
@@ -552,7 +488,7 @@ func load_settings(path: String = PATH) -> void:
 	bg_blur = bool(cfg.get_value("game", "bg_blur", true))
 	modes_bg_blur = clampi(int(cfg.get_value("game", "modes_bg_blur", 80)), 0, 100)
 	modes_bg_dim = clamp_bg_dim(float(cfg.get_value("game", "modes_bg_dim", 0.2)))
-	rebound_drop_ms = clampi(int(cfg.get_value("game", "rebound_drop_ms", 1000)), 600, 1600)
+
 	note_style_2d = clampi(int(cfg.get_value("game", "note_style_2d", 0)), 0, 1)
 	mod_sv = bool(cfg.get_value("mods", "sv", false))
 	mod_nf = bool(cfg.get_value("mods", "nf", false))
@@ -591,29 +527,9 @@ func save(path: String = PATH) -> void:
 	for n in key_lanes_k:
 		for i in n:
 			cfg.set_value("keys", "k%d_%d" % [n, i], key_lanes_k[n][i])
-	for i in 3:
-		cfg.set_value("keys", "rally3_%d" % i, rally_keys_3[i])
-	for i in 4:
-		cfg.set_value("keys", "rally4_%d" % i, rally_keys_4[i])
-	cfg.set_value("game", "rally_zones", rally_zones)
 	for i in 4:
 		cfg.set_value("keys", "trace%d" % i, trace_keys[i])
-	cfg.set_value("keys", "orbit_inner", orbit_key_inner)
-	cfg.set_value("keys", "orbit_outer", orbit_key_outer)
-	cfg.set_value("keys", "dirigent_a", dirigent_key_a)
-	cfg.set_value("keys", "dirigent_b", dirigent_key_b)
-	cfg.set_value("game", "orbit_guides", orbit_guides)
 	cfg.set_value("game", "trace_speed", trace_speed)
-	cfg.set_value("game", "orbit_note_size", orbit_note_size)
-	cfg.set_value("game", "orbit_preview", orbit_preview)
-	cfg.set_value("game", "orbit_path_alpha", orbit_path_alpha)
-	cfg.set_value("game", "orbit_music", orbit_music)
-	cfg.set_value("game", "orbit_laps", orbit_laps)
-	cfg.set_value("game", "orbit_target_size", orbit_target_size)
-	cfg.set_value("game", "orbit_cursor_size", orbit_cursor_size)
-	cfg.set_value("game", "orbit_key_hint", orbit_key_hint)
-	cfg.set_value("game", "rally_flight_ms", rally_flight_ms)
-	cfg.set_value("game", "orbit_background", orbit_background)
 	cfg.set_value("game", "scroll_speed", scroll_speed)
 	# Abgeleiteter Faktor fuer aeltere Versionen; Originalwert bleibt separat.
 	cfg.set_value("game", "mania_scroll", mania_from_speed(scroll_speed))
@@ -629,7 +545,7 @@ func save(path: String = PATH) -> void:
 	cfg.set_value("game", "bg_blur", bg_blur)
 	cfg.set_value("game", "modes_bg_blur", modes_bg_blur)
 	cfg.set_value("game", "modes_bg_dim", modes_bg_dim)
-	cfg.set_value("game", "rebound_drop_ms", rebound_drop_ms)
+
 	cfg.set_value("game", "note_style_2d", note_style_2d)
 	cfg.set_value("game", "lane_width_2d", lane_width_2d)
 	cfg.set_value("mods", "sv", mod_sv)
@@ -856,19 +772,6 @@ func comfort_camera() -> bool:
 ## Fest gewaehltes Welt-Thema ("galaxy"/"boss"/"aurora"/"neon") oder "" = automatisch.
 ## Reihenfolge der Welt-Auswahl (Index 1..n; 0 = automatisch). Neue Welten hinten anhaengen.
 const WORLD_ORDER: Array[String] = ["galaxy", "boss", "aurora", "neon", "eclipse", "abyss", "fractal", "obsidian", "storm", "singularity", "monolith", "rift", "nerve"]
-
-## Orbit-Hintergrund dieses Laufs: --orbit-bg=world|map|off schlaegt die Einstellung.
-func orbit_background_mode() -> int:
-	for a in OS.get_cmdline_args():
-		if a.begins_with("--orbit-bg="):
-			match a.trim_prefix("--orbit-bg="):
-				"world":
-					return ORBIT_BG_WORLD
-				"map":
-					return ORBIT_BG_MAP
-				"off":
-					return ORBIT_BG_OFF
-	return orbit_background
 
 
 func world_theme_name() -> String:
@@ -1181,55 +1084,7 @@ func is_hook_key(keycode: int) -> bool:
 	return keycode == key_hook1 or keycode == key_hook2
 
 
-## Orbit-Vorlauf in Runden fuer eine Map: Einstellung 1-4 gilt fest, Auto (0)
-## nach AR wie docs/modes/orbit_satellit.md (AR <= 5: 3, 6-8: 2, >= 9: 1).
-func orbit_laps_for_ar(ar: float) -> int:
-	if orbit_laps >= 1:
-		return clampi(orbit_laps, 1, 4)
-	if ar <= 5.0:
-		return 3
-	if ar < 9.0:
-		return 2
-	return 1
-
-
 ## Spalte (0-3) fuer eine Mania-Taste, -1 wenn keine.
-## Orbit: Ring zur Taste (0 innen, 1 aussen) oder -1.
-func orbit_ring_for_key(keycode: int) -> int:
-	if keycode == orbit_key_inner:
-		return 0
-	if keycode == orbit_key_outer:
-		return 1
-	return -1
-
-
-## Dirigent: Taste zum Tastencode (0 = A, 1 = B) oder -1.
-func dirigent_key_for(keycode: int) -> int:
-	if keycode == dirigent_key_a:
-		return 0
-	if keycode == dirigent_key_b:
-		return 1
-	return -1
-
-
-## Rally: Tasten der Zonen (n = 3 oder 4, -1 = Einstellung).
-func rally_keys(n: int = -1) -> Array[int]:
-	if n < 0:
-		n = rally_zones
-	if n == 4:
-		return rally_keys_4
-	return rally_keys_3
-
-
-## Rally: Zone (0..n-1) fuer eine Taste, -1 wenn keine.
-func rally_zone_for_key(keycode: int, n: int = -1) -> int:
-	var keys := rally_keys(n)
-	for i in keys.size():
-		if keys[i] == keycode:
-			return i
-	return -1
-
-
 func lane_for_key(keycode: int) -> int:
 	for i in 4:
 		if key_lanes[i] == keycode:
