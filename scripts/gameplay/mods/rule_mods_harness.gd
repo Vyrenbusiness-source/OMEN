@@ -14,8 +14,7 @@ extends RefCounted
 ##   Ohne "--shot"-Flag: der 45-s-Shot-Watchdog greift nicht (override.cfg: 60 s).
 ##
 ## Lobby: --shot-rule-lobby --shot-out=<Praefix> (mp_lobby): Raum mit Krone, Klick auf
-##   Sudden Death und Minen (_lobby_rules), Perfect (_lobby_pf), No-Fail (_lobby_nf),
-##   Orbit-Raum ohne Regel-Mods (_lobby_orbit).
+##   Sudden Death und Minen (_lobby_rules), Perfect (_lobby_pf), No-Fail (_lobby_nf).
 
 static var _fails := 0
 
@@ -195,7 +194,7 @@ static func _box_text(box: Control) -> String:
 	return " | ".join(parts)
 
 
-## Lobby-Raum mit Krone: Regel-Mods per Klick, Orbit-Raum ohne sie.
+## Lobby-Raum mit Krone: Regel-Mods per Klick.
 static func run_lobby(lobby: Control) -> void:
 	var tree := lobby.get_tree()
 	_fails = 0
@@ -234,10 +233,6 @@ static func run_lobby(lobby: Control) -> void:
 	await _shot(tree, "lobby_nf")
 	var gm := RuleMods.for_mode(Lobby.mods, "trace")
 	_check(not gm.has("MN"), "Trace-Runde ohne Minen: %s" % str(gm))
-	Lobby.play_mode = "orbit"
-	lobby.call("_refresh_room")
-	_check(not (btns["SD"] as Control).is_visible_in_tree(), "Orbit-Raum: Regel-Mods ausgeblendet")
-	await _shot(tree, "lobby_orbit")
 	Lobby.set_meta("harness", true)
 	Lobby._reset()
 	print("RULESHARNESS DONE fails=%d" % _fails)

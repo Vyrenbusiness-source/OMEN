@@ -403,7 +403,7 @@ func _daily_online_items(mirror: BeatmapMirror) -> Array:
 	var bad := func(_msg: String): box.done = true
 	mirror.search_done.connect(ok, CONNECT_ONE_SHOT)
 	mirror.search_failed.connect(bad, CONNECT_ONE_SHOT)
-	mirror.search("", 0, BeatmapMirror.Sort.PLAYS, BeatmapMirror.STATUS_RANKED, BeatmapMirror.MODE_MANIA)
+	mirror.search("", 0, BeatmapMirror.Sort.PLAYS, BeatmapMirror.STATUS_RANKED)
 	var t0 := Time.get_ticks_msec()
 	while not box.done and Time.get_ticks_msec() - t0 < int(DAILY_TIMEOUT_S * 1000.0):
 		await get_tree().process_frame

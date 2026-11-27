@@ -132,7 +132,7 @@ func show_break(start_ms: float, end_ms: float, beat_ms: float, can_skip: bool,
 
 ## Deckkraft-Faktor fuer einen Ring, der ueber dem Spielfeld liegt: voll sichtbar, bis
 ## die erste Note nach dem Break ins Feld kommt (visible_ms), 250 ms davor blendet er
-## aus. So verdeckt er nie eine anfliegende Note (Mania 3D, Orbit, 2D ohne Platz daneben).
+## aus. So verdeckt er nie eine anfliegende Note (Mania 3D, 2D ohne Platz daneben).
 const CLEAR_FADE_MS := 250.0
 static func clear_alpha(visible_ms: float, t_ms: float) -> float:
 	return clampf((visible_ms - t_ms) / CLEAR_FADE_MS, 0.0, 1.0)

@@ -1,7 +1,7 @@
 class_name WorldBackdrop
 extends RefCounted
 
-## Gemeinsamer Welten-Aufbau (Mania-3D und Orbit-Hintergrund): Coverfarbe,
+## Gemeinsamer Welten-Aufbau (Mania-3D): Coverfarbe,
 ## Themen-Dateien, Themen-Himmel (Sky-Shader + Texturen per Konvention) und
 ## Galaxie-Panorama. Bewusst ohne Autoload-Zugriffe (Settings/GameSession),
 ## damit --script-Tests die Klasse statisch laden koennen.

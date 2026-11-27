@@ -124,11 +124,10 @@ func _build() -> void:
 		_texts.append(t)
 		_values.append(v)
 	_box.reset_size()
-	# Links unter den Werten der Szene (Mania: Rang/Genauigkeit, Orbit: Punkte/Genauigkeit):
-	# dort ist in allen Modi Hintergrund, die Strecke beginnt weiter rechts.
-	# Orbit: Seitenflaeche nur ~16 % breit. Breitere Box kleiner skalieren statt ins Spielfeld.
-	var side := 0.16 if str(stage.get("mode", "")) == "orbit" else 0.26
-	var maxw := get_viewport().get_visible_rect().size.x * side - 30.0 * s
+	# Links unter den Werten der Szene (Rang/Genauigkeit): dort ist in allen Modi
+	# Hintergrund, die Strecke beginnt weiter rechts. Breitere Box kleiner skalieren
+	# statt ins Spielfeld.
+	var maxw := get_viewport().get_visible_rect().size.x * 0.26 - 30.0 * s
 	_box.scale = Vector2.ONE * minf(1.0, maxw / maxf(_box.size.x, 1.0))
 	_box.position = Vector2(roundf(24.0 * s), roundf(BASE_H * 0.62 * s))
 	_update()

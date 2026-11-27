@@ -48,9 +48,8 @@ const SORT_LABELS := ["Relevanz", "Neueste", "Beliebteste", "Sterne", "BPM"]
 const SORT_SERVER := ["", "ranked_date:desc", "play_count:desc",
 	"beatmaps.difficulty_rating:asc", "bpm:desc"]
 
-## Suchmodus (osu!-Modus-Code): Mania 4K (Standard) oder osu!standard fuer Orbit.
+## osu!-Modus-Code der Suche: immer osu!mania.
 const MODE_MANIA := 3
-const MODE_STD := 0
 
 ## Status-Filter: osu!-Statuscodes der Suche.
 const STATUS_RANKED := 1
@@ -79,7 +78,6 @@ var _search_offset := 0
 var _search_query := ""
 var _search_sort := 0
 var _search_status := STATUS_RANKED
-var _search_mode := MODE_MANIA
 ## Lief die letzte Antwort ueber den sortierenden Mirror (osu.direct)?
 var last_server_sorted := false
 ## Sortierender Mirror ausgefallen -> fuer diese Sitzung nur noch catboy.
@@ -164,10 +162,10 @@ static func genre_id_of(item: Dictionary) -> int:
 
 
 ## Such-URL. Sortierungen mit Server-Feld gehen an osu.direct, sonst catboy.
-## mode: 3 = osu!mania (Standard), 0 = osu!standard (Orbit) · status: 1 ranked / 4 loved · offset: Seiten fuer
+## Immer osu!mania (mode=3) · status: 1 ranked / 4 loved · offset: Seiten fuer
 ## unendliches Scrollen.
 static func build_search_url(query: String, offset: int, sort: int = Sort.RELEVANCE,
-		status: int = STATUS_RANKED, sorted_mirror: bool = true, base_override: String = "", mode: int = MODE_MANIA) -> String:
+		status: int = STATUS_RANKED, sorted_mirror: bool = true, base_override: String = "") -> String:
 	var field := ""
 	if sort >= 0 and sort < SORT_SERVER.size():
 		field = str(SORT_SERVER[sort])
@@ -176,7 +174,7 @@ static func build_search_url(query: String, offset: int, sort: int = Sort.RELEVA
 	if base_override != "":
 		base = base_override
 	var url := "%s?query=%s&limit=%d&offset=%d&mode=%d&status=%d" % [
-		base, query.strip_edges().uri_encode(), PAGE_SIZE, maxi(offset, 0), mode, status]
+		base, query.strip_edges().uri_encode(), PAGE_SIZE, maxi(offset, 0), MODE_MANIA, status]
 	if use_sorted:
 		url += "&sort=" + field.uri_encode()
 	return url
@@ -224,12 +222,10 @@ static func passes_filters(r: Dictionary, lo: float, hi: float, genre_id: int = 
 # ---------------------------------------------------------------------------
 
 func search(query: String, offset: int = 0, sort: int = Sort.RELEVANCE,
-		status: int = STATUS_RANKED, mode: int = MODE_MANIA) -> void:
+		status: int = STATUS_RANKED) -> void:
 	var q := query.strip_edges()
-	_search_mode = mode
 	_search_keys = key_mode
-	# SV gibt es nur in Mania.
-	if sv_mode and mode == MODE_MANIA and not is_sv_text(q):
+	if sv_mode and not is_sv_text(q):
 		q = (q + " sv").strip_edges()
 	_search_query = q
 	_search_offset = offset
@@ -250,7 +246,7 @@ func _send_search() -> void:
 	if base == "" and _search_on_backup:
 		base = SORTED_SEARCH_URL
 	var url := build_search_url(_search_query, _search_offset, _search_sort,
-		_search_status, _search_on_sorted, base, _search_mode)
+		_search_status, _search_on_sorted, base)
 	_search_req.cancel_request()
 	var err := _search_req.request(url, headers())
 	if err != OK:
@@ -285,7 +281,7 @@ func _on_search_completed(result: int, code: int, _headers: PackedStringArray, b
 	var results: Array = []
 	for item in data:
 		if item is Dictionary:
-			var r := parse_item(item, _search_mode, _search_keys)
+			var r := parse_item(item, _search_keys)
 			if not r.is_empty():
 				results.append(r)
 	search_done.emit(results, data.size(), _search_offset)
@@ -296,13 +292,12 @@ static func _num(v: Variant, fallback: float = 0.0) -> float:
 
 
 ## Mirror-Eintrag -> schlanker Ergebnis-Datensatz; leer, wenn das Set keine
-## Diff des Modus hat (Mania: 4K, sonst osu!standard) oder weder
-## ranked/approved noch loved ist.
-static func parse_item(item: Dictionary, mode: int = MODE_MANIA, keys: int = 4) -> Dictionary:
+## Mania-Diff mit keys Tasten hat oder weder ranked/approved noch loved ist.
+static func parse_item(item: Dictionary, keys: int = 4) -> Dictionary:
 	var status := str(item.get("status", ""))
 	if not (status in ["ranked", "approved", "loved"]):
 		return {}
-	var std := mania_difficulty(item, keys) if mode == MODE_MANIA else std_difficulty(item)
+	var std := mania_difficulty(item, keys)
 	if std.is_empty():
 		return {}
 	var covers: Variant = item.get("covers", {})
@@ -329,10 +324,9 @@ static func parse_item(item: Dictionary, mode: int = MODE_MANIA, keys: int = 4) 
 		"length_s": int(std.get("max_len", 0)),
 		"plays": int(_num(item.get("play_count", null))),
 		"ranked_date": "" if date == null else str(date),
-		"sv": mode == MODE_MANIA and is_sv_item(item),
-		"sv_id": sv_check_id(item) if mode == MODE_MANIA else 0,
-		"mode": mode,
-		"objects": int(std.get("objects", 0)),
+		"sv": is_sv_item(item),
+		"sv_id": sv_check_id(item),
+		"mode": MODE_MANIA,
 		"keys": std.get("keys", []),
 	}
 
@@ -405,35 +399,6 @@ static func mania_difficulty(item: Dictionary, keys: int) -> Dictionary:
 	best["keys"] = key_list
 	return best
 
-
-## Schwerste osu!standard-Difficulty eines Sets (Orbit) oder leer. Liefert
-## wie mania4k_difficulty count, star_list, max_len und dazu objects (Kreise +
-## Slider + Spinner der objektreichsten Diff).
-static func std_difficulty(item: Dictionary) -> Dictionary:
-	var best := {}
-	var count := 0
-	var max_len := 0
-	var max_obj := 0
-	var star_list: Array = []
-	for bm in item.get("beatmaps", []):
-		if not (bm is Dictionary) or int(bm.get("mode_int", -1)) != MODE_STD:
-			continue
-		count += 1
-		var rating := _num(bm.get("difficulty_rating", 0.0))
-		star_list.append(rating)
-		max_len = maxi(max_len, int(_num(bm.get("total_length", 0))))
-		max_obj = maxi(max_obj, int(_num(bm.get("count_circles", 0)))
-			+ int(_num(bm.get("count_sliders", 0))) + int(_num(bm.get("count_spinners", 0))))
-		if best.is_empty() or rating > _num(best.get("difficulty_rating", 0.0)):
-			best = bm
-	if best.is_empty():
-		return {}
-	best = best.duplicate()
-	best["count"] = count
-	best["star_list"] = star_list
-	best["max_len"] = max_len
-	best["objects"] = max_obj
-	return best
 
 
 # ---------------------------------------------------------------------------

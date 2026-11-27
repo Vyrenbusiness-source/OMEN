@@ -6441,11 +6441,10 @@ func _rec_online_update() -> void:
 	if page < 0:
 		return
 	_ensure_online()
-	var osu_mode := int(q.osu_mode)
 	var text := str(q.get("genre", ""))
 	if text == "":
-		text = "4k" if osu_mode == BeatmapMirror.MODE_MANIA else "a"
-	_online.quiet_search(key, text, osu_mode, page * BeatmapMirror.PAGE_SIZE)
+		text = "4k"
+	_online.quiet_search(key, text, page * BeatmapMirror.PAGE_SIZE)
 
 
 ## Harness-Laeufe (--shot-...) und --no-rec-online fragen den Mirror nie;

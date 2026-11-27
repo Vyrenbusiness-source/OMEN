@@ -17,7 +17,7 @@ const SURFACE := Color(0.106, 0.102, 0.094)     # #1B1A18 Panels
 const RAISED := Color(0.153, 0.145, 0.133)      # #272522 Buttons, Felder
 ## Signalfarbe: Bernstein #F2A23A. Die EINE Akzentfarbe (Primaer, Auswahl, Fokus).
 const ACCENT := Color(0.949, 0.635, 0.227)
-## Zweitton fuer Kennzahlen (pp) und den Orbit-Modus: gedecktes Stahlblau #8EA6C6.
+## Zweitton fuer Kennzahlen (pp, Punkte): gedecktes Stahlblau #8EA6C6.
 ## Bewusst kuehl und entsaettigt, damit er neben Bernstein nie konkurriert.
 const ACCENT2 := Color(0.557, 0.651, 0.776)
 ## Schrift: warmes Elfenbein statt Reinweiss (15:1 auf BG), Neben-Text 6:1.

@@ -63,8 +63,8 @@ var _fetch_req: HTTPRequest
 ## peer_id -> {name, ready, score, combo, acc, final}
 var players: Dictionary = {}
 var crown_id := 1
-## Spielmodus des Raums: "mania" (4K, Standard/alte Clients), "orbit", "rally", "dirigent",
-## "trace" oder "rebound" (Trace/Rebound: Mania-4K-Wertung auf Mania-Maps).
+## Spielmodus des Raums: "mania" (Standard/alte Clients) oder "trace" (Mania-4K-Wertung
+## auf Mania-Maps).
 var play_mode := "mania"
 ## {set_id, file, version, title, artist, stars}
 var sel_map: Dictionary = {}
@@ -142,7 +142,7 @@ func _unique_name(base: String, id: int) -> String:
 
 
 ## Bekannte Darstellungen je Spieler. "" = unbekannt (aelterer Client).
-const VIEWS := ["3D", "2D", "Orbit", "Rally", "Dirigent", "Trace", "Rebound"]
+const VIEWS := ["3D", "2D", "Trace"]
 
 
 func _new_player(pname: String) -> Dictionary:
@@ -157,7 +157,7 @@ static func norm_view(v) -> String:
 	return ""
 
 
-## Darstellung dieses Clients (Orbit kommt, sobald ein Orbit-Schalter existiert).
+## Darstellung dieses Clients.
 func local_view() -> String:
 	if play_mode != "mania":
 		return play_name(play_mode)
@@ -165,7 +165,7 @@ func local_view() -> String:
 
 
 ## Raum-Modi (Reihenfolge der Auswahl in der Lobby).
-const PLAY_MODES := ["mania", "orbit", "rally", "dirigent", "trace", "rebound"]
+const PLAY_MODES := ["mania", "trace"]
 
 
 ## Nur bekannte Modi gelten; fehlend oder unbekannt = Mania (alte Clients).
@@ -1162,7 +1162,7 @@ func cl_score(score: int, combo: int, acc: float, miss: int = -1) -> void:
 		scores_changed.emit()
 
 
-## ManiaCore der laufenden Spielszene (Trace/Rebound/Mania haben "core"), sonst null.
+## ManiaCore der laufenden Spielszene (Trace/Mania haben "core"), sonst null.
 func scene_core() -> ManiaCore:
 	var sc := get_tree().current_scene if is_inside_tree() else null
 	if sc == null or not ("core" in sc):
@@ -1736,7 +1736,7 @@ static func type_name(t: String) -> String:
 
 ## Warum gerade nicht gestartet werden kann ("" = alles in Ordnung).
 func mode_blocker() -> String:
-	# Trace/Rebound/Mania spielen nur Mania-4K-Maps ("map_mode" fehlt bei alten Clients).
+	# Trace und Mania spielen nur Mania-Maps ("map_mode" fehlt bei alten Clients).
 	var mmode = sel_map.get("map_mode", null)
 	if (mmode is int or mmode is float) and not Tournament.map_mode_ok(play_mode, int(mmode)):
 		return tr("Map passt nicht zum Modus %s.") % play_name(play_mode)

@@ -515,7 +515,7 @@ func _ready() -> void:
 		_debug_start_usec = Time.get_ticks_usec()
 		_debug_running = true
 	if _mp_bot:
-		print("MPORBIT start: %d Noten, autoplay=%s" % [_beatmap.hit_objects.size(), _autoplay])
+		print("MPBOT start: %d Noten, autoplay=%s" % [_beatmap.hit_objects.size(), _autoplay])
 	if DisplayServer.get_name() != "headless":
 		Input.mouse_mode = Input.MOUSE_MODE_CONFINED_HIDDEN
 	elif not _mp_bot:
@@ -4234,7 +4234,7 @@ func _show_results(is_fail: bool) -> void:
 	if is_fail and OS.get_cmdline_args().has("--shot-on-fail"):
 		_capture_results_shot()   # Shot-Harness: echter Fail (z. B. Sudden Death) als PNG
 	if _mp_bot:
-		print("MPORBIT final score=%d acc=%.4f combo=%d failed=%s live_seen=%s" % [
+		print("MPBOT final score=%d acc=%.4f combo=%d failed=%s live_seen=%s" % [
 			int(s.score), float(s.accuracy), int(s.get("max_combo", 0)), str(is_fail), str(_mp_live_seen)])
 		var back_s := 1.5
 		for a in OS.get_cmdline_args():

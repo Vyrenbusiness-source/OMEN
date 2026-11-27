@@ -431,8 +431,8 @@ static func _md5_bytes(bytes: PackedByteArray) -> String:
 
 
 ## Body fuer POST /score. result = ManiaCore.stats() (+ "pp"), meta s. meta_from_beatmap.
-## mode "mania" liefert pp, "orbit"/"rally"/"dirigent"/"trace"/"rebound" liefern stars (result.stars
-## bzw. meta.stars; Trace/Rebound: Mania-Sterne). Counts (n300 ...) immer wie Mania.
+## mode "mania" liefert pp, "trace" liefert stars (result.stars bzw. meta.stars,
+## Mania-Sterne). Counts (n300 ...) immer wie Mania.
 static func build_body(result: Dictionary, meta: Dictionary, mode: String = "mania") -> Dictionary:
 	var mods: Array = result.get("mods", [])
 	var factor := float(result.get("mod_mult", mod_factor(mods)))
@@ -470,10 +470,6 @@ static func build_body(result: Dictionary, meta: Dictionary, mode: String = "man
 		# 5K-7K: eigener Modus "mania<n>k" plus Feld "keys" (4K-Body bleibt unveraendert).
 		if mode != "mania":
 			body["keys"] = ManiaKeys.keys_of_online_mode(mode)
-	# Dirigent: Takt-Anteil zusaetzlich (Counts zaehlen nur die Einsaetze).
-	if mode == "dirigent":
-		body["beats_hit"] = int(result.get("beats_hit", 0))
-		body["beats_total"] = int(result.get("beats_total", 0))
 	RuleMods.extend_body(body, result)
 	return body
 
@@ -519,7 +515,7 @@ static func classify_submit(code: int, text: String) -> Dictionary:
 	return {"kind": "retry", "message": msg, "code": msg}
 
 
-## Nach jedem gewerteten Lauf. mode "mania" | "orbit" | "rally" | "dirigent" | "trace" | "rebound".
+## Nach jedem gewerteten Lauf. mode "mania" (5K-7K: "mania<n>k") | "trace".
 ## false = nichts gesendet
 ## (Online aus / nicht angemeldet / keine md5).
 func submit(result: Dictionary, meta: Dictionary, mode: String = "mania") -> bool:
@@ -642,8 +638,7 @@ func load_queue() -> void:
 
 
 # --- Alte Scores hochladen ---------------------------------------------------
-## Nur Mania-Bestwerte (Orbit-Bestwerte nutzen alte Orbit-Regeln und werden nie
-## hochgeladen). Langsam (1 Request/s), abbrechbar, hochgeladene Keys stehen in
+## Nur Mania-Bestwerte. Langsam (1 Request/s), abbrechbar, hochgeladene Keys stehen in
 ## cfg_path (Sektion backfill) und werden nie doppelt gesendet.
 
 static func backfill_key(osz_file: String, version: String) -> String:
@@ -983,8 +978,8 @@ func _bf_on_reply(c: Dictionary, reg: Dictionary, code: int, text: String) -> vo
 
 # --- Replay-Upload und Server-ID -----------------------------------------------
 ## Jeder neue Score schickt sein Replay mit: replay_content = base64(gzip(JSON-Text der
-## ReplayStore-Datei)). Mania: user://replays/<key>.json, Orbit: letzter Lauf
-## (MODE_ORBIT_LAST). Nur wenn die Datei zum Ergebnis passt, sonst ohne Replay.
+## ReplayStore-Datei)). Mania: user://replays/<key>.json. Nur wenn die Datei zum
+## Ergebnis passt, sonst ohne Replay.
 
 ## base64(gzip(json_text)); "" bei leerem Text oder wenn das Ergebnis max_len uebersteigt.
 static func encode_replay(json_text: String, max_len: int = REPLAY_MAX_BYTES) -> String:
@@ -1033,18 +1028,13 @@ func _replay_text(osz_path: String, version: String, rmode: String) -> String:
 	return FileAccess.get_file_as_string(path)
 
 
-## Modi, deren Replays der Server als replay_content annimmt.
-const REPLAY_MODES := ["mania", "orbit"]
-
-
-## replay_content fuer einen Lauf (mode "mania" | "orbit" | ...) oder "" (kein passendes Replay, zu gross).
-## Rally/Dirigent/Trace/Rebound: immer "", bis der Server ihre Replays annimmt.
+## replay_content fuer einen Mania-Lauf ("mania", "mania<n>k") oder "" (kein passendes
+## Replay, zu gross). Trace: immer "", bis der Server Trace-Replays annimmt.
 func replay_content_for(osz_path: String, version: String, mode: String, score: int,
 		date_local: String = "") -> String:
-	if osz_path == "" or not (mode in REPLAY_MODES or ManiaKeys.is_mania_online(mode)):
+	if osz_path == "" or not ManiaKeys.is_mania_online(mode):
 		return ""
-	var rmode := ReplayStore.MODE_ORBIT_LAST if mode == "orbit" else "mania"
-	var text := _replay_text(osz_path, version, rmode)
+	var text := _replay_text(osz_path, version, "mania")
 	if text == "" or not replay_matches(text, score, date_local):
 		return ""
 	return encode_replay(text)

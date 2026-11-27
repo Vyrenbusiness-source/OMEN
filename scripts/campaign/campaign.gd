@@ -3,7 +3,7 @@ extends RefCounted
 
 ## Kampagne: feste Map-Liste fuer alle Spieler (data/campaign.json), Kapitel = Welten,
 ## je Kapitel 5 Stufen + Boss-Stufe. Jede Stufe hat drei Ziele (Ziel, Zusatzziel,
-## Meisterziel) = 1 bis 3 Sterne. Reine Logik, statisch testbar (Muster: OrbitCareer).
+## Meisterziel) = 1 bis 3 Sterne. Reine Logik, statisch testbar.
 ## Plan und Regeln: docs/campaign.md. Server-Vorschlag: docs/net/campaign_server.md.
 
 const DATA_PATH := "res://data/campaign.json"
@@ -234,13 +234,13 @@ static func score_tag(data: Dictionary, stage_id: String) -> String:
 
 # ------------------------------------------------------------------ Start
 
-## Gespeicherte Browser-Schalter (song_select.gd BROWSER_STATE_PATH): Orbit- und Trace-Mods.
+## Gespeicherte Browser-Schalter (song_select.gd BROWSER_STATE_PATH): Trace-Mods.
 const BROWSER_STATE := "user://browser_state.cfg"
 
 
 ## Mods des Spielers fuer einen Modus, genau wie der Song-Browser sie beim Start setzt
 ## (song_select._current_mods), nur ohne No Fail: das gibt es in der Kampagne nicht.
-## sv = Settings.mod_sv. Orbit/Trace-Schalter aus browser_state (fehlt = aus).
+## sv = Settings.mod_sv. Trace-Schalter aus browser_state (fehlt = aus).
 static func player_mods(mode: String, sv: bool, browser_path: String = BROWSER_STATE) -> Dictionary:
 	var cfg := ConfigFile.new()
 	var have := cfg.load(browser_path) == OK
@@ -250,9 +250,6 @@ static func player_mods(mode: String, sv: bool, browser_path: String = BROWSER_S
 	match mode:
 		"mania":
 			out["SV"] = sv
-		"orbit":
-			keys = OrbitCore.ORBIT_MODS
-			saved = cfg.get_value("browser", "orbit_mods", {}) if have else {}
 		"trace":
 			keys = TraceMods.MODS
 			saved = cfg.get_value("browser", "trace_mods", {}) if have else {}
@@ -445,7 +442,7 @@ static func trial_miss_reason(run: Dictionary, mods: Dictionary) -> String:
 	for m in EASY_MODS:
 		if bool(mods.get(m, false)):
 			return tr_("Mod %s zählt nicht") % m
-	# Ungewertete Laeufe (z. B. eigene AR in Orbit) erleichtern die Wertung ebenfalls.
+	# Ungewertete Laeufe erleichtern die Wertung ebenfalls.
 	if bool(run.get("unranked", false)):
 		return tr_("Ungewertet zählt nicht")
 	var acc := float(run.get("accuracy", 0.0))

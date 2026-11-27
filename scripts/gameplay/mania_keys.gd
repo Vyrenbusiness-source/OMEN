@@ -5,7 +5,7 @@ extends RefCounted
 ## (CircleSize = Spaltenzahl). Hier liegt alles, was von der Tastenzahl abhaengt:
 ## Standard-Belegung wie osu!, Farbmuster der Spalten (Mitte hervorgehoben),
 ## 3D-Bahnen (Abstand, Notengroesse, Feldbreite), Online-Modus-Schluessel.
-## Andere Modi (Orbit, Rally, Dirigent, Trace, Rebound) bleiben 4K-only.
+## Trace bleibt 4K-only.
 
 const MIN_KEYS := 4
 const MAX_KEYS := 7
