@@ -76,9 +76,9 @@ func _test_skip_key() -> void:
 	_ok(bool(g.call("_is_skip_key", KEY_SPACE)) and bool(g.call("_is_skip_key", KEY_ENTER)), "4K: Leertaste und Enter")
 	_ok(str(g.call("_skip_hint")) == "Leertaste: Intro überspringen", "4K: Hinweis nennt Leertaste")
 	core.columns = 7
-	_ok(not bool(g.call("_is_skip_key", KEY_SPACE)), "7K: Leertaste ist Spurtaste, kein Skip")
+	_ok(bool(g.call("_is_skip_key", KEY_SPACE)), "7K: Leertaste bleibt Skip-Taste (solange uebersprungbar)")
 	_ok(bool(g.call("_is_skip_key", KEY_ENTER)) and bool(g.call("_is_skip_key", KEY_KP_ENTER)), "7K: Enter und Ziffernblock-Enter")
-	_ok(str(g.call("_skip_hint")) == "Enter: Intro überspringen", "7K: Hinweis nennt Enter")
+	_ok(str(g.call("_skip_hint")) == "Leertaste: Intro überspringen", "7K: Hinweis nennt Leertaste")
 	_ok(not bool(g.call("_is_skip_key", KEY_D)), "Spurtaste D ist kein Skip")
 	var old := TranslationServer.get_locale()
 	TranslationServer.set_locale("en")

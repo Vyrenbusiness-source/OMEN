@@ -701,11 +701,13 @@ func _update_playfield_2d(t: float) -> void:
 		var c: Color = entry.get("col", Color(1, 1, 1))
 		var held: bool = core.active_hold(obj.column) == index
 		var zh: float = (entry.root as Node3D).position.z
+		# Taktteilung nur durchreichen, wenn der Skin sie im Modus "auto" wuenscht.
+		var sdiv := _snap_divs[index] if (_pf2d.skin != null and _pf2d.skin.snap_auto and index < _snap_divs.size()) else 0
 		if obj.is_hold:
 			_pf2d.add_hold(obj.column, zh, _note_z(obj.end_time(), t), c,
-					Playfield2D.STATE_HELD if held else Playfield2D.STATE_NORMAL, index, obj.time - t)
+					Playfield2D.STATE_HELD if held else Playfield2D.STATE_NORMAL, index, obj.time - t, sdiv)
 		else:
-			_pf2d.add_note(obj.column, zh, c, Playfield2D.STATE_NORMAL, index, obj.time - t)
+			_pf2d.add_note(obj.column, zh, c, Playfield2D.STATE_NORMAL, index, obj.time - t, sdiv)
 	for rb in _released_beams:
 		_pf2d.add_hold(int(rb.col), _note_z(float(rb.head), t), _note_z(float(rb.end), t),
 				NoteColors.color_for(int(rb.col), true, true, CLEAN_HOLD, 0, core.columns), Playfield2D.STATE_DEAD)
@@ -2119,6 +2121,8 @@ func _ur_tick(result: Dictionary) -> void:
 # ---------------------------------------------------------------------------
 
 func _input(event: InputEvent) -> void:
+	if _skip_input(event):
+		return
 	if _ended or GameSession.is_replay or _autoplay:
 		return
 	if event is InputEventKey and not event.echo:
@@ -2191,13 +2195,39 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.keycode == KEY_R and _lane_of_key(KEY_R) == -1 			and not Lobby.in_round():
 		_restart()
 		return
-	# Intro-Skip: Leertaste (oder Enter, siehe _is_skip_key) springt lange
-	# Vorlaeufe bis kurz vor die erste Note.
-	if _is_skip_key(event.keycode) and not _ended and _can_skip_intro():
-		if Lobby.in_round():
-			Lobby.vote_skip()  # Multiplayer: springt erst, wenn ALLE druecken
-		else:
-			_do_skip()
+
+
+## Intro-Skip: Leertaste (oder Enter) springt lange Vorlaeufe bis kurz vor die
+## erste Note. Solange ueberspringbar, gehoert die Leertaste dem Skip, auch als
+## Spurtaste (kein Anschlag, nichts im Replay); das Loslassen wird mitgeschluckt.
+## true = Ereignis verbraucht.
+var _skip_swallowed := {}
+var skips_done := 0  # Test: Anzahl ausgeloester Skips
+func _consume_input() -> void:
+	if is_inside_tree():
+		get_viewport().set_input_as_handled()
+func _skip_input(event: InputEvent) -> bool:
+	var k := event as InputEventKey
+	if k == null or not _is_skip_key(k.keycode):
+		return false
+	if not k.pressed:
+		if _skip_swallowed.has(k.keycode):
+			_skip_swallowed.erase(k.keycode)
+			_consume_input()
+			return true
+		return false
+	if _ended or (is_inside_tree() and get_tree().paused) or not _can_skip_intro():
+		return false
+	_skip_swallowed[k.keycode] = true
+	_consume_input()
+	if k.echo:
+		return true
+	if Lobby.in_round():
+		Lobby.vote_skip()  # Multiplayer: springt erst, wenn ALLE druecken
+	else:
+		skips_done += 1
+		_do_skip()
+	return true
 
 
 ## Liegt ein Zeitpunkt auf dem Beat-Raster der Map? (±30 ms)
@@ -2263,22 +2293,15 @@ func _skip_target() -> float:
 	return _skip_cache
 
 
-## Intro-Skip-Tasten: Leertaste und Enter (auch Ziffernblock, wie osu!), jeweils nur,
-## wenn sie keine Spurtaste ist. Bei 5K/7K liegt die Leertaste auf der Mittelspur:
-## dann bleibt Enter.
+## Intro-Skip-Tasten: Leertaste und Enter (auch Ziffernblock, wie osu!). Gilt auch,
+## wenn die Taste eine Spurtaste ist; _skip_input prueft, ob gerade etwas fehlt.
 func _is_skip_key(code: int) -> bool:
-	if code != KEY_SPACE and code != KEY_ENTER and code != KEY_KP_ENTER:
-		return false
-	return _lane_of_key(code) == -1
+	return code == KEY_SPACE or code == KEY_ENTER or code == KEY_KP_ENTER
 
 
-## Hinweistext zur Skip-Taste ("" = keine freie Taste).
+## Hinweistext zur Skip-Taste.
 func _skip_hint() -> String:
-	if _is_skip_key(KEY_SPACE):
-		return "Leertaste: Intro überspringen"
-	if _is_skip_key(KEY_ENTER):
-		return "Enter: Intro überspringen"
-	return ""
+	return "Leertaste: Intro überspringen"
 
 
 func _can_skip_intro() -> bool:
@@ -3702,7 +3725,7 @@ func _build_hud() -> void:
 
 	# Rang links bei der Genauigkeit, rechts eine kompakte Zaehler-Gruppe.
 	var left := _stat_column(Vector2(0.085, 0.42))
-	_grade_label = _stat_block(left, "RANG", 26)
+	_grade_label = _stat_block(left, "RANG", 72)  # gross: Rang muss im Spiel auf einen Blick lesbar sein
 	_acc_label = _stat_block(left, "GENAUIGKEIT", 28)
 	var right := _stat_column(Vector2(0.915, 0.42))
 	_score_label = _stat_block(right, "PUNKTE", 30)
