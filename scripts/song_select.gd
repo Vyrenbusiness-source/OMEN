@@ -401,24 +401,42 @@ func _debug_pick() -> Array:
 ## Durchscrollen der ganzen Bibliothek (VSync aus) und Zeit je Set-Wechsel.
 ## Ergebnis als eine BENCH-Zeile, dann Ende. Werte in docs/perf/browser.md.
 func _bench_browser() -> void:
+	_bench_on = true
 	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 	await RenderingServer.frame_post_draw
 	var first_ms := (Time.get_ticks_usec() - _bench_t0) / 1000.0
 	for i in 60:
 		await get_tree().process_frame
+	# Anlauf abwarten: Vorbereitung der Auswahl (Worker: Vollbild-Hintergrund,
+	# Parse, Textur-Upload) und erste Cover laufen bis etwa 1 s nach dem Start.
+	# Ohne Pause landen diese Hintergrund-Frames im Scroll-Wert (siehe browser.md).
+	if not OS.get_cmdline_args().has("--bench-cold-scroll"):
+		await get_tree().create_timer(1.5).timeout
 	var total := _bench_content_h()
 	var view := _bench_view_h()
 	var frames := PackedFloat32Array()
 	var y := 0.0
 	var last := Time.get_ticks_usec()
 	var stop_at := Time.get_ticks_msec() + 90000
+	var slow: Array = []
 	while y < total - view and Time.get_ticks_msec() < stop_at:
 		y += 40.0
+		_bench_new = 0
+		_bench_cov = 0
+		_bench_lay_us = 0
+		_bench_titles = ""
+		_bench_misc = ""
 		_bench_scroll(y)
 		await get_tree().process_frame
 		var now := Time.get_ticks_usec()
-		frames.append((now - last) / 1000.0)
+		var ft := (now - last) / 1000.0
+		frames.append(ft)
 		last = now
+		if ft > 8.0:
+			slow.append("y=%d %.1fms layout=%.1fms new_nodes=%d covers=%d steps=%s titles=%s" % [
+				int(y), ft, _bench_lay_us / 1000.0, _bench_new, _bench_cov, _bench_misc, _bench_titles])
+	for s in slow:
+		print("BENCH_SLOW ", s)
 	var sorted := frames.duplicate()
 	sorted.sort()
 	var worst := sorted[-1] if not sorted.is_empty() else 0.0
@@ -450,6 +468,12 @@ func _bench_browser() -> void:
 
 
 var _bench_t0 := 0
+var _bench_new := 0
+var _bench_cov := 0
+var _bench_lay_us := 0
+var _bench_titles := ""
+var _bench_misc := ""
+var _bench_on := false
 
 
 func _bench_content_h() -> float:
@@ -1725,6 +1749,8 @@ func _list_step(delta: float) -> void:
 	if _view == null:
 		return
 	var d := _scroll_goal - _scroll_y
+	if absf(d) <= 0.5 and _glyph_state != 2:
+		_glyph_warm_step()
 	if absf(d) > 0.5:
 		_scroll_y += d * (1.0 - exp(-SCROLL_RATE * delta))
 		_list_dirty = true
@@ -1738,7 +1764,47 @@ func _list_step(delta: float) -> void:
 			node.set_meta("hx", move_toward(hx, target, delta * 100.0))
 			_list_dirty = true
 	if _list_dirty:
+		var t := Time.get_ticks_usec()
 		_layout_list()
+		_bench_lay_us += Time.get_ticks_usec() - t
+
+
+var _cover_dim := {}  # osz_path -> Helligkeitsfaktor des Covers
+var _glyph_state := 0  # 0 = Liste noch nicht gesammelt, 1 = laeuft, 2 = fertig
+var _glyph_queue: PackedStringArray = []
+
+
+## Schriften vorwaermen, solange die Liste ruht: Titel mit Nicht-ASCII-Zeichen
+## (Japanisch, Koreanisch, ...) loesen beim ersten Zeichnen die Suche nach
+## einer System-Ersatzschrift aus (bis 40 ms). Das passiert sonst mitten im
+## Scrollen; hier einmal vorab, verteilt auf ruhige Frames (hoechstens 3 ms).
+func _glyph_warm_step() -> void:
+	if _glyph_state == 0:
+		if _library == null or _library.mapsets.is_empty():
+			return
+		var seen := {}
+		var buf := ""
+		for ms: MapSet in _library.mapsets:
+			for s: String in [ms.title, ms.artist, ms.creator]:
+				if s.to_utf8_buffer().size() != s.length() and not seen.has(s):
+					seen[s] = true
+					buf += s + " "
+					if buf.length() > 400:
+						_glyph_queue.append(buf)
+						buf = ""
+		if buf != "":
+			_glyph_queue.append(buf)
+		_glyph_state = 1
+		return
+	var font: Font = get_theme_font("font", "Label")
+	var t0 := Time.get_ticks_usec()
+	while not _glyph_queue.is_empty() and Time.get_ticks_usec() - t0 < 3000:
+		var s := _glyph_queue[_glyph_queue.size() - 1]
+		_glyph_queue.remove_at(_glyph_queue.size() - 1)
+		for fs in [20, 16, 13, 12]:
+			font.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
+	if _glyph_queue.is_empty():
+		_glyph_state = 2
 
 
 ## Sichtbare Zeilen positionieren; neue aus dem Pool binden, alte zurueckgeben.
@@ -1801,6 +1867,7 @@ func _acquire(kind: int, r: int) -> Control:
 		node.set_meta("kind", kind)
 		_view.add_child(node)
 	elif (_pool[kind] as Array).is_empty():
+		_bench_new += 1
 		node = _new_row_node(kind)
 		_view.add_child(node)
 	else:
@@ -1885,6 +1952,8 @@ func _new_row_node(kind: int) -> Control:
 		p.cover = TextureRect.new()
 		p.cover.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		p.cover.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		# Helle Cover (weisse Hintergruende) gedaempft, damit Sterne und Rang lesbar bleiben.
+		p.cover.modulate = Color(0.62, 0.62, 0.64)
 		b.add_child(_full(p.cover))
 		var shade := TextureRect.new()
 		shade.texture = _shade_tex
@@ -1984,6 +2053,8 @@ func _bind_card(b: Control, p: Dictionary, kind: int, ms: MapSet, di: int, vw: f
 	var text_w := right - rank_w - 110.0 - 18.0
 	if kind == ROW_SET:
 		p.title.text = ms.title if ms.title != "" else ms.osz_path.get_file().get_basename()
+		if _bench_on:
+			_bench_titles += p.title.text + " | "
 		p.title.position = Vector2(18, 10)
 		p.title.size = Vector2(text_w, 28)
 		p.sub.text = "%s  //  %s" % [ms.artist, ms.creator]
@@ -2002,6 +2073,8 @@ func _bind_card(b: Control, p: Dictionary, kind: int, ms: MapSet, di: int, vw: f
 		if _cover_lru.has(path):
 			_cover_touch(path)
 			p.cover.texture = _cover_lru[path]
+			var dm := float(_cover_dim.get(path, 0.62))
+			p.cover.modulate = Color(dm, dm, dm * 1.03)
 			b.set_meta("need_cover", false)
 		else:
 			p.cover.texture = null
@@ -2070,7 +2143,7 @@ func _style_list_row(node: Control, state: int) -> void:
 			else (_frame_hover if hov else _frame_idle))
 	(p.frame as Panel).add_theme_stylebox_override("panel", box)
 	if p.has("shade"):
-		(p.shade as CanvasItem).modulate = Color(1, 1, 1, 0.82 if state > 0 else 1.0)
+		(p.shade as CanvasItem).modulate = Color(1, 1, 1, 0.9 if state > 0 else 1.0)
 
 
 func _on_row_pressed(node: Control) -> void:
@@ -2146,7 +2219,9 @@ func _cover_put(path: String, tex: Texture2D) -> void:
 	_cover_lru[path] = tex
 	_cover_touch(path)
 	while _cover_order.size() > COVER_LRU:
-		_cover_lru.erase(_cover_order.pop_front())
+		var old: String = _cover_order.pop_front()
+		_cover_lru.erase(old)
+		_cover_dim.erase(old)
 
 
 ## Auftraege starten: hoechstens COVER_JOBS gleichzeitig. Was aus dem Bild
@@ -2173,7 +2248,7 @@ func _cover_task(ms: MapSet) -> void:
 			img = null
 	if img == null:
 		img = cover_build(ms.osz_path, ms.background_file, thumb)
-	_cover_loaded.call_deferred(ms.osz_path, img)
+	_cover_loaded.call_deferred(ms.osz_path, img, cover_dim(img))
 
 
 ## Cover aus dem Archiv lesen, auf 320 px verkleinern, als webp ablegen (thread-sicher).
@@ -2206,18 +2281,39 @@ static func cover_build(osz: String, bg_file: String, thumb: String) -> Image:
 	return img
 
 
-func _cover_loaded(path: String, img: Image) -> void:
+## Helligkeit fuer ein Cover: helle Bilder (weisser Hintergrund) staerker
+## abdunkeln, damit Sterne, Rang und Titel lesbar bleiben (thread-sicher).
+static func cover_dim(img: Image) -> float:
+	if img == null or img.is_empty():
+		return 0.62
+	var small := img.duplicate() as Image
+	if small.is_compressed():
+		return 0.62
+	small.convert(Image.FORMAT_RGB8)
+	small.resize(8, 5, Image.INTERPOLATE_BILINEAR)
+	var lum := 0.0
+	for y in 5:
+		for x in 8:
+			lum += small.get_pixel(x, y).get_luminance()
+	lum /= 40.0
+	return clampf(0.30 / maxf(lum, 0.01), 0.34, 0.72)
+
+
+func _cover_loaded(path: String, img: Image, dim: float = 0.62) -> void:
 	if _cover_jobs.has(path):
 		WorkerThreadPool.wait_for_task_completion(_cover_jobs[path])
 		_cover_jobs.erase(path)
 	if not is_inside_tree():
 		return
+	_bench_cov += 1
 	var tex: Texture2D = ImageTexture.create_from_image(img) if img != null and not img.is_empty() else null
 	_cover_put(path, tex)
+	_cover_dim[path] = dim
 	for node in _live.values():
 		if int(node.get_meta("kind", -1)) == ROW_SET and node.get_meta("need_cover", false) \
 				and (node.get_meta("ms") as MapSet).osz_path == path:
 			(node.get_meta("p")["cover"] as TextureRect).texture = tex
+			(node.get_meta("p")["cover"] as TextureRect).modulate = Color(dim, dim, dim * 1.03)
 			node.set_meta("need_cover", false)
 	if _cover_jobs.is_empty() and _cover_want.is_empty() and _perf_ready_t > 0:
 		GameSession.perf_since("Browser: sichtbare Cover geladen (seit _ready)", _perf_ready_t)
@@ -3064,11 +3160,26 @@ static func browser_entries(sets: Array, sort_i: int, group_i: int, colls: Dicti
 
 
 func _process(delta: float) -> void:
+	if _bench_on:
+		_bench_proc(delta)
+		return
 	_beat_react(delta)
 	_loudness_step()
 	_prepare_step()
 	_game_preload_step()
 	_list_step(delta)
+
+
+## Wie _process, misst aber jeden Schritt (nur --bench-browser).
+func _bench_proc(delta: float) -> void:
+	var steps := [["beat", _beat_react.bind(delta)], ["loud", _loudness_step],
+		["prep", _prepare_step], ["gpre", _game_preload_step], ["list", _list_step.bind(delta)]]
+	for st in steps:
+		var t := Time.get_ticks_usec()
+		(st[1] as Callable).call()
+		var us := Time.get_ticks_usec() - t
+		if us > 1500:
+			_bench_misc += "%s=%.1f " % [st[0], us / 1000.0]
 
 
 ## Lautheitsmessung der Vorschau; nach >= 6 s Gain speichern und anwenden.
@@ -3464,7 +3575,7 @@ func _init_card_styles() -> void:
 	var g := Gradient.new()
 	g.offsets = PackedFloat32Array([0.0, 0.45, 1.0])
 	var sc := Color(0.045, 0.045, 0.06)
-	g.colors = PackedColorArray([Color(sc, 0.95), Color(sc, 0.86), Color(sc, 0.62)])
+	g.colors = PackedColorArray([Color(sc, 0.95), Color(sc, 0.88), Color(sc, 0.70)])
 	_shade_tex = GradientTexture2D.new()
 	_shade_tex.gradient = g
 	_shade_tex.width = 256
@@ -4407,6 +4518,9 @@ func _exit_tree() -> void:
 	if _bg_thread != null:
 		_bg_thread.wait_to_finish()
 		_bg_thread = null
+	if _preview_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_preview_task)
+		_preview_task = -1
 
 
 ## Vorschau entprellt: schnelles Durchklicken laedt nicht bei jedem Schritt Audio.
@@ -4414,12 +4528,35 @@ func _play_preview() -> void:
 	_preview_due = Time.get_ticks_msec() + PREVIEW_DEBOUNCE_MS
 
 
+var _preview_task := -1
+
+
+## Audio im Worker laden (Zip lesen + Stream bauen kostet bis 40 ms), danach
+## im Hauptthread starten, falls die Auswahl noch dieselbe ist.
 func _play_preview_now() -> void:
 	if _selected_set == null:
 		return
+	if _preview_task >= 0:
+		# Voriger Ladevorgang laeuft noch: kurz spaeter erneut versuchen.
+		_preview_due = Time.get_ticks_msec() + 40
+		return
 	var m := _selected_set.meta_at(_selected_diff)
-	var stream := OszImporter.load_audio_stream_named(
-		_selected_set.osz_path, str(m.get("audio_filename", "")))
+	var path := _selected_set.osz_path
+	var audio := str(m.get("audio_filename", ""))
+	_preview_task = WorkerThreadPool.add_task(func():
+		var st := OszImporter.load_audio_stream_named(path, audio)
+		_preview_loaded.call_deferred(path, audio, st), false, "browser-preview")
+
+
+func _preview_loaded(path: String, audio: String, stream: AudioStream) -> void:
+	if _preview_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_preview_task)
+		_preview_task = -1
+	if not is_inside_tree() or _selected_set == null or _selected_set.osz_path != path:
+		return
+	var m := _selected_set.meta_at(_selected_diff)
+	if str(m.get("audio_filename", "")) != audio:
+		return
 	if stream == null:
 		_stop_preview_soft()
 		return
@@ -4445,6 +4582,8 @@ func _switch_preview(stream: AudioStream, from_sec: float, song_key: String) -> 
 func _start_preview(stream: AudioStream, from_sec: float, song_key: String) -> void:
 	if not is_inside_tree():
 		return
+	if _bench_on:
+		_bench_misc += "start_preview "
 	_preview.stop()
 	_preview.stream = stream
 	_preview_len = stream.get_length()
