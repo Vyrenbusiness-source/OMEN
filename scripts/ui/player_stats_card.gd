@@ -598,15 +598,14 @@ func _header(info: Dictionary, st: Dictionary) -> Control:
 		if failed:
 			h.add_child(_chip(tr("Nicht geschafft"), DOWN_COL, 12 if _compact else _px(13)))
 		var g := "F" if failed else str(st.get("grade", "D"))
-		var gc: Color = DOWN_COL if failed else GRADE_COLOR.get(g, Color.WHITE)
-		var gl := _lbl(g, 34 if _compact else _px(54), gc, true, 0)
-		gl.add_theme_color_override("font_shadow_color", Color(gc, 0.25))
-		gl.add_theme_constant_override("shadow_offset_y", 0)
-		gl.add_theme_constant_override("shadow_outline_size", 14)
-		gl.custom_minimum_size.x = 40 if _compact else _px(66)
+		var gc: Color = DOWN_COL if failed else UiTheme.grade_color(g)
+		# Rang = wichtigste Zahl der Karte: deutlich groesser als die Score-Zahl (_hero).
+		var gpx := UiTheme.grade_size(_score_px(), g, GRADE_HEAD_FACTOR)
+		var gl := UiTheme.grade_label(g, gpx, gc)
+		gl.name = "Grade"
+		gl.custom_minimum_size.x = int(gpx * (1.25 if g.length() >= 2 else 0.8))
+		gl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		gl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-		gl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		gl.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 		h.add_child(gl)
 	return h
 
