@@ -157,7 +157,7 @@ func _misc() -> void:
 	_check(G.phase_for_scene("res://scenes/main_menu.tscn") == G.PHASE_MENU, "Szene Menue")
 	_check(G.phase_for_scene("res://scenes/song_select.tscn") == G.PHASE_BROWSER, "Szene Browser")
 	_check(G.phase_for_scene("res://scenes/mania_3d.tscn") == G.PHASE_GAME, "Szene Spiel (Mania)")
-	_check(G.phase_for_scene("res://scenes/orbit.tscn") == G.PHASE_GAME, "Szene Spiel (Orbit)")
+	_check(G.phase_for_scene("res://scenes/trace.tscn") == G.PHASE_GAME, "Szene Spiel (Trace)")
 	_check(G.phase_for_scene("") == "", "unbekannte Szene: Phase bleibt")
 	for p in [G.PHASE_START, G.PHASE_LOAD, G.PHASE_GAME]:
 		_check(G.HEAL_PHASES.has(p), "heilt nach Absturz in " + p)

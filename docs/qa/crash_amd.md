@@ -166,7 +166,7 @@ die Aenderung genau. Muster: Im Thread nur `Image` dekodieren und verkleinern
 - `scripts/ui/settings_panel.gd` Grafik-Abschnitt: Zeile "Absturzschutz" mit
   `CrashGuard.stage_label()` und Knopf "Zuruecksetzen" -> `CrashGuard.reset_stage()`
   (nur sichtbar bei `CrashGuard.stage > 0`).
-- `scripts/gameplay3d/mania_3d.gd:5199` und `scripts/orbit/orbit_backdrop.gd:117` nach
+- `scripts/gameplay3d/mania_3d.gd:5199` nach
   `WorldTheme.resolve(...)`: `if CrashGuard.simple_world(): t = WorldTheme.GALAXY` und danach
   `CrashGuard.set_phase("load", t)`.
 - Welt-/Hintergrund-Bilder aus eigenen Dateien (z. B. `mania_3d.gd:652`/`:879`) vor

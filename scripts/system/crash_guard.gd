@@ -61,16 +61,8 @@ const SCENE_PHASES := {
 	"campaign.tscn": PHASE_MENU,
 	"mania_3d.tscn": PHASE_GAME,
 	"gameplay_3d.tscn": PHASE_GAME,
-	"orbit.tscn": PHASE_GAME,
-	"orbit_tutorial.tscn": PHASE_GAME,
-	"rally.tscn": PHASE_GAME,
-	"rally_tutorial.tscn": PHASE_GAME,
 	"trace.tscn": PHASE_GAME,
 	"trace_tutorial.tscn": PHASE_GAME,
-	"rebound.tscn": PHASE_GAME,
-	"rebound_tutorial.tscn": PHASE_GAME,
-	"dirigent.tscn": PHASE_GAME,
-	"dirigent_tutorial.tscn": PHASE_GAME,
 	"tutorial.tscn": PHASE_GAME,
 }
 
