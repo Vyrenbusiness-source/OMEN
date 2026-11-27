@@ -262,3 +262,14 @@ Offen/klein: song_select.gd _bg_finished get_tree() null nach Verlassen; Relay-S
 - Laeuft: fix-small2 (song_select _bg_finished, Hit-Error bei Rate, Turbo-Leaks, Tutorial 4K-Text, Skip-Taste bei Space-Spalte, Relay-Smoke).
 - Naechste Ideen: 5K-7K in Multiplayer/Turnier/Marathon; Auto-Mapper Runde 4 (Holds: sustain sagt Menschen-Holds kaum voraus AUC 0,6; Tempo-Oktave; select.json nach AmFeatures-Aenderung neu lernen: tools/automap_learn_chart.gd --dump/--fit); Clip-Export fuer Marathon; Marathon im MP; Hit-Error Echtzeit.
 - Lastempfindliche Tests (run_clock_tests Echtzeit, mv_tempo Drift/Pegel) melden unter Last SKIP bzw. weite Grenzen.
+
+## Stand 2026-11-27 ~23:10 (v1.44.0 released)
+- Nutzer-Liste vom 27.11. umgesetzt: Orbit, Rally, Dirigent, Rebound komplett entfernt (Code, Szenen, Tests, Texte, Doku; alte Nutzerdaten dieser Modi werden beim Laden uebersprungen), Hauptmenue nur noch Mania + Trace ohne tote Eintraege; Import lehnt Sets ohne Mania-Diff mit Hinweis ab.
+- Song-Browser Stufe 1: Liste als virtuelles Karussell wie osu! (Set klappt auf), Sortierung/Gruppierung ueber scripts/library/browser_sort.gd, Rang gross, Messung docs/perf/browser.md (erste Liste 448 -> 252 ms, kein Scroll-Frame > 8 ms). Stufe 2 offen: linkes Info-Panel + Bestenliste (Auswahl-Vorbereitung stockt ~0,5 s), untere Leiste, Tastatur wie osu!, "For you" nimmt Listenhoehe, 641 ms bei 1900 Sets (Stand docs/perf/browser_state.md).
+- Leertaste ueberspringt das Intro immer, auch als 7K-Spalte (kein Geister-Anschlag). Rang im HUD 72 px.
+- Pfeil-Skin "Pfeile" neu (tools/gen_arrow_skin.py; links/unten/oben/rechts, Snap-Farben im Auto-Modus ueber Skin-Eigenschaft snap_auto). Skins wirken nur in 2D.
+- Absturz-Schutz (Meldung RX 9070 + 7800X3D): Autoload CrashGuard (Wachmarke, Bericht user://crash, Stufen 1-3), Hinweis im Hauptmenue, Stufe in den Einstellungen, Textur-Zugriffe aus Worker-Threads behoben (profile_panel, osz_importer). Bericht docs/qa/crash_amd.md. Offen: export_d3d12=0 (Stufe 3 nutzt D3D12 von Windows), vom Betroffenen Datei aus user://crash + Treiberversion erfragen.
+- Tests: laufen jetzt alle in EINER Engine (warmd 0.6): Tests duerfen keinen Zustand hinterlassen, Sprache selbst setzen, Zeit relativ messen. warmd v0.6.1: lint ignoriert abgefragte res://-Pfade, `# warmd: nolint` je Zeile.
+- Agents: Hook sperrt bei ~63 Tool-Aufrufen, Handoff hoechstens 3x -> Tasks klein schneiden (ein grosser Datei-Block je Task).
+- Platte C: knapp (11-13 GB frei): .godot-Caches alter Worktrees geloescht; rund 60 alte Worktrees unter .warmd-worktrees/rhyg koennten weg (Nutzer gefragt, Antwort offen).
+- Server: docs/server/SERVER.md Abschnitt v1.44.0 (vier Modi weg), min_version bleibt 1.30.0.
