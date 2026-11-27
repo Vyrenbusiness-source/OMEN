@@ -60,22 +60,19 @@ func has_sv() -> bool:
 	return sv
 
 
-## Spielmodus-Filter im Song-Browser: 4K-Mania-Diffs (Mode 3) gibt es in
-## allen Modi, osu!standard-Diffs (Mode 0) NUR im Orbit-Modus (Orbit leitet
-## seine Ziele aus den Positionen ab, Mania kann sie nicht spielen).
+## Spielmodus-Filter im Song-Browser: nur Mania-Diffs (Mode 3) sind spielbar,
+## osu!standard und andere Modi (Mode 0/1/2) zeigt kein Modus.
 ## 5K-7K-Diffs (ManiaKeys) nur in Mania selbst.
-## play_mode: "mania" (4K-7K) | "mania@<n>" (nur nK, Tasten-Filter; Trace/Rebound:
-## "mania@4") | "orbit" (Standard + 4K).
+## play_mode: "mania" (4K-7K) | "mania@<n>" (nur nK, Tasten-Filter; Trace: "mania@4").
 static func mode_shows(meta: Dictionary, play_mode: String) -> bool:
-	var m := int(meta.get("mode", 0))
-	if m == 3:
-		var k := ManiaKeys.keys_of_meta(meta)
-		if play_mode == "mania":
-			return ManiaKeys.supported(k)
-		if play_mode.begins_with("mania@"):
-			return k == int(play_mode.trim_prefix("mania@"))
-		return k == 4
-	return m == 0 and play_mode == "orbit"
+	if int(meta.get("mode", 0)) != 3:
+		return false
+	var k := ManiaKeys.keys_of_meta(meta)
+	if play_mode == "mania":
+		return ManiaKeys.supported(k)
+	if play_mode.begins_with("mania@"):
+		return k == int(play_mode.trim_prefix("mania@"))
+	return k == 4
 
 
 ## Tastenzahlen der Mania-Diffs dieses Sets (aufsteigend, ohne Doppelte).
