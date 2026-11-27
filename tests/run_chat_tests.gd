@@ -92,8 +92,8 @@ func _scores() -> void:
 		"max_combo": 300, "pp": 120.5, "mods": ["NF"], "mode": "mania", "has_replay": true}))
 	_ok(s.player == "Mira" and s.set_id == 5 and s.has_replay and s.mods == ["NF"] and s.grade == "S",
 		"Score geparst")
-	var o := ChatApi.parse_score('{"score":{"player":{"username":"X"},"map":{"beatmapset_id":1},"orbit_points":9.5,"mode":"orbit"}}')
-	_ok(o.player == "X" and absf(o.pp - 9.5) < 0.01 and not o.has_replay, "verpackt + orbit_points")
+	var o := ChatApi.parse_score('{"score":{"player":{"username":"X"},"map":{"beatmapset_id":1},"points":9.5,"mode":"trace"}}')
+	_ok(o.player == "X" and absf(o.pp - 9.5) < 0.01 and not o.has_replay, "verpackt + points")
 	_ok(ChatApi.parse_score("{}").is_empty(), "leerer Score -> {}")
 	var data := {"meta": {"end_ms": 1000.0}, "events": [{"t": 10, "lane": 1, "down": true}, {"t": 50, "lane": 1, "down": false}]}
 	var enc := ChatApi.encode_replay(data)
@@ -129,7 +129,7 @@ func _key_rule() -> void:
 	_ok(ChatOverlay.key_allowed("res://scenes/main_menu.tscn", btn), "F bei Button-Fokus erlaubt")
 	_ok(not ChatOverlay.key_allowed("res://scenes/main_menu.tscn", le), "F bei Textfeld gesperrt")
 	_ok(not ChatOverlay.key_allowed("res://scenes/mania_3d.tscn", null), "F im Gameplay gesperrt")
-	_ok(not ChatOverlay.key_allowed("res://scenes/orbit.tscn", null), "F in Orbit gesperrt")
+	_ok(not ChatOverlay.key_allowed("res://scenes/trace.tscn", null), "F in Trace gesperrt")
 	le.free()
 	btn.free()
 

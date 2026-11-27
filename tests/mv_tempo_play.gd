@@ -1,5 +1,7 @@
 extends "res://tests/live_qa.gd"
 
+const BotPlan := preload("res://tests/bot_plan.gd")
+
 ## Echter Spiel-Lauf fuer mv-tempo (Uebungsmodus + Turbo) in der Mania-Szene, mit
 ## Screenshots. Nutzt Fixture/Eingabe-Hilfen aus tests/live_qa.gd. Kein Teil von
 ## "warmd check" (braucht ein Fenster); Aufruf ueber tests/mv_tempo_play.sh:
@@ -322,7 +324,7 @@ func _check_real_offsets(sc: Node) -> void:
 
 
 func _plan_turbo(sc: Node) -> Array:
-	var p: Array = ReboundReplay.bot_plan(sc.get("_beatmap"), 3, 12.0, 70)
+	var p: Array = BotPlan.plan(sc.get("_beatmap"), 3, 12.0, 70)
 	p.sort_custom(func(a, b): return float(a.t) < float(b.t))
 	return p
 

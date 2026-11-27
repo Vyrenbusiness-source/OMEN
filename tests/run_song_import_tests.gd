@@ -139,9 +139,8 @@ func _initialize() -> void:
 	_ok(not bool(a.ok) and str(a.error) != "" and a.has("osz_path"), "import_audio: fehlende Datei -> Fehler")
 	_ok(not bool(SongImport.import_audio("C:/x/text.txt").ok), "import_audio: kein Audio -> Fehler")
 
-	# --- Bibliotheksregel: Mania nur 4K, std nur Orbit ---
-	_ok(MapSet.mode_shows({"mode": 3}, "mania") and MapSet.mode_shows({"mode": 3}, "orbit"), "4K in Mania und Orbit")
-	_ok(not MapSet.mode_shows({"mode": 0}, "mania") and MapSet.mode_shows({"mode": 0}, "orbit"), "std nur in Orbit")
+	# --- Bibliotheksregel: Mania ja, osu!standard nie ---
+	_ok(MapSet.mode_shows({"mode": 3}, "mania") and not MapSet.mode_shows({"mode": 0}, "mania"), "4K in Mania, std nicht")
 	_rm(root)
 	print("=== Ergebnis: %d bestanden, %d fehlgeschlagen ===" % [_passed, _failed])
 	quit(1 if _failed > 0 else 0)

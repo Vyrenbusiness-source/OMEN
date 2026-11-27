@@ -153,17 +153,17 @@ func _test_profiles() -> void:
 				"%s: Easy < Challenge <= Push (%.2f, %.2f, %.2f)" % [tag, _mean_stars(e), _mean_stars(ch), _mean_stars(p)])
 	var fails := Recommender.skill("mania", _profile("mania", 4.0, 0.0, 12, 0.3, 0.0, 3, 1))
 	_ok(fails.comfort < 3.2, "nur Fehlschlaege bei 4 Sternen -> Level unter 3,2 (%.2f)" % fails.comfort)
-	var none := Recommender.skill("orbit", [])
+	var none := Recommender.skill("trace", [])
 	_ok(none.n == 0 and is_equal_approx(none.comfort, 1.5), "ohne Laeufe: Standardkurve")
-	var one := Recommender.skill("orbit", [{"set": "a", "diff": "d", "stars": 6.0,
+	var one := Recommender.skill("trace", [{"set": "a", "diff": "d", "stars": 6.0,
 		"accuracy": 0.99, "date": _date(100)}])
 	_ok(one.comfort > none.comfort and one.comfort < 4.0, "ein Glueckslauf: vorsichtig (%.2f)" % one.comfort)
-	var old := _profile("rally", 1.5, 0.9, 30, 0.2, 0.02, 400)
-	old.append_array(_profile("rally", 4.0, 0.9, 10, 0.2, 0.02, 3).map(func(r):
+	var old := _profile("trace", 1.5, 0.9, 30, 0.2, 0.02, 400)
+	old.append_array(_profile("trace", 4.0, 0.9, 10, 0.2, 0.02, 3).map(func(r):
 		r.set = "n" + str(r.set)
 		return r))
-	_ok(Recommender.skill("rally", old).comfort > 3.0,
-		"alte Laeufe zaehlen weniger als juengste (%.2f)" % Recommender.skill("rally", old).comfort)
+	_ok(Recommender.skill("trace", old).comfort > 3.0,
+		"alte Laeufe zaehlen weniger als juengste (%.2f)" % Recommender.skill("trace", old).comfort)
 
 
 ## Anonymisiertes echtes Profil: ~440 pp, Mania meist 2,4..2,7 Sterne mit
@@ -225,7 +225,7 @@ func _test_mid_player_regression() -> void:
 
 func _test_push_top_pp() -> void:
 	print("-- Push")
-	for m in ["orbit", "rally", "dirigent", "trace", "rebound"]:  # Mania: Regression oben
+	for m in ["trace"]:  # Mania: Regression oben
 		var runs := _profile(m, 4.0, 0.92)
 		var push := Recommender.suggest(m, Recommender.LEVEL_PUSH, _cands(), 5, runs, NOW)
 		var good: bool = not push.is_empty() and (("would be top" in push[0].reason) or ("new top pp" in push[0].reason))
@@ -233,8 +233,8 @@ func _test_push_top_pp() -> void:
 	# Wenige schwache Laeufe: jede neue Leistung ist Top 10 -> Grund mit Rang.
 	var p := Recommender.suggest("mania", "push", _cands(), 3, _profile("mania", 3.0, 0.9, 6), NOW)
 	_ok(not p.is_empty() and "pp" in p[0].reason, "Mania-Grund in pp (%s)" % (p[0].reason if p.size() else "-"))
-	var op := Recommender.suggest("orbit", "push", _cands(), 3, _profile("orbit", 3.0, 0.9), NOW)
-	_ok(not op.is_empty() and "pts" in op[0].reason, "Orbit-Grund in pts")
+	var op := Recommender.suggest("trace", "push", _cands(), 3, _profile("trace", 3.0, 0.9), NOW)
+	_ok(not op.is_empty() and "pts" in op[0].reason, "Trace-Grund in pts")
 	# Starke Top-Liste, keine Map kann rein -> naechster Schritt statt leerer Liste.
 	var strong := _profile("mania", 3.0, 0.9)
 	for i in 12:
@@ -251,9 +251,9 @@ func _test_slope_fit() -> void:
 		var st := 1.5 + 0.1 * i
 		steep.append({"set": "q%d" % i, "diff": "d", "stars": st, "accuracy": clampf(0.95 - 0.12 * (st - 2.0), 0.5, 1.0),
 			"grade": "A", "date": _date(86400 + i * 60)})
-	var sk := Recommender.skill("orbit", steep)
+	var sk := Recommender.skill("trace", steep)
 	_ok(sk.slope > 0.09 and sk.slope <= Recommender.SLOPE_MAX, "steile Kurve erkannt (%.3f)" % sk.slope)
-	var flat := Recommender.skill("orbit", _profile("orbit", 3.0, 0.9, 30, 0.05))
+	var flat := Recommender.skill("trace", _profile("trace", 3.0, 0.9, 30, 0.05))
 	_ok(is_equal_approx(flat.slope, 0.07), "kaum Streuung -> Standard-Steigung (%.3f)" % flat.slope)
 
 
@@ -363,14 +363,14 @@ func _test_variety() -> void:
 		cands.append({"set": "same", "diff": "v%d" % i, "stars": 3.2 + 0.03 * i, "osu_mode": 3})
 	for i in 4:
 		cands.append({"set": "o%d" % i, "diff": "v", "stars": 3.1 + 0.1 * i, "osu_mode": 3})
-	var runs := _profile("orbit", 3.0, 0.9)
-	var out := Recommender.suggest("orbit", Recommender.LEVEL_CHALLENGE, cands, 5, runs, NOW)
+	var runs := _profile("trace", 3.0, 0.9)
+	var out := Recommender.suggest("trace", Recommender.LEVEL_CHALLENGE, cands, 5, runs, NOW)
 	var same := 0
 	for s in out:
 		if s.set == "same":
 			same += 1
 	_ok(out.size() == 5 and same <= 1, "5 Vorschlaege, hoechstens 1x dasselbe Set (%d)" % same)
-	var only := Recommender.suggest("orbit", Recommender.LEVEL_CHALLENGE, cands.slice(0, 8), 5, runs, NOW)
+	var only := Recommender.suggest("trace", Recommender.LEVEL_CHALLENGE, cands.slice(0, 8), 5, runs, NOW)
 	_ok(only.size() == Recommender.MAX_PER_SET, "nur ein Set: hoechstens %d Diffs (%d)" % [Recommender.MAX_PER_SET, only.size()])
 
 
@@ -380,10 +380,8 @@ func _test_empty_and_playable() -> void:
 		_ok(Recommender.suggest("mania", lv, [], 5, [], NOW).is_empty(), "keine Kandidaten (%s) -> leer" % lv)
 	_ok(Recommender.suggest("mania", "push", _cands(), 0, [], NOW).is_empty(), "n=0 -> leer")
 	var std := _cands(0)
-	for m in ["mania", "trace", "rebound"]:
+	for m in ["mania", "trace"]:
 		_ok(Recommender.suggest(m, "challenge", std, 5, [], NOW).is_empty(), "%s: Standard-Diffs nicht spielbar" % m)
-	for m in ["orbit", "rally", "dirigent"]:
-		_ok(not Recommender.suggest(m, "challenge", std, 5, [], NOW).is_empty(), "%s: Standard-Diffs spielbar" % m)
 	var nofit := [{"set": "x", "diff": "v", "stars": 0.0, "osu_mode": 3}]
 	_ok(Recommender.suggest("mania", "easy", nofit, 5, [], NOW).is_empty(), "Sterne unbekannt -> leer")
 	var too_hard := [{"set": "x", "diff": "v", "stars": 20.0, "osu_mode": 3}]
@@ -576,10 +574,10 @@ func _test_online() -> void:
 	_ok(int(q.osu_mode) == 3 and float(q.lo) < rng.x and float(q.hi) > rng.y,
 		"Mania: 4K, Sterne-Bereich des Levels (%.2f-%.2f)" % [q.lo, q.hi])
 	_ok(str(q.genre) == "electronic", "Suche kennt das Lieblings-Genre")
-	var qo := Recommender.online_query("orbit", "challenge", Recommender.skill("orbit", _profile("orbit", 2.0, 0.9)), {}, 1.5)
-	_ok(int(qo.osu_mode) == 0, "Orbit: osu!standard")
-	_ok(float(qo.shift) == 1.5 and float(qo.target) > 3.0, "Orbit: Modus-Sterne auf osu!-Sterne verschoben")
-	for m in ["rally", "dirigent", "trace", "rebound"]:
+	var qo := Recommender.online_query("trace", "challenge", Recommender.skill("trace", _profile("trace", 2.0, 0.9)), {}, 1.5)
+	_ok(int(qo.osu_mode) == 3, "Trace: 4K")
+	_ok(float(qo.shift) == 1.5 and float(qo.target) > 3.0, "Trace: Modus-Sterne verschoben")
+	for m in ["trace"]:
 		_ok(int(Recommender.online_query(m, "easy", Recommender.skill(m, []), {}).osu_mode) == 3, "%s: 4K" % m)
 	_ok(str(q.key) == str(Recommender.online_query("mania", "challenge", sk, t).key) and str(q.key) != str(qo.key),
 		"Cache-Schluessel stabil und je Suche eigen")

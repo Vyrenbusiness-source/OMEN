@@ -151,11 +151,11 @@ func _init() -> void:
 	_check(sn.fail == "notfound", "Unbekannter Code")
 
 	# Gesperrter Raum: Liste ohne Code
-	host.update_info({ "name": "Geheim", "locked": true, "map": "X", "mode": "orbit" })
+	host.update_info({ "name": "Geheim", "locked": true, "map": "X", "mode": "trace" })
 	await _pump()
 	lst = await _http_rooms()
 	_check(lst.size() == 1 and lst[0].code == "" and lst[0].locked == true and lst[0].name == "Geheim"
-		and int(lst[0].players) == 3 and lst[0].mode == "orbit", "Gesperrter Raum ohne Code, 3 Spieler")
+		and int(lst[0].players) == 3 and lst[0].mode == "trace", "Gesperrter Raum ohne Code, 3 Spieler")
 
 	# Kick
 	host.disconnect_peer(3)

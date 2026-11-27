@@ -1,17 +1,17 @@
 extends SceneTree
 
+const BotPlan := preload("res://tests/bot_plan.gd")
+
 ## Live-QA-Treiber: startet die echten Spielszenen und spielt sie mit echten
-## Eingaben (Input.parse_input_event) bzw. dem eingebauten Bot (--autoplay bei
-## Orbit/Rally/Dirigent). Prueft Pause/Resume, Break, Intro-Skip, Retry, Fail,
+## Eingaben (Input.parse_input_event). Prueft Pause/Resume, Break, Intro-Skip, Retry, Fail,
 ## Songende -> Ergebnis, Replay = gleiche Wertung, Mods (Score-Faktor).
 ## Kein Teil von "warmd check" (braucht ein Fenster); Aufruf ueber tests/live_qa.sh:
 ##   Godot --path . --audio-driver Dummy --script res://tests/live_qa.gd --live-qa
-##     --qa-mode=<mania2d|mania3d|orbit|rally|dirigent|trace|rebound>
+##     --qa-mode=<mania2d|mania3d|trace>
 ##     --qa-cases=flow,retry,fail,nfidle,mod:,mod:NF  --qa-src=<quelle.osz> --qa-out=<ordner>
 ## Ausgabe je Pruefung: "QA <modus> <fall> <pruefung> OK|BUG <detail>".
 
-## Zeiten der Fixture-Map (ms); --qa-shift=<ms> schiebt alles nach hinten (Dirigent
-## zaehlt vor der ersten Note Schlaege vor: Intro-Skip erst ab ~10 s Vorlauf).
+## Zeiten der Fixture-Map (ms); --qa-shift=<ms> schiebt alles nach hinten.
 var FIRST := 6000.0
 var PAUSE_AT := 8600.0
 var BREAK_A := 11000.0
@@ -22,21 +22,13 @@ var LAST := 22000.0
 const MODES := {
 	"mania2d": {"scene": "res://scenes/mania_3d.tscn", "inject": "lanes"},
 	"mania3d": {"scene": "res://scenes/mania_3d.tscn", "inject": "lanes"},
-	"orbit": {"scene": "res://scenes/orbit.tscn", "inject": ""},
-	"rally": {"scene": "res://scenes/rally.tscn", "inject": ""},
-	"dirigent": {"scene": "res://scenes/dirigent.tscn", "inject": ""},
 	"trace": {"scene": "res://scenes/trace.tscn", "inject": "trace"},
-	"rebound": {"scene": "res://scenes/rebound.tscn", "inject": "lanes"},
 }
 ## Erwarteter Score-Faktor je Mod und Modus.
 const MULT := {
 	"mania2d": {"NF": 0.5, "SV": 1.1, "HD": 1.0, "FI": 1.0, "CS": 1.0},
 	"mania3d": {"NF": 0.5, "SV": 1.1, "CS": 1.0},
-	"orbit": {"NF": 0.5, "HD": 1.06, "FI": 1.06, "PR": 1.12},
-	"rally": {"NF": 0.5},
-	"dirigent": {"NF": 1.0},
 	"trace": {"NF": 0.5, "MR": 1.0, "HD": 1.06, "SS": 1.08},
-	"rebound": {"NF": 0.5, "SV": 1.0},
 }
 
 var _mode := ""
@@ -282,7 +274,7 @@ func _miss(sc: Node) -> int:
 func _plan(sc: Node, skip_every: int) -> Array:
 	if str(_cfg.inject) == "":
 		return []
-	var p: Array = ReboundReplay.bot_plan(sc.get("_beatmap"), 3, 14.0, skip_every)
+	var p: Array = BotPlan.plan(sc.get("_beatmap"), 3, 14.0, skip_every)
 	p.sort_custom(func(a, b): return float(a.t) < float(b.t))
 	return p
 
@@ -576,10 +568,7 @@ func _case_fail(nf: bool) -> void:
 		_check(not failed and rs != null and rs.visible, "nf-kein-fail", "failed=%s" % failed)
 		await _shot("nfidle")
 	else:
-		if _mode == "dirigent":
-			_check(not failed and rs != null and rs.visible, "kein-fail-im-modus", "Dirigent kennt kein Fail: Ergebnis mit Note %s" % str(s.get("grade")))
-		else:
-			_check(failed and rs != null and rs.visible, "fail-bild", "failed=%s Knoten=%s" % [failed, rs != null])
+		_check(failed and rs != null and rs.visible, "fail-bild", "failed=%s Knoten=%s" % [failed, rs != null])
 		await _shot("fail")
 
 
@@ -614,9 +603,7 @@ func _case_mod(mod: String) -> void:
 	var active: bool = bool(sc.core.get("mods").get(mod, false)) if sc.core.get("mods") is Dictionary else false
 	var listed: bool = mod in (s.get("mods", []) as Array)
 	_info("aktiv", "core.mods=%s stats.mods=%s session=%s" % [str(sc.core.get("mods")), str(s.get("mods")), str(_gs.mods)])
-	if want != 1.0 or _mode != "dirigent":
-		if not (_mode == "rebound" and mod == "SV"):
-			_check(active or listed, "aktiv-im-lauf", "")
+	_check(active or listed, "aktiv-im-lauf", "")
 	var raw = sc.core.get("_score_f")
 	if raw != null:
 		_check(score == int(round(float(raw) * got)) and score > 0, "score-faktor", "score=%d roh=%.1f x %s" % [score, float(raw), str(got)])

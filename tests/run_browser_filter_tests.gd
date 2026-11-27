@@ -44,7 +44,7 @@ func _run() -> void:
 	_test_best_filter()
 	_test_sort()
 	_test_mode_filter()
-	_test_four_modes()
+	_test_modes()
 	_test_mtime()
 	_test_recs()
 	_test_menu_stack()
@@ -53,7 +53,7 @@ func _run() -> void:
 	quit(1 if _failed > 0 else 0)
 
 
-## Fake-Scores: Mania und Orbit in getrennten Sektionen (ScoreStore._sec).
+## Fake-Scores: Mania und Trace in getrennten Sektionen (ScoreStore._sec).
 func _fake_cfg() -> ConfigFile:
 	DirAccess.make_dir_recursive_absolute("user://test_tmp")
 	var cfg := ConfigFile.new()
@@ -69,8 +69,8 @@ func _fake_cfg() -> ConfigFile:
 		{"date": "2026-11-06T09:00:00", "failed": true}])
 	cfg.set_value("recent", "plays", [
 		{"osz_file": "2 B.osz", "version": "Normal", "date": "2026-11-07T12:00:00"}])
-	cfg.set_value("orbit_scores", "2 B.osz|Normal", {"grade": "S", "date": "2026-09-01T10:00:00"})
-	cfg.set_value("orbit_plays", "2 B.osz|Normal", 1)
+	cfg.set_value("trace_scores", "2 B.osz|Normal", {"grade": "S", "date": "2026-09-01T10:00:00"})
+	cfg.set_value("trace_plays", "2 B.osz|Normal", 1)
 	cfg.save(TMP)
 	var back := ConfigFile.new()
 	back.load(TMP)
@@ -80,7 +80,7 @@ func _fake_cfg() -> ConfigFile:
 func _test_index() -> void:
 	var cfg := _fake_cfg()
 	var mania: Dictionary = SS.build_score_index(cfg, "")
-	var orbit: Dictionary = SS.build_score_index(cfg, "orbit")
+	var trace: Dictionary = SS.build_score_index(cfg, "trace")
 	_ok(mania.size() == 3, "Mania-Index hat 3 Sets (%d)" % mania.size())
 	_ok(SS.set_best_grade(mania["1 A.osz"], ["Easy", "Hard"]) == "SS", "beste Note ueber Diffs = SS")
 	_ok(SS.set_best_grade(mania["1 A.osz"], ["Easy"]) == "A", "nur sichtbare Diffs zaehlen")
@@ -89,9 +89,9 @@ func _test_index() -> void:
 	_ok(SS.set_plays(mania["1 A.osz"], ["Easy", "Hard"]) == 4, "Plays summiert")
 	_ok(SS.set_last_played(mania["3 C.osz"], ["X"]) == "2026-11-06T09:00:00", "letzter Play aus History")
 	_ok(SS.set_last_played(mania["2 B.osz"], ["Normal"]) == "2026-11-07T12:00:00", "letzter Play aus Recent")
-	_ok(orbit.size() == 1 and orbit.has("2 B.osz"), "Orbit-Index getrennt von Mania")
-	_ok(SS.set_best_grade(orbit["2 B.osz"], ["Normal"]) == "S", "Orbit-Note aus orbit_scores")
-	_ok(SS.set_plays(orbit["2 B.osz"], ["Normal"]) == 1, "Orbit-Plays getrennt")
+	_ok(trace.size() == 1 and trace.has("2 B.osz"), "Trace-Index getrennt von Mania")
+	_ok(SS.set_best_grade(trace["2 B.osz"], ["Normal"]) == "S", "Trace-Note aus trace_scores")
+	_ok(SS.set_plays(trace["2 B.osz"], ["Normal"]) == 1, "Trace-Plays getrennt")
 	_ok(SS.build_score_index(ConfigFile.new(), "").is_empty(), "leere cfg -> leerer Index")
 
 
@@ -155,55 +155,30 @@ func _test_mode_filter() -> void:
 	var cfg := ConfigFile.new()
 	cfg.set_value("browser", "mode_filters", {
 		"mania": {"sort": SS.SORT_RECENT, "best": SS.BEST_WITHOUT, "grades": []},
-		"orbit": {"sort": SS.SORT_MOST_PLAYED, "best": SS.BEST_WITH, "grades": ["SS"]}})
+		"trace": {"sort": SS.SORT_MOST_PLAYED, "best": SS.BEST_WITH, "grades": ["SS"]}})
 	var path := "user://test_tmp/browser_filter_state.cfg"
 	cfg.save(path)
 	var back := ConfigFile.new()
 	back.load(path)
 	var mfs: Dictionary = back.get_value("browser", "mode_filters", {})
 	var m: Dictionary = SS.sanitize_mode_filter(mfs.get("mania", {}))
-	var o: Dictionary = SS.sanitize_mode_filter(mfs.get("orbit", {}))
+	var o: Dictionary = SS.sanitize_mode_filter(mfs.get("trace", {}))
 	_ok(m["sort"] == SS.SORT_RECENT and m["best"] == SS.BEST_WITHOUT, "Mania-Filter nach Neustart")
-	_ok(o["sort"] == SS.SORT_MOST_PLAYED and o["grades"] == ["SS"], "Orbit-Filter nach Neustart")
+	_ok(o["sort"] == SS.SORT_MOST_PLAYED and o["grades"] == ["SS"], "Trace-Filter nach Neustart")
 	DirAccess.remove_absolute(path)
 
 
-## 4 Modi: Index je Modus getrennt, Filter je Modus, Sterne-Cache je Modus.
-func _test_four_modes() -> void:
+## Mania + Trace: Index und Filter je Modus getrennt.
+func _test_modes() -> void:
 	var cfg := _fake_cfg()
-	cfg.set_value("rally_scores", "2 B.osz|Normal", {"grade": "A", "date": "2026-09-02T10:00:00"})
-	cfg.set_value("rally_plays", "2 B.osz|Normal", 4)
-	cfg.set_value("dirigent_scores", "1 A.osz|Hard", {"grade": "B", "date": "2026-09-03T10:00:00"})
-	cfg.set_value("dirigent_plays", "1 A.osz|Hard", 2)
-	var rally: Dictionary = SS.build_score_index(cfg, "rally")
-	var dirigent: Dictionary = SS.build_score_index(cfg, "dirigent")
-	_ok(rally.size() == 1 and rally.has("2 B.osz") and SS.set_best_grade(rally["2 B.osz"], ["Normal"]) == "A", "Rally-Index aus rally_scores")
-	_ok(SS.set_plays(rally["2 B.osz"], ["Normal"]) == 4, "Rally-Plays getrennt")
-	_ok(dirigent.size() == 1 and dirigent.has("1 A.osz") and SS.set_best_grade(dirigent["1 A.osz"], ["Hard"]) == "B", "Dirigent-Index aus dirigent_scores")
-	_ok(SS.build_score_index(cfg, "orbit").size() == 1 and SS.build_score_index(cfg, "").size() == 3, "Orbit/Mania-Index unberuehrt")
-	_ok(SS.PLAY_MODES == ["mania", "orbit", "rally", "dirigent", "trace", "rebound"], "Browser kennt 6 Modi")
+	_ok(SS.build_score_index(cfg, "trace").size() == 1 and SS.build_score_index(cfg, "").size() == 3, "Trace/Mania-Index getrennt")
+	_ok(SS.PLAY_MODES == ["mania", "trace"], "Browser kennt Mania und Trace")
 	_ok(SS.PLAY_MODES == Array(ScoreStore.MODES), "Browser-Modi = ScoreStore.MODES")
-	_ok(SS.orbit_stars_key("a.osz", "H") == SS.orbit_stars_key("a.osz", "H", "orbit"), "Orbit-Sternschluessel unveraendert")
-	_ok(SS.orbit_stars_key("a.osz", "H", "rally") != SS.orbit_stars_key("a.osz", "H")
-		and SS.orbit_stars_key("a.osz", "H", "rally") != SS.orbit_stars_key("a.osz", "H", "dirigent"), "Sterne-Cache je Modus getrennt")
-	var path := "user://test_tmp/browser_stars_modes.cfg"
-	DirAccess.remove_absolute(path)
-	SS.orbit_stars_store(SS.orbit_stars_key("a.osz", "H", "rally"), 4.5, path)
-	_ok(is_equal_approx(SS.orbit_stars_cached(SS.orbit_stars_key("a.osz", "H", "rally"), path), 4.5)
-		and SS.orbit_stars_cached(SS.orbit_stars_key("a.osz", "H", "dirigent"), path) < 0.0, "Rally-Sterne gecacht, Dirigent leer")
-	DirAccess.remove_absolute(path)
-	var bm := Beatmap.new()
-	for i in 200:
-		var h := HitObject.new()
-		h.time = i * 250.0
-		bm.hit_objects.append(h)
-	var st: float = SS.mode_stars_fallback(bm)
-	_ok(st > 0.0 and st <= 15.0, "Fallback-Sterne 0..15 (%.2f)" % st)
-	# Filter je Modus (4 Stueck) bleiben getrennt.
 	var mf := {}
 	for m in SS.PLAY_MODES:
-		mf[m] = SS.sanitize_mode_filter({"sort": SS.SORT_RECENT if m == "rally" else SS.SORT_MOST_PLAYED, "grades": ["S"] if m == "dirigent" else []})
-	_ok(mf["rally"]["sort"] == SS.SORT_RECENT and mf["dirigent"]["grades"] == ["S"] and mf["orbit"]["grades"] == [], "4 Modus-Filter getrennt")
+		mf[m] = SS.sanitize_mode_filter({"sort": SS.SORT_RECENT if m == "trace" else SS.SORT_MOST_PLAYED, "grades": ["S"] if m == "trace" else []})
+	_ok(mf["trace"]["sort"] == SS.SORT_RECENT and mf["trace"]["grades"] == ["S"] and mf["mania"]["grades"] == []
+		and mf["mania"]["sort"] == SS.SORT_MOST_PLAYED, "Modus-Filter getrennt")
 
 
 ## "Zuletzt heruntergeladen" nutzt die Aenderungszeit der Datei.
@@ -220,8 +195,8 @@ func _test_mtime() -> void:
 
 ## "For you": Zustand, Stufe, Anzahl, Start-Vorschlaege, Rechnung, Laeufe, Grund, Stil.
 func _test_recs() -> void:
-	var st: Dictionary = SS.rec_sanitize({"levels": {"mania": "push", "orbit": "quatsch"}, "hidden": 1})
-	_ok(st.levels.mania == "push" and st.levels.orbit == "challenge" and st.levels.rally == "challenge",
+	var st: Dictionary = SS.rec_sanitize({"levels": {"mania": "push", "trace": "quatsch"}, "hidden": 1})
+	_ok(st.levels.mania == "push" and st.levels.trace == "challenge",
 		"rec_sanitize: bekannte Stufe bleibt, sonst Challenge")
 	_ok(st.hidden == true and st.collapsed == false, "rec_sanitize: Schalter als bool")
 	_ok(SS.rec_sanitize(null).levels.size() == SS.PLAY_MODES.size(), "rec_sanitize(null): alle Modi")
@@ -271,8 +246,8 @@ func _test_menu_stack() -> void:
 	_ok(float(MM.menu_stack(720.0, 300.0).logo_scale) < 1.0, "menu_stack 720: Logo kleiner")
 
 
-## Set wie im Nutzer-Screenshot: "HD" ist in Mania mittelschwer, in Rally die
-## schwerste Diff (10,65). Diffs liegen nach Mania-Sternen in der Bibliothek.
+## Set mit vier Mania-Diffs und einer osu!standard-Diff (nie sichtbar). In Trace
+## ist "HD" die schwerste Diff (10,65). Diffs liegen nach Mania-Sternen in der Bibliothek.
 func _star_set(osz: String) -> MapSet:
 	var ms := MapSet.new()
 	ms.osz_path = osz
@@ -285,61 +260,45 @@ func _star_set(osz: String) -> MapSet:
 ## Browser nutzt die Sterne des aktiven Modus (Diff-Leiste, Pfeile, Auswahl,
 ## Liste, Filter, Sortierung); fehlende zaehlen vorlaeufig als Mania-Sterne.
 func _test_mode_stars() -> void:
-	_ok(SS.star_src("mania") == "mania" and SS.star_src("rebound") == "mania"
-		and SS.star_src("trace") == "trace" and SS.star_src("rally") == "rally"
-		and SS.star_src("orbit") == "orbit" and SS.star_src("dirigent") == "dirigent", "Sternquelle je Modus")
+	_ok(SS.star_src("mania") == "mania" and SS.star_src("trace") == "trace" and SS.star_src("") == "mania",
+		"Sternquelle je Modus")
 	var b: Control = SS.new()
 	var osz := "user://test_tmp/mode_stars_none.osz"
 	var ms := _star_set(osz)
-	var cache := {}
-	for v in [["Easy", 2.0], ["HD", 10.65], ["Hard", 5.0], ["Insane", 6.0], ["Std", 7.0]]:
-		cache[SS.orbit_stars_key(osz, v[0], "rally")] = v[1]
-	for v in [["Easy", 3.0], ["HD", 1.0], ["Hard", 2.0], ["Insane", 4.0], ["Std", 0.5]]:
-		cache[SS.orbit_stars_key(osz, v[0], "dirigent")] = v[1]
-	cache[SS.orbit_stars_key(osz, "Std", "orbit")] = 9.0
-	b.set("_os_cache", cache)
-	b.set("_os_cache_loaded", true)
-	b.set("_tbase", {osz: "mode_stars_none.osz|1"})
-	b.set("_trace_cache", {StarService._trace_key("mode_stars_none.osz|1", "Easy.osu"): 5.0})
-	b.set("_trace_cache_loaded", true)
-	b.set("_play_mode", "mania")
-	_ok(b.call("_mode_order", ms) == [0, 1, 2, 3], "Mania: Diffs nach Mania-Sternen")
-	_ok(b.call("_hardest", ms) == 3, "Mania: Standard = Insane")
-	b.set("_selected_set", ms)
-	b.set("_selected_diff", 1)  # HD
-	b.set("_play_mode", "rally")
-	b.set("_selected_diff", maxi(ms.nearest_visible(int(b.get("_selected_diff")), b.call("_vm")), 0))
-	var order: Array = b.call("_mode_order", ms)
-	_ok(order == [0, 2, 3, 4, 1], "Rally: Diffs nach Rally-Sternen, HD zuletzt (%s)" % str(order))
-	_ok(int(b.get("_selected_diff")) == 1, "Wechsel Mania->Rally: Auswahl bleibt HD")
-	_ok(b.call("_hardest", ms) == 1 and b.call("_easiest", ms) == 0, "Rally: Standard = HD, leichteste = Easy")
-	_ok(MapSet.cycle_in(order, 3, 1) == 4 and MapSet.cycle_in(order, 4, 1) == 1
-		and MapSet.cycle_in(order, 1, 1) == 0 and MapSet.cycle_in(order, 0, -1) == 1
-		and MapSet.cycle_in(order, 99, 1) == 0, "Pfeile folgen der Rally-Reihenfolge")
-	_ok(is_equal_approx(float(b.call("_mode_max", ms)), 10.65), "Rally: Karten-Sterne = 10,65")
-	_ok(is_equal_approx(float(b.call("_mode_stars", ms, 1)), 10.65), "Rally: Segment-Sterne der HD")
-	# Sterne-Filter 6+: Rally-Set passt, Mania nicht.
-	var smap: Dictionary = b.call("_mode_star_map", ms)
-	_ok(ms.star_or_base(1, smap) >= 6.0 and ms.star_or_base(1, {}) < 6.0, "Sternfilter mit Modus-Sternen")
-	# Fehlende Modus-Sterne: vorlaeufig Mania-Sterne.
-	cache.erase(SS.orbit_stars_key(osz, "Insane", "rally"))
-	_ok(b.call("_mode_order", ms) == [0, 3, 2, 4, 1], "Rally: fehlende Insane vorlaeufig 4,5 (Mania)")
-	_ok(float(b.call("_mode_stars_known", ms, 3)) < 0.0, "Rally: Insane noch unbekannt")
-	b.set("_play_mode", "dirigent")
-	_ok(b.call("_mode_order", ms) == [4, 1, 2, 0, 3],
-		"Dirigent: osu!standard sichtbar, nach Dirigent-Sternen")
-	b.set("_play_mode", "orbit")
-	_ok(b.call("_mode_order", ms)[0] == 0 and b.call("_hardest", ms) == 4, "Orbit: Std mit 9 Orbit-Sternen zuletzt")
-	b.set("_play_mode", "trace")
-	_ok(b.call("_mode_order", ms) == [1, 2, 3, 0], "Trace: TraceStars-Cache (Easy 5,0), Rest vorlaeufig Mania")
-	b.set("_play_mode", "rebound")
-	_ok(b.call("_mode_order", ms) == [0, 1, 2, 3] and float(b.call("_mode_stars", ms, 1)) == 2.5, "Rebound: Mania-Sterne")
-	# Liste: Sortierung "Sterne" nach Modus-Maximum.
 	var ms2 := MapSet.new()
 	ms2.osz_path = "user://test_tmp/mode_stars_two.osz"
 	ms2.diffs.append({"version": "X", "stars": 6.0, "mode": 3, "cs": 4.0, "osu_filename": "X.osu"})
-	cache[SS.orbit_stars_key(ms2.osz_path, "X", "rally")] = 3.0
-	for mode in ["mania", "rally"]:
+	var tc := {}
+	for v in [["Easy", 2.0], ["HD", 10.65], ["Hard", 5.0], ["Insane", 6.0]]:
+		tc[StarService._trace_key("mode_stars_none.osz|1", "%s.osu" % v[0])] = v[1]
+	tc[StarService._trace_key("mode_stars_two.osz|1", "X.osu")] = 3.0
+	b.set("_tbase", {osz: "mode_stars_none.osz|1", ms2.osz_path: "mode_stars_two.osz|1"})
+	b.set("_trace_cache", tc)
+	b.set("_trace_cache_loaded", true)
+	b.set("_play_mode", "mania")
+	_ok(b.call("_mode_order", ms) == [0, 1, 2, 3], "Mania: Diffs nach Mania-Sternen, osu!standard unsichtbar")
+	_ok(b.call("_hardest", ms) == 3, "Mania: Standard = Insane")
+	b.set("_selected_set", ms)
+	b.set("_selected_diff", 1)  # HD
+	b.set("_play_mode", "trace")
+	b.set("_selected_diff", maxi(ms.nearest_visible(int(b.get("_selected_diff")), b.call("_vm")), 0))
+	var order: Array = b.call("_mode_order", ms)
+	_ok(order == [0, 2, 3, 1], "Trace: Diffs nach Trace-Sternen, HD zuletzt (%s)" % str(order))
+	_ok(int(b.get("_selected_diff")) == 1, "Wechsel Mania->Trace: Auswahl bleibt HD")
+	_ok(b.call("_hardest", ms) == 1 and b.call("_easiest", ms) == 0, "Trace: Standard = HD, leichteste = Easy")
+	_ok(MapSet.cycle_in(order, 3, 1) == 1 and MapSet.cycle_in(order, 1, 1) == 0
+		and MapSet.cycle_in(order, 0, -1) == 1 and MapSet.cycle_in(order, 99, 1) == 0, "Pfeile folgen der Trace-Reihenfolge")
+	_ok(is_equal_approx(float(b.call("_mode_max", ms)), 10.65), "Trace: Karten-Sterne = 10,65")
+	_ok(is_equal_approx(float(b.call("_mode_stars", ms, 1)), 10.65), "Trace: Segment-Sterne der HD")
+	# Sterne-Filter 6+: Trace-Set passt, Mania nicht.
+	var smap: Dictionary = b.call("_mode_star_map", ms)
+	_ok(ms.star_or_base(1, smap) >= 6.0 and ms.star_or_base(1, {}) < 6.0, "Sternfilter mit Modus-Sternen")
+	# Fehlende Modus-Sterne: vorlaeufig Mania-Sterne.
+	tc.erase(StarService._trace_key("mode_stars_none.osz|1", "Insane.osu"))
+	_ok(b.call("_mode_order", ms) == [0, 3, 2, 1], "Trace: fehlende Insane vorlaeufig 4,5 (Mania)")
+	_ok(float(b.call("_mode_stars_known", ms, 3)) < 0.0, "Trace: Insane noch unbekannt")
+	# Liste: Sortierung "Sterne" nach Modus-Maximum.
+	for mode in ["mania", "trace"]:
 		b.set("_play_mode", mode)
 		var rows := []
 		for m in [ms, ms2]:

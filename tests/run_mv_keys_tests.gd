@@ -108,7 +108,7 @@ func _test_online_modes() -> void:
 	_check(ManiaKeys.online_mode(7) == "mania7k", "7K = mania7k")
 	_check(ManiaKeys.keys_of_online_mode("mania6k") == 6, "mania6k -> 6")
 	_check(ManiaKeys.keys_of_online_mode("mania") == 4, "mania -> 4")
-	_check(ManiaKeys.keys_of_online_mode("mania9k") == 0 and ManiaKeys.keys_of_online_mode("orbit") == 0,
+	_check(ManiaKeys.keys_of_online_mode("mania9k") == 0 and ManiaKeys.keys_of_online_mode("trace") == 0,
 		"fremde Modi -> 0")
 	_check(ManiaKeys.is_mania_online("mania5k") and not ManiaKeys.is_mania_online("trace"), "is_mania_online")
 
@@ -170,15 +170,14 @@ func _test_map_set_filter() -> void:
 	_check(MapSet.mode_shows(m4, "mania") and MapSet.mode_shows(m7, "mania"), "Mania zeigt 4K und 7K")
 	_check(not MapSet.mode_shows(m8, "mania"), "Mania zeigt kein 8K")
 	_check(MapSet.mode_shows(m7, "mania@7") and not MapSet.mode_shows(m4, "mania@7"), "Filter 7K")
-	_check(MapSet.mode_shows(m4, "mania@4") and not MapSet.mode_shows(m7, "mania@4"), "Filter 4K (Trace/Rebound/MP)")
-	_check(MapSet.mode_shows(m4, "orbit") and not MapSet.mode_shows(m7, "orbit"), "Orbit/Rally/Dirigent: nur 4K")
-	_check(MapSet.mode_shows(std, "orbit") and not MapSet.mode_shows(std, "mania"), "Standard nur Orbit")
+	_check(MapSet.mode_shows(m4, "mania@4") and not MapSet.mode_shows(m7, "mania@4"), "Filter 4K (Trace/MP)")
+	_check(not MapSet.mode_shows(std, "mania") and not MapSet.mode_shows(std, "mania@4"), "osu!standard nie sichtbar")
 	var ms := MapSet.from_dict("x.osz", {"title": "t", "diffs": [
 		{"mode": 3, "cs": 7.0, "osu_filename": "a.osu"}, {"mode": 3, "cs": 4.0, "osu_filename": "b.osu"},
 		{"mode": 3, "cs": 7.0, "osu_filename": "c.osu"}]})
 	_check(ms.key_counts() == ([4, 7] as Array[int]), "key_counts 4K 7K")
-	_check(_ss().view_mode_of("mania") == "mania" and _ss().view_mode_of("trace") == "mania@4"
-		and _ss().view_mode_of("orbit") == "orbit", "Sicht-Modus je Spielmodus")
+	_check(_ss().view_mode_of("mania") == "mania" and _ss().view_mode_of("trace") == "mania@4",
+		"Sicht-Modus je Spielmodus")
 	_check(_ss().online_mode_of({"mode": 3, "cs": 7.0}, "") == "mania7k", "Rangliste 7K = mania7k")
 	_check(_ss().online_mode_of({"mode": 3, "cs": 4.0}, "") == "mania", "Rangliste 4K = mania")
 
@@ -244,7 +243,6 @@ func _test_score_store() -> void:
 	_check(int(e7.get("keys", 0)) == 7, "Eintrag hat keys = 7")
 	_check(not e4.has("keys"), "4K-Eintrag unveraendert (ohne keys)")
 	_check(ScoreStore.mode_label("", 7) == "Mania 7K" and ScoreStore.mode_label("") == "Mania 4K", "mode_label")
-	_check(ScoreStore.mode_label(ScoreStore.MODE_ORBIT, 7) == "Orbit", "Orbit-Label unveraendert")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(ScoreStore.PATH))
 	ScoreStore.PATH = old
 

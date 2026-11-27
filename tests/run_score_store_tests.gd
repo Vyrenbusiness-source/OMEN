@@ -255,7 +255,7 @@ func _test_sv_level() -> void:
 
 
 ## Alte Datei (Schema 1): alles bleibt Mania, nichts geht verloren; nur
-## Verlaufs-Eintraege mit anderem mode (hier ein entfernter Modus) wandern in dessen Sektion.
+## Verlaufs-Eintraege mit anderem mode (hier Trace) wandern in dessen Sektion.
 func _test_migration() -> void:
 	var real := ScoreStore.PATH
 	var path := real.get_base_dir().path_join("migrate_%d.cfg" % OS.get_process_id())
@@ -264,18 +264,18 @@ func _test_migration() -> void:
 	var k := ScoreStore._key("10 Old.osz", "Hard")
 	old.set_value("scores", k, { "score": 800, "grade": "A", "accuracy": 0.93, "pp": 77.0 })
 	old.set_value("plays", k, 3)
-	old.set_value("history", k, [{ "score": 800, "grade": "A" }, { "score": 600, "grade": "B", "mode": "orbit" }])
-	old.set_value("recent", "plays", [{ "score": 800, "map": "x" }, { "score": 600, "map": "x", "mode": "orbit" }])
+	old.set_value("history", k, [{ "score": 800, "grade": "A" }, { "score": 600, "grade": "B", "mode": "trace" }])
+	old.set_value("recent", "plays", [{ "score": 800, "map": "x" }, { "score": 600, "map": "x", "mode": "trace" }])
 	old.set_value("others", "10|Hard", [{ "player": "Bob", "score": 1 }])
 	old.save(path)
 	ScoreStore._migrated_path = ""
 	_check(int(ScoreStore.best("10 Old.osz", "Hard").score) == 800, "Migration: Bestwert bleibt Mania")
-	_check(ScoreStore.best("10 Old.osz", "Hard", "orbit").is_empty(), "Migration: kein Bestwert anderer Modi erfunden")
+	_check(ScoreStore.best("10 Old.osz", "Hard", "trace").is_empty(), "Migration: kein Bestwert anderer Modi erfunden")
 	_check(is_equal_approx(ScoreStore.profile_pp(), 77.0), "Migration: pp unveraendert")
 	_check(ScoreStore.play_count("10 Old.osz", "Hard") == 3, "Migration: Plays bleiben")
 	_check(ScoreStore.top_scores("10 Old.osz", "Hard", 9).size() == 1, "Migration: Mania-Verlauf ohne andere Modi")
-	_check(ScoreStore.top_scores("10 Old.osz", "Hard", 9, "orbit").size() == 1, "Migration: Verlauf anderer Modi verschoben, nicht geloescht")
-	_check(ScoreStore.recent_plays(9).size() == 1 and ScoreStore.recent_plays(9, "orbit").size() == 1, "Migration: Recent getrennt")
+	_check(ScoreStore.top_scores("10 Old.osz", "Hard", 9, "trace").size() == 1, "Migration: Verlauf anderer Modi verschoben, nicht geloescht")
+	_check(ScoreStore.recent_plays(9).size() == 1 and ScoreStore.recent_plays(9, "trace").size() == 1, "Migration: Recent getrennt")
 	var after := ConfigFile.new()
 	after.load(path)
 	_check(int(after.get_value("meta", "schema", 0)) == ScoreStore.SCHEMA, "Migration: Schema gesetzt")

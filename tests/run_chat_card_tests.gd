@@ -5,7 +5,7 @@ extends SceneTree
 ## Layout (gleiche Hoehe wie die Map-Karte, nichts ragt heraus) fuer alle 6 Modi.
 ##   Godot..._console.exe --headless --audio-driver Dummy --path . --script res://tests/run_chat_card_tests.gd
 
-const MODES := ["mania", "orbit", "rally", "dirigent", "trace", "rebound"]
+const MODES := ["mania", "trace"]
 const CARD_W := 340.0
 
 var _passed := 0
@@ -71,7 +71,7 @@ func _server_json(mode: String, set_id: int = 2493125) -> String:
 		"beatmapset_id": set_id, "player": "Gexanx", "player_id": 2, "artist": "d0tc0mmie",
 		"title": "I Can't Wait feat. GUMI", "difficulty": "beginner", "difficulty_name": "Beginner",
 		"score": 973268, "accuracy": 0.9912, "grade": "S", "max_combo": 420,
-		"pp": 312.4 if mania else null, "orbit_points": null if mania else 2.062,
+		"pp": 312.4 if mania else null,
 		"points": null if mania else 2.062, "mods": [], "stars": 0.97, "has_replay": mania})
 
 
@@ -122,11 +122,11 @@ func _texts() -> void:
 			"%s lokal: Titel/Sub" % mode)
 		_ok(local.stats.begins_with(UiTheme.fmt_pct(97.42)), "%s lokal: Acc in Prozent bleibt" % mode)
 		_ok(local.who.ends_with("+NF"), "%s lokal: Mods" % mode)
-	var empty := ChatMapCard.score_texts({"player": "X", "score": 5, "accuracy": 0.5, "mode": "orbit"})
+	var empty := ChatMapCard.score_texts({"player": "X", "score": 5, "accuracy": 0.5, "mode": "trace"})
 	_ok(empty.title == tr("Unbekannte Map") and empty.sub == "" and not empty.title.contains("[]"),
 		"ohne Map-Daten: Unknown map statt '– []'")
 	_ok(ChatMapCard.rating_text({"mode": "mania", "pp": 0.0}) == "", "Mania ohne pp: nichts")
-	_ok(ChatMapCard.rating_text({"mode": "rally", "points": 0.0}) == "", "Rally ohne Punkte: nichts")
+	_ok(ChatMapCard.rating_text({"mode": "trace", "points": 0.0}) == "", "Trace ohne Punkte: nichts")
 
 
 func _buttons() -> void:

@@ -1,6 +1,6 @@
 extends SceneTree
 
-## Chat-Taste F ist in Rebound/Rally/Mania eine Spieltaste: in keiner der sechs
+## Chat-Taste F ist in Mania eine Spieltaste: in keiner der
 ## Spielszenen darf das Chat-Overlay Eingaben sehen (Live-QA, docs/qa/live_qa.md).
 ##   Godot --headless --audio-driver Dummy --path . --script res://tests/run_chat_gate_tests.gd
 
@@ -25,7 +25,7 @@ func _run() -> void:
 	var gs: Node = root.get_node_or_null("GameSession")
 	_check(gs != null and gs.has_method("chat_input_allowed"), "GameSession.chat_input_allowed fehlt")
 	if gs != null and gs.has_method("chat_input_allowed"):
-		for sc in ["mania_3d", "gameplay_3d", "orbit", "rally", "dirigent", "trace", "rebound"]:
+		for sc in ["mania_3d", "gameplay_3d", "trace"]:
 			_check(not gs.chat_input_allowed("res://scenes/%s.tscn" % sc), "F in %s gesperrt" % sc)
 		for sc in ["main_menu", "song_select", "mp_lobby"]:
 			_check(gs.chat_input_allowed("res://scenes/%s.tscn" % sc), "F in %s erlaubt" % sc)
@@ -36,14 +36,14 @@ func _run() -> void:
 		var chat = gs.get("chat")
 		if _check_node(chat):
 			var game := Control.new()
-			game.scene_file_path = "res://scenes/rebound.tscn"
+			game.scene_file_path = "res://scenes/trace.tscn"
 			root.add_child(game)
 			current_scene = game
 			chat.get("_panel").visible = true
 			await process_frame
 			await process_frame
-			_check(not chat.is_processing_input(), "Overlay-Eingabe in Rebound aus")
-			_check(not chat.is_open(), "offenes Overlay schliesst in Rebound")
+			_check(not chat.is_processing_input(), "Overlay-Eingabe in Trace aus")
+			_check(not chat.is_open(), "offenes Overlay schliesst in Trace")
 			game.scene_file_path = "res://scenes/main_menu.tscn"
 			await process_frame
 			await process_frame

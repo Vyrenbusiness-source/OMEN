@@ -153,10 +153,6 @@ func _test_browser_toggle() -> void:
 	_ok(bool(mods.SD) and bool(mods.MN) and not mods.has("NF"), "apply Mania: SD + MN, NF weg")
 	mods = RuleMods.apply({"NF": false}, {"SD": true, "MN": true}, "trace")
 	_ok(bool(mods.SD) and not mods.has("MN"), "apply Trace: SD ja, MN nein")
-	mods = RuleMods.apply({}, {"PF": true}, "rebound")
-	_ok(bool(mods.PF), "apply Rebound: PF ja")
-	mods = RuleMods.apply({}, {"SD": true}, "orbit")
-	_ok(not mods.has("SD"), "apply Orbit: kein SD")
 
 
 func _test_sd_fail_on_miss() -> void:
@@ -498,8 +494,6 @@ func _test_lobby_mods() -> void:
 	# Runde: Modus filtert, was dort nicht wirkt.
 	var rm := RuleMods.for_mode({"SV": false, "NF": false, "SD": true, "MN": true, "MN_v": 1}, "trace")
 	_ok(RuleMods.has(rm, "SD") and not rm.has("MN") and not rm.has("MN_v"), "Trace-Runde: SD ja, MN nein: %s" % str(rm))
-	rm = RuleMods.for_mode({"SD": true, "MN": true, "MN_v": 1}, "orbit")
-	_ok(not rm.has("SD") and not rm.has("MN"), "Orbit-Runde: keine Regel-Mods: %s" % str(rm))
 	rm = RuleMods.for_mode({"PF": true, "MN": true, "MN_v": 1}, "mania")
 	_ok(RuleMods.has(rm, "PF") and RuleMods.has(rm, "MN") and int(rm.MN_v) == 1, "Mania-Runde: PF + MN mit MN_v")
 	_ok(RuleMods.keys_on({"SV": true, "MN": true, "MN_v": 1, "SD": true}) == ["SD", "MN"], "keys_on: SD, MN (ohne MN_v)")
@@ -517,7 +511,6 @@ func _test_board_mode() -> void:
 	_ok(RuleMods.board_mode("mania", {"MN": true}) == "mania_mn", "Mania + MN -> mania_mn")
 	_ok(RuleMods.board_mode("mania", {"MN": false, "SD": true}) == "", "Mania + SD -> normale Liste")
 	_ok(RuleMods.board_mode("trace", {"MN": true}) == "trace", "Trace: MN wirkt nicht -> Trace-Liste")
-	_ok(RuleMods.board_mode("orbit", {}) == "orbit", "Orbit bleibt Orbit")
 	_ok(RuleMods.is_mines_board("mania_mn") and not RuleMods.is_mines_board(""), "is_mines_board")
 	_ok(RuleMods.board_tag("mania_mn").to_upper().contains("MINES") or RuleMods.board_tag("mania_mn").to_upper().contains("MINEN"),
 			"Kennzeichnung Mines: %s" % RuleMods.board_tag("mania_mn"))

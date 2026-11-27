@@ -76,13 +76,10 @@ func _run() -> void:
 	_check(b.count_max == 100 and b.count_300 == 20 and b.count_miss == 1, "Zaehler")
 	_check(b.total_notes == 131 and b.length_ms == 120000, "total_notes/length")
 	_check(is_equal_approx(float(b.pp), 123.4), "pp")
-	var o := OnlineApi.build_body(_result(), _meta(), "orbit")
-	_check(o.mode == "orbit" and o.has("stars") and not o.has("pp"), "Orbit: stars statt pp")
-	_check(is_equal_approx(float(o.stars), 4.5), "Orbit stars aus meta")
-	for tm in ["trace", "rebound"]:
+	for tm in ["trace"]:
 		var t := OnlineApi.build_body(_result(), _meta(), tm)
 		_check(t.mode == tm and t.has("stars") and not t.has("pp") and t.count_300 == 20 and t.count_miss == 1, "%s: Counts wie Mania, stars statt pp" % tm)
-	_check(not OnlineApi.REPLAY_MODES.has("trace") and not OnlineApi.REPLAY_MODES.has("rebound"), "Trace/Rebound: kein replay_content")
+	_check(not OnlineApi.REPLAY_MODES.has("trace"), "Trace: kein replay_content")
 	_check(is_equal_approx(OnlineApi.mod_factor(["SV", "NF"]), 0.55), "Mod-Faktor SV+NF")
 	_check(is_equal_approx(OnlineApi.mod_factor({"SV": true}), 1.1), "Mod-Faktor SV")
 	_check(is_equal_approx(OnlineApi.mod_factor([]), 1.0), "Mod-Faktor leer")
@@ -166,15 +163,11 @@ func _run() -> void:
 	_check(_log.size() == 2 and a.queue_size() == 0, "has_osu: kein Register")
 	a.free()
 
-	# --- pp_source server -> kein Register; Orbit nie
+	# --- pp_source server -> kein Register
 	a = _api()
 	_script = [[200, "{\"pp_source\":\"server\",\"is_new_best\":true}"]]
 	a.submit(_result(), _meta())
 	_check(_log.size() == 1, "pp_source server: nur Score")
-	_log.clear()
-	_script = [[200, "{\"pp_source\":\"client\"}"]]
-	a.submit(_result(), _meta(), "orbit")
-	_check(_log.size() == 1, "Orbit: kein Register")
 	a.free()
 
 	# --- 429 -> bleibt in Queue, spaeter erneut
@@ -294,7 +287,7 @@ func _run() -> void:
 		and "beatmap_id=5" in _log[0].url, "Leaderboard-Request")
 	_log.clear()
 	_script = [[200, "{\"entries\":[]}"]]
-	a.leaderboard("orbit", "abc", 0, func(_ok, _e, _m): pass)
+	a.leaderboard("trace", "abc", 0, func(_ok, _e, _m): pass)
 	_check(not ("beatmap_id" in _log[0].url), "beatmap_id nur wenn > 0")
 
 	_backfill_tests()

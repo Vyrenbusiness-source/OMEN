@@ -293,7 +293,7 @@ func _init() -> void:
 	_packet()
 	_views(L)
 	_play(L)
-	_play_four(L)
+	_play_modes(L)
 
 	L._reset()
 	print("FAILED: %d" % _failed)
@@ -457,7 +457,7 @@ func _packet() -> void:
 
 ## Darstellung je Spieler: Validierung, alte Clients, eigener Wert.
 func _views(L) -> void:
-	_check(L.norm_view("3D") == "3D" and L.norm_view("2D") == "2D" and L.norm_view("Orbit") == "Orbit", "bekannte Darstellungen")
+	_check(L.norm_view("3D") == "3D" and L.norm_view("2D") == "2D" and L.norm_view("Trace") == "Trace", "bekannte Darstellungen")
 	_check(L.norm_view("4D") == "" and L.norm_view("") == "" and L.norm_view("3d") == "", "unbekannter Text -> leer")
 	_check(L.norm_view(3) == "" and L.norm_view(null) == "" and L.norm_view([1]) == "" and L.norm_view({}) == "", "Nicht-String -> leer")
 	_check(L.norm_view("X".repeat(500)) == "", "Riesenstring -> leer")
@@ -496,15 +496,15 @@ func _views(L) -> void:
 	_check(L.view_of(1) == "3D", "RPC ohne Spieler ignoriert")
 
 
-## Raum-Modus fuer alle 4 Modi: Wahl, Sync, Darstellung, Szene, Turnier fest.
-func _play_four(L) -> void:
+## Raum-Modi Mania und Trace: Wahl, Sync, Darstellung, Szene, Turnier.
+func _play_modes(L) -> void:
 	L._reset()
 	L.active = true
 	L.is_host = true
 	L.crown_id = 1
 	L.players = { 1: L._new_player("Host"), 2: L._new_player("Anna") }
-	_check(L.PLAY_MODES == ["mania", "orbit", "rally", "dirigent", "trace", "rebound"], "Raum kennt 6 Modi")
-	for m in ["mania", "orbit", "rally", "dirigent", "trace", "rebound"]:
+	_check(L.PLAY_MODES == ["mania", "trace"], "Raum kennt Mania und Trace")
+	for m in L.PLAY_MODES:
 		_check(L.norm_play(m) == m, "norm_play %s" % m)
 		L.set_play_mode(m)
 		_check(L.play_mode == m, "Krone stellt %s ein" % m)
@@ -512,29 +512,25 @@ func _play_four(L) -> void:
 		L.cl_state(L.players, 1, {}, "Raum", [], {}, {}, m)
 		L.is_host = true
 		_check(L.play_mode == m, "cl_state uebernimmt %s" % m)
-	_check(L.play_name("rally") == "Rally" and L.play_name("dirigent") == "Dirigent" and L.play_name("x") == "Mania 4K", "play_name")
-	L.set_play_mode("rally")
-	_check(L.view_of(1) == "Rally" and L.local_view() == "Rally", "Rally-Raum: Darstellung Rally")
-	L.set_play_mode("dirigent")
-	_check(L.view_of(1) == "Dirigent", "Dirigent-Raum: Darstellung Dirigent")
-	_check(L.norm_view("Rally") == "Rally" and L.norm_view("Dirigent") == "Dirigent" and L.norm_view("Tetris") == "", "norm_view 4 Modi")
-	_check(L.norm_view("Trace") == "Trace" and L.norm_view("Rebound") == "Rebound", "norm_view Trace/Rebound")
-	_check(Tournament.map_mode_ok("trace", 3) and not Tournament.map_mode_ok("trace", 0) and not Tournament.map_mode_ok("mania", 0)
-		and Tournament.map_mode_ok("orbit", 0) and Tournament.map_mode_ok("rally", 3), "Turnier: Map-Modus je Spielmodus")
-	_check(L.play_scene("mania") == "res://scenes/mania_3d.tscn" and L.play_scene("orbit") == "res://scenes/orbit.tscn", "Szene Mania/Orbit")
-	for m in ["rally", "dirigent", "trace", "rebound"]:
-		var sc: String = L.play_scene(m)
-		_check(sc == ScoreStore.mode_scene(m) if ScoreStore.mode_ready(m) else sc == "res://scenes/mania_3d.tscn", "Szene %s (fehlt sie: Mania statt Absturz)" % m)
-	L.set_play_mode("rally")
+	_check(L.play_name("trace") == "Trace" and L.play_name("x") == "Mania 4K", "play_name")
+	_check(L.known_play("trace") and L.known_play(null) and not L.known_play("orbit"), "Raumliste: entfernte Modi still uebersprungen")
+	L.set_play_mode("trace")
+	_check(L.view_of(1) == "Trace" and L.local_view() == "Trace", "Trace-Raum: Darstellung Trace")
+	_check(L.norm_view("Trace") == "Trace" and L.norm_view("Tetris") == "", "norm_view Trace")
+	_check(Tournament.map_mode_ok("trace", 3) and not Tournament.map_mode_ok("trace", 0) and not Tournament.map_mode_ok("mania", 0),
+		"Turnier: nur Mania-Maps")
+	_check(L.play_scene("mania") == "res://scenes/mania_3d.tscn" and L.play_scene("trace") == "res://scenes/trace.tscn", "Szene Mania/Trace")
+	_check(L.play_scene("x") == "res://scenes/mania_3d.tscn", "unbekannter Modus: Mania statt Absturz")
+	L.set_play_mode("trace")
 	L.tour_create({ "maps": 5, "stars_lo": 0.0, "stars_hi": 30.0, "mods": {} })
-	_check(L.tournament != null and L.tournament.config.play_mode == "rally", "Turnier merkt Modus")
-	L.set_play_mode("dirigent")
-	_check(L.play_mode == "rally", "Turnier: Modus fest (Rally)")
+	_check(L.tournament != null and L.tournament.config.play_mode == "trace", "Turnier merkt Modus")
+	L.set_play_mode("mania")
+	_check(L.play_mode == "trace", "Turnier: Modus fest (Trace)")
 	L._reset()
 	_check(L.play_mode == "mania", "Reset -> Mania")
 
 
-## Raum-Spielmodus: Validierung, Standard, Sync, Darstellung im Orbit-Raum.
+## Raum-Spielmodus: Validierung, Standard, Sync, Darstellung im Trace-Raum.
 func _play(L) -> void:
 	L._reset()
 	L.active = true
@@ -542,42 +538,42 @@ func _play(L) -> void:
 	L.crown_id = 1
 	L.players = { 1: L._new_player("Host"), 2: L._new_player("Anna") }
 	_check(L.play_mode == "mania", "Standard-Spielmodus Mania")
-	_check(L.norm_play("orbit") == "orbit" and L.norm_play("mania") == "mania", "bekannte Spielmodi")
+	_check(L.norm_play("trace") == "trace" and L.norm_play("mania") == "mania", "bekannte Spielmodi")
 	_check(L.norm_play("x") == "mania" and L.norm_play(null) == "mania" and L.norm_play(5) == "mania" and L.norm_play("") == "mania", "unbekannt/fehlend -> Mania")
 	L.players[2].ready = true
-	L.set_play_mode("orbit")
-	_check(L.play_mode == "orbit", "Krone stellt Orbit ein")
+	L.set_play_mode("trace")
+	_check(L.play_mode == "trace", "Krone stellt Trace ein")
 	_check(not bool(L.players[2].ready), "Moduswechsel setzt Bereit zurueck")
-	_check(L.view_of(1) == "Orbit" and L.local_view() == "Orbit", "Orbit-Raum: Darstellung Orbit")
+	_check(L.view_of(1) == "Trace" and L.local_view() == "Trace", "Trace-Raum: Darstellung Trace")
 	L.set_play_mode("quark")
 	_check(L.play_mode == "mania", "ungueltiger Wert -> Mania")
-	L.set_play_mode("orbit")
+	L.set_play_mode("trace")
 	L.in_game = true
 	L.set_play_mode("mania")
-	_check(L.play_mode == "orbit", "mitten in der Runde kein Wechsel")
+	_check(L.play_mode == "trace", "mitten in der Runde kein Wechsel")
 	L.in_game = false
 	L.crown_id = 2
 	L.set_play_mode("mania")
-	_check(L.play_mode == "orbit", "Nicht-Krone (Host ohne Krone) aendert nichts")
+	_check(L.play_mode == "trace", "Nicht-Krone (Host ohne Krone) aendert nichts")
 	L.crown_id = 1
 	# Alter Host: cl_state ohne Spielmodus -> Mania.
 	L.is_host = false
 	L.cl_state(L.players, 1, {}, "Raum")
 	_check(L.play_mode == "mania", "alter Host ohne Feld -> Mania")
-	L.cl_state(L.players, 1, {}, "Raum", [], {}, {}, "orbit")
-	_check(L.play_mode == "orbit", "cl_state uebernimmt Orbit")
+	L.cl_state(L.players, 1, {}, "Raum", [], {}, {}, "trace")
+	_check(L.play_mode == "trace", "cl_state uebernimmt Trace")
 	L.cl_state(L.players, 1, {}, "Raum", [], {}, {}, "evil")
 	_check(L.play_mode == "mania", "cl_state validiert")
-	# Turnier im Orbit-Raum: Modus bleibt fest, Runden werten Orbit-Stats wie Mania.
+	# Turnier im Trace-Raum: Modus bleibt fest, Runden werten Trace-Stats wie Mania.
 	L.is_host = true
-	L.set_play_mode("orbit")
+	L.set_play_mode("trace")
 	# Freie Runde davor (cl_start ohne Turnier) darf keine Turnier-Teilnehmer hinterlassen.
 	L._tour_peers = [1, 2]
 	L.tour_create({ "maps": 5, "stars_lo": 0.0, "stars_hi": 30.0, "mods": {} })
-	_check(L.tournament != null, "Turnier im Orbit-Raum angelegt")
+	_check(L.tournament != null, "Turnier im Trace-Raum angelegt")
 	_check(L._tour_peers.is_empty(), "Turnier neu: keine alten Rundenteilnehmer (Autostart frei)")
 	L.set_play_mode("mania")
-	_check(L.play_mode == "orbit", "Turnier: Spielmodus fest")
+	_check(L.play_mode == "trace", "Turnier: Spielmodus fest")
 	var T = L.tournament
 	T.phase = T.Phase.PLAY
 	T.order = [0, 1]
@@ -586,6 +582,6 @@ func _play(L) -> void:
 	T.record_round({ 1: { "score": 900000, "accuracy": 0.97, "max_combo": 400, "failed": false, "name": "Host" },
 		2: { "score": 500000, "accuracy": 0.80, "max_combo": 120, "failed": true, "name": "Anna" } })
 	var stn: Array = T.standings()
-	_check(stn.size() == 2 and int(stn[0].peer) == 1, "Orbit-Stats ergeben Rangliste")
+	_check(stn.size() == 2 and int(stn[0].peer) == 1, "Trace-Stats ergeben Rangliste")
 	L._reset()
 	_check(L.play_mode == "mania", "Reset -> Mania")

@@ -201,10 +201,9 @@ func _test_replay() -> void:
 	asked.clear()
 	_bodies.clear()
 	_replies = [[200, "{}"]]
-	a.submit({"score": 5000, "accuracy": 0.9, "grade": "A", "stars": 3.0}, meta, "orbit")
+	a.submit({"score": 5000, "accuracy": 0.9, "grade": "A", "stars": 3.0}, meta, "trace")
 	b = _bodies[0].body if _bodies.size() > 0 and _bodies[0].body is Dictionary else {}
-	_check(b.has("replay_content") and asked.size() > 0 and asked[0][2] == ReplayStore.MODE_ORBIT_LAST,
-		"Orbit-Score sendet den letzten Orbit-Lauf")
+	_check(not b.is_empty() and not b.has("replay_content"), "Trace-Score ohne replay_content")
 	_bodies.clear()
 	_replies = [[200, "{}"]]
 	a.submit({"score": 4999, "accuracy": 0.9, "grade": "A"}, meta, "mania")
@@ -256,12 +255,12 @@ func _test_online_id() -> void:
 	_check(str(ScoreStore.best(osz, "Hard").get("online_id", "")) == "4242", "Bestwert bekommt online_id")
 	var hist: Array = ScoreStore.top_scores(osz, "Hard", 5)
 	_check(hist.size() > 0 and str(hist[0].get("online_id", "")) == "4242", "Verlaufseintrag bekommt online_id")
-	# Orbit-Sektion getrennt.
-	ScoreStore.submit(osz, "Hard", res, "orbit")
+	# Trace-Sektion getrennt.
+	ScoreStore.submit(osz, "Hard", res, "trace")
 	_replies = [[200, "{\"score_id\": 5}"]]
-	a.submit(res, {"md5": "abc", "difficulty": "Hard", "osz_path": osz}, "orbit")
-	_check(str(ScoreStore.best(osz, "Hard", "orbit").get("online_id", "")) == "5"
-		and str(ScoreStore.best(osz, "Hard").get("online_id", "")) == "4242", "Orbit-Bestwert getrennt")
+	a.submit(res, {"md5": "abc", "difficulty": "Hard", "osz_path": osz}, "trace")
+	_check(str(ScoreStore.best(osz, "Hard", "trace").get("online_id", "")) == "5"
+		and str(ScoreStore.best(osz, "Hard").get("online_id", "")) == "4242", "Trace-Bestwert getrennt")
 	_check(not ScoreStore.set_online_id(osz, "Hard", "mania", 1, "x"), "anderer Score -> kein Eintrag")
 	a.free()
 
