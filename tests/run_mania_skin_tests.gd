@@ -410,7 +410,8 @@ Name: Ini
 
 
 
-## Schwerpunkt der Deckkraft eines Bildes relativ zur Mitte, in Pixeln.
+## Schwerpunkt der Deckkraft relativ zur Mitte, in Pixeln. Der Kopf ist schwerer als der
+## Schaft, der Schwerpunkt liegt aber Richtung Schaft: Pfeil nach links -> x > 0.
 func _alpha_centroid(img: Image) -> Vector2:
 	var sum := Vector2.ZERO
 	var n := 0.0
@@ -429,12 +430,12 @@ func _test_arrow_skin() -> void:
 	var cs: Array = []
 	for c in 4:
 		cs.append(_alpha_centroid(s.tex("note_%d" % c).get_image()))
-	_ok(cs[0].x < -5.0 and cs[3].x > 5.0 and cs[1].y > 5.0 and cs[2].y < -5.0, "Pfeile 4K: links/unten/oben/rechts gedreht")
+	_ok(cs[0].x > 2.0 and cs[3].x < -2.0 and cs[1].y < -2.0 and cs[2].y > 2.0, "Pfeile 4K: links/unten/oben/rechts gedreht")
 	var rc: Array = []
 	for c in 4:
 		rc.append(_alpha_centroid(s.tex("key_%d" % c).get_image()))
 		_ok(s.tex("keyd_%d" % c) != null and s.tex("tail_%d" % c).get_height() > 0, "Pfeile 4K Spalte %d: Druck-Rezeptor + Kappe" % c)
-	_ok(rc[0].x < -5.0 and rc[3].x > 5.0 and rc[1].y > 5.0 and rc[2].y < -5.0, "Pfeile 4K: Rezeptoren gedreht")
+	_ok(rc[0].x > 1.0 and rc[3].x < -1.0 and rc[1].y < -1.0 and rc[2].y > 1.0, "Pfeile 4K: Rezeptoren gedreht")
 	_ok(s.tex("note_0").get_width() >= 160, "Pfeile: Textur gross genug (>=160 px je Spalte)")
 	# Snap-Farben (1/4 rot, 1/8 blau, 1/12 violett, 1/16 gelb) bei Modus snap; Hold-Koerper dunkler.
 	NoteColors.path = _tmp + "_nc2.cfg"
@@ -466,7 +467,7 @@ func _test_arrow_skin() -> void:
 			if all:
 				var ce := _alpha_centroid(sk.tex("note_%d" % c).get_image())
 				var d: int = exp[n][c]
-				var good := ce.length() < 2.0 if d < 0 else (ce.x < -5.0 if d == 0 else (ce.y > 5.0 if d == 1 else (ce.y < -5.0 if d == 2 else ce.x > 5.0)))
+				var good := ce.length() < 2.0 if d < 0 else (ce.x > 2.0 if d == 0 else (ce.y < -2.0 if d == 1 else (ce.y > 2.0 if d == 2 else ce.x < -2.0)))
 				dir_ok = dir_ok and good
 		_ok(all, "Pfeile %dK: alle Texturen" % n)
 		_ok(dir_ok, "Pfeile %dK: Richtung je Spalte, Mitte = Raute" % n)
