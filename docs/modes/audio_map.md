@@ -1,9 +1,9 @@
-# Audio-Map (Eigene Musik -> Orbit-Map)
+# Audio-Analyse (AudioMapper)
 
-`AudioMapper` (`scripts/library/audio_mapper.gd`) macht aus einer .mp3/.ogg/.wav
-eine osu!standard-.osz, die nur im Orbit-Modus gedacht ist (Mania bleibt
-Original-4K). `generate(audio_path, maps_dir, difficulty)` blockiert (Aufrufer
-startet den Thread) und liefert `{ok, osz_path, error, bpm, offset_ms, note_count}`.
+`AudioMapper` (`scripts/library/audio_mapper.gd`) analysiert eine .mp3/.ogg/.wav:
+Tempo, Beat-Raster, Onsets und eine Noten-Auswahl je Schwierigkeit. Spielbare
+Maps baut heute der 4K-Auto-Mapper (`docs/automap/spec.md`); AudioMapper liefert
+dort den Dekoder und im `automap_bench` den Vergleichswert "alt".
 Dauer: ca. 1 s pro Song (3-6 Minuten).
 
 ## Ablauf
@@ -24,15 +24,6 @@ Dauer: ca. 1 s pro Song (3-6 Minuten).
    darunter), Prioritaet = Staerke x Betonung (Taktanfang 1,9, Beat 1,5,
    Achtel 1,15), Mindestabstand: Leicht 420 ms, Normal 240 ms, Schwer 140 ms.
    Takt-Phase = Beat (mod 4) mit der meisten Staerke.
-5. Positionen: Kreis um (256, 192). Winkelschritt = 0,09 Grad/ms Abstand
-   (10-34 Grad), Drehrichtung wechselt auf jedem 2. Taktanfang. Taktschlaege
-   aussen (Radius 180, Ring B), Rest innen (Radius 90, Ring A). Damit liefert
-   `OrbitConverter.convert_std` (POLAR) fluessige Winkel (Test: <= 0,3 Grad/ms).
-   Gemessen: Leicht ca. 1,4, Normal 2,6, Schwer 5,2 Ziele/s.
-6. Ausgabe: `<Kuenstler> - <Titel> (OMEN Auto).osz` mit `.osu` (Mode 0, ein
-   roter Timing-Point) und dem unveraenderten Audio als `audio.<ext>`.
-   Kuenstler/Titel aus den Tags (`ffmpeg -f ffmetadata`), sonst aus
-   "Kuenstler - Titel" im Dateinamen, sonst Titel = Dateiname, Kuenstler = Unknown.
 
 ## Messung gegen echte Maps
 
@@ -58,7 +49,7 @@ Befunde:
   lag der Versatz bei -10 bis -20 ms.
 - Fehltempo (7 von 40): 3/4- oder 3/2-Verhaeltnis zum Map-Tempo (z. B. 183 -> 137)
   und Songs ohne klaren Schlag. Dann stimmt das Raster nicht, die Map ist
-  zwar spielbar, aber nicht taktgenau. Verbesserung: Drei-gegen-Vier-Pruefung
+  nicht taktgenau. Verbesserung: Drei-gegen-Vier-Pruefung
   ueber die Taktstruktur, oder dem Nutzer Tempo x2 / x1,5 zur Wahl geben.
 - Mehrfach-Tempo (BPM-Wechsel mitten im Song) wird nicht erkannt: ein Raster
   fuer den ganzen Song.
@@ -68,5 +59,5 @@ Befunde:
 ## Tests
 
 `tests/run_audio_map_tests.gd` (headless, ca. 2 s, braucht ffmpeg sonst SKIP):
-Klick-Tracks -> BPM/Offset, Dichte je Schwierigkeit, vollstaendiger Lauf
-.wav -> .osz -> `OszImporter` -> `OrbitConverter.convert_std`.
+Klick-Tracks -> BPM/Offset, Dichte je Schwierigkeit, .wav dekodieren und
+analysieren.

@@ -3,12 +3,11 @@ extends RefCounted
 
 ## Paket fuer den 4K-Auto-Mapper (docs/automap/spec.md): Gitter + Features +
 ## Charts -> .osz in maps_dir. Audio unveraendert als audio.<ext>, je Chart eine
-## .osu (Mode 3, 4K), Cover als bg.jpg/bg.png, optional Orbit-Diffs (Mode 0).
+## .osu (Mode 3, 4K), Cover als bg.jpg/bg.png.
 ## Reines GDScript, kein Szenenzugriff, thread-faehig.
 ##
 ## meta (Felder ueber die Spec hinaus sind optional):
 ##   artist, title        Pflicht
-##   with_orbit: bool     Orbit-Diffs (osu!standard) auf demselben Gitter mitschreiben
 ##   ffmpeg: String       Pfad zu ffmpeg; fehlt das Feld, wird ClipExporter.find_ffmpeg()
 ##                        gefragt, "" = kein eingebettetes Cover, keine Umwandlung
 ##   waveform: PackedFloat32Array  Huellkurve 0..1 (AmWriter.waveform) fuer das erzeugte
@@ -38,7 +37,6 @@ const PROFILE_DIFF := {
 	"Expert": {"od": 8.5, "hp": 8.0},
 }
 const FALLBACK_DIFF := {"od": 7.0, "hp": 7.0}
-const ORBIT_PREFIX := "Orbit "
 
 
 static func write_osz(audio_path: String, maps_dir: String, meta: Dictionary, grid: Dictionary,
@@ -71,11 +69,6 @@ static func write_osz(audio_path: String, maps_dir: String, meta: Dictionary, gr
 		var profile := str(c.get("profile", "Normal"))
 		var text := mania_osu(artist, title, profile, grid, features, c.get("notes", []), audio_name, bg_name)
 		files.append([osu_name(artist, title, profile), text.to_utf8_buffer()])
-	if bool(meta.get("with_orbit", false)):
-		for d in AudioMapper.DIFFS:
-			var o := orbit_osu(artist, title, str(d), grid, features, audio_name, bg_name)
-			if int(o.note_count) >= 8:
-				files.append([osu_name(artist, title, ORBIT_PREFIX + str(d)), String(o.text).to_utf8_buffer()])
 	files.append([audio_name, audio_bytes])
 	if bg_name != "":
 		files.append([bg_name, cover.bytes])
@@ -555,62 +548,3 @@ static func mania_osu(artist: String, title: String, profile: String, grid: Dict
 			l.append("%d,192,%d,1,0,0:0:0:0:" % [x, t])
 	return "\n".join(l) + "\n"
 
-
-## Orbit-Diff (osu!standard) wie der alte AudioMapper, aber auf dem neuen
-## Gitter: je Segment waehlt AudioMapper.pick_notes die Stellen, jede Zeit wird
-## auf das Gitter gerastet. {text, note_count}.
-static func orbit_osu(artist: String, title: String, difficulty: String, grid: Dictionary,
-		features: Dictionary, audio_name: String, bg_name: String) -> Dictionary:
-	var cfg: Dictionary = AudioMapper.DIFFS[difficulty]
-	var segs: Array = grid.get("segments", [])
-	var dur := float(features.get("duration_ms", 0.0))
-	var events: Array = features.get("events", [])
-	var picked: Array = []   # [t, on_beat, bar_start, slot]
-	for i in segs.size():
-		var s: Dictionary = segs[i]
-		var a := float(s.start_ms) if i > 0 else -INF
-		var b := float(segs[i + 1].start_ms) if i + 1 < segs.size() else INF
-		var onsets: Array = []
-		for e in events:
-			var t := float(e.t_ms)
-			if t - AudioMapper.OSU_LEAD_MS >= a and t - AudioMapper.OSU_LEAD_MS < b:
-				onsets.append([t, float(e.strength)])
-		if onsets.is_empty():
-			continue
-		var an := {"bpm": 60000.0 / float(s.beat_ms), "offset_ms": float(s.downbeat_ms) + AudioMapper.OSU_LEAD_MS,
-			"onsets": onsets, "duration_ms": dur}
-		for n in AudioMapper.pick_notes(an, difficulty):
-			var t := float(n[0])
-			if t < a or t >= b:
-				continue
-			picked.append([AmGrid.snap(grid, t, 4), bool(n[2]), bool(n[3]), int(n[1])])
-	var l := _head(artist, title, ORBIT_PREFIX + difficulty, 0, "auto orbit", audio_name, bg_name, features, [
-		"HPDrainRate:5",
-		"CircleSize:4",
-		"OverallDifficulty:" + _num(float(cfg.od), 1),
-		"ApproachRate:" + _num(float(cfg.ar), 1),
-		"SliderMultiplier:1.4",
-		"SliderTickRate:1",
-	], grid)
-	var angle := 0.0
-	var dir := 1.0
-	var last_t := -INF
-	var bars_seen := 0
-	var count := 0
-	for n in picked:
-		var t: float = n[0]
-		if t <= last_t:
-			continue
-		var gap := minf(t - last_t, 1000.0)
-		if n[2]:
-			bars_seen += 1
-			if bars_seen % 2 == 0:
-				dir = -dir
-		if last_t > -INF:
-			angle += dir * clampf(gap * 0.09, 10.0, 34.0)
-		last_t = t
-		var r := AudioMapper.RADIUS_OUT if n[1] else AudioMapper.RADIUS_IN
-		var rad := deg_to_rad(angle)
-		l.append("%d,%d,%d,1,0,0:0:0:0:" % [int(roundf(256.0 + r * sin(rad))), int(roundf(192.0 - r * cos(rad))), int(roundf(t))])
-		count += 1
-	return {"text": "\n".join(l) + "\n", "note_count": count}

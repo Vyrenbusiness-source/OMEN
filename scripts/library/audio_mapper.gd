@@ -1,13 +1,11 @@
 class_name AudioMapper
 extends RefCounted
 
-## Eigene Musikdatei -> spielbare ORBIT-Map (osu!standard-.osz, nur Orbit).
+## Audio-Analyse fuer eigene Musik (Grundlage des alten Mappers, heute Vergleichswert
+## im automap_bench und Dekoder fuer die Automap-Tests).
 ## Ablauf: ffmpeg dekodiert zu PCM mono 22050 Hz, ein 3-Band-Spektralfluss
 ## liefert Onsets, aus ihnen werden Tempo und Beat-Raster geschaetzt, die Onsets
-## werden auf 1/2 bzw. 1/4 Beat gerastet und je Schwierigkeit ausgeduennt. Die
-## Positionen laufen in Kreisen um die Mitte, damit OrbitConverter.convert_std
-## (POLAR) fluessige Winkel liefert; die Drehrichtung wechselt am Taktanfang.
-## generate() blockiert (Aufrufer startet einen Thread).
+## werden auf 1/2 bzw. 1/4 Beat gerastet und je Schwierigkeit ausgeduennt.
 ## Bericht und Messwerte: docs/modes/audio_map.md
 
 const RATE := 22050
@@ -32,55 +30,12 @@ const OSU_LEAD_MS := 23.0
 const MIN_NOTE_MS := 700.0
 
 ## Schwierigkeiten: min. Abstand, feinste Teilung (Slots je Beat), Anteil der
-## behaltenen Onsets, Radius-Faktor der Bewegung.
+## behaltenen Onsets.
 const DIFFS := {
-	"Leicht": {"gap": 420.0, "sub": 2, "keep": 0.45, "ar": 7.0, "od": 4.0},
-	"Normal": {"gap": 240.0, "sub": 2, "keep": 0.70, "ar": 8.0, "od": 6.0},
-	"Schwer": {"gap": 140.0, "sub": 4, "keep": 0.90, "ar": 9.0, "od": 8.0},
+	"Leicht": {"gap": 420.0, "sub": 2, "keep": 0.45},
+	"Normal": {"gap": 240.0, "sub": 2, "keep": 0.70},
+	"Schwer": {"gap": 140.0, "sub": 4, "keep": 0.90},
 }
-const RADIUS_OUT := 180.0
-const RADIUS_IN := 90.0
-
-
-## Hauptweg. Rueckgabe {ok, osz_path, error, bpm, offset_ms, note_count}.
-static func generate(audio_path: String, maps_dir: String, difficulty: String = "Normal") -> Dictionary:
-	if not DIFFS.has(difficulty):
-		return _fail("Unbekannte Schwierigkeit: " + difficulty)
-	if not FileAccess.file_exists(audio_path):
-		return _fail("Audiodatei fehlt: " + audio_path)
-	var an := analyze(audio_path)
-	if not an.ok:
-		return _fail(an.error)
-	var meta := read_meta(audio_path)
-	var ext := audio_path.get_extension().to_lower()
-	var audio_name := "audio." + ext
-	var osu := build_osu(an, meta, difficulty, audio_name)
-	if osu.note_count < 8:
-		return _fail("Zu wenige Noten erkannt (%d). Ist die Datei Musik?" % osu.note_count)
-	DirAccess.make_dir_recursive_absolute(maps_dir)
-	var base := "%s - %s (OMEN Auto)" % [meta.artist, meta.title]
-	var osz_path := maps_dir.path_join(_safe_name(base) + ".osz")
-	var audio_bytes := FileAccess.get_file_as_bytes(audio_path)
-	if audio_bytes.is_empty():
-		return _fail("Audiodatei nicht lesbar: " + audio_path)
-	var zip := ZIPPacker.new()
-	var err := zip.open(osz_path)
-	if err != OK:
-		return _fail("Konnte .osz nicht schreiben (Fehler %d): %s" % [err, osz_path])
-	var osu_name := _safe_name("%s - %s (OMEN Auto) [%s]" % [meta.artist, meta.title, difficulty]) + ".osu"
-	zip.start_file(osu_name)
-	zip.write_file(osu.text.to_utf8_buffer())
-	zip.close_file()
-	zip.start_file(audio_name)
-	zip.write_file(audio_bytes)
-	zip.close_file()
-	zip.close()
-	return {"ok": true, "osz_path": osz_path, "error": "", "bpm": an.bpm,
-			"offset_ms": an.offset_ms, "note_count": osu.note_count}
-
-
-static func _fail(msg: String) -> Dictionary:
-	return {"ok": false, "osz_path": "", "error": msg, "bpm": 0.0, "offset_ms": 0.0, "note_count": 0}
 
 
 static func _safe_name(s: String) -> String:
@@ -129,37 +84,6 @@ static func decode(audio_path: String) -> PackedFloat32Array:
 	if FileAccess.file_exists(tmp):
 		DirAccess.remove_absolute(tmp)
 	return res
-
-
-## Kuenstler/Titel aus den Tags (ffmpeg), sonst aus dem Dateinamen.
-static func read_meta(audio_path: String) -> Dictionary:
-	var artist := ""
-	var title := ""
-	var ff := ClipExporter.find_ffmpeg()
-	if ff != "":
-		var out := []
-		if OS.execute(ff, ["-v", "error", "-i", audio_path, "-f", "ffmetadata", "-"], out, false) == 0 and out.size() > 0:
-			for line in String(out[0]).split("\n"):
-				var kv := line.strip_edges().split("=", true, 1)
-				if kv.size() != 2:
-					continue
-				var k := kv[0].to_lower()
-				if k == "artist" and artist == "":
-					artist = kv[1].strip_edges()
-				elif k == "title" and title == "":
-					title = kv[1].strip_edges()
-	var stem := audio_path.get_file().get_basename()
-	if title == "":
-		var parts := stem.split(" - ", true, 1)
-		if parts.size() == 2:
-			if artist == "":
-				artist = parts[0].strip_edges()
-			title = parts[1].strip_edges()
-		else:
-			title = stem
-	if artist == "":
-		artist = "Unknown"
-	return {"artist": artist, "title": title}
 
 
 ## Onset-Staerke je Hop-Frame: 3-Band-Energie (Log), positiver Fluss.
@@ -414,7 +338,7 @@ static func _fit(peaks: Array, T: float, off: float) -> Dictionary:
 
 
 # ---------------------------------------------------------------------------
-# Map bauen
+# Noten waehlen
 # ---------------------------------------------------------------------------
 
 ## Noten-Slots {slot -> Staerke} aus den Onsets, je Schwierigkeit ausgeduennt.
@@ -489,68 +413,3 @@ static func pick_notes(an: Dictionary, difficulty: String) -> Array:
 		out.append([off + s * slot_ms - OSU_LEAD_MS, s, taken[s][3], posmod(s / 4 - bar_phase, 4) == 0 and s % 4 == 0])
 	return out
 
-
-## .osu-Text fuer die Analyse. {text, note_count}.
-static func build_osu(an: Dictionary, meta: Dictionary, difficulty: String, audio_name: String) -> Dictionary:
-	var cfg: Dictionary = DIFFS[difficulty]
-	var notes := pick_notes(an, difficulty)
-	var T := 60000.0 / float(an.bpm)
-	var lines: Array[String] = []
-	lines.append("osu file format v14")
-	lines.append("")
-	lines.append("[General]")
-	lines.append("AudioFilename: " + audio_name)
-	lines.append("AudioLeadIn: 0")
-	lines.append("PreviewTime: %d" % int(an.duration_ms * 0.3))
-	lines.append("Countdown: 0")
-	lines.append("Mode: 0")
-	lines.append("")
-	lines.append("[Metadata]")
-	lines.append("Title:" + meta.title)
-	lines.append("TitleUnicode:" + meta.title)
-	lines.append("Artist:" + meta.artist)
-	lines.append("ArtistUnicode:" + meta.artist)
-	lines.append("Creator:OMEN Auto")
-	lines.append("Version:" + difficulty)
-	lines.append("Source:")
-	lines.append("Tags:omen auto orbit")
-	lines.append("")
-	lines.append("[Difficulty]")
-	lines.append("HPDrainRate:5")
-	lines.append("CircleSize:4")
-	lines.append("OverallDifficulty:%s" % str(cfg.od))
-	lines.append("ApproachRate:%s" % str(cfg.ar))
-	lines.append("SliderMultiplier:1.4")
-	lines.append("SliderTickRate:1")
-	lines.append("")
-	lines.append("[Events]")
-	lines.append("")
-	lines.append("[TimingPoints]")
-	lines.append("%.2f,%.6f,4,2,0,60,1,0" % [an.offset_ms - OSU_LEAD_MS, T])
-	lines.append("")
-	lines.append("[HitObjects]")
-	var angle := 0.0
-	var dir := 1.0
-	var last_t := -INF
-	var last_bar := -1
-	var bars_seen := 0
-	for n in notes:
-		var t: float = n[0]
-		var s: int = n[1]
-		var gap := minf(t - last_t, 1000.0)
-		var bar := int(floor(s / 16.0))
-		if n[3] and bar != last_bar:
-			bars_seen += 1
-			if bars_seen % 2 == 0:
-				dir = -dir
-		if n[3]:
-			last_bar = bar
-		if last_t > -INF:
-			angle += dir * clampf(gap * 0.09, 10.0, 34.0)
-		last_t = t
-		var r := RADIUS_OUT if n[2] else RADIUS_IN
-		var rad := deg_to_rad(angle)
-		var x := int(roundf(256.0 + r * sin(rad)))
-		var y := int(roundf(192.0 - r * cos(rad)))
-		lines.append("%d,%d,%d,1,0,0:0:0:0:" % [x, y, int(roundf(t))])
-	return {"text": "\n".join(lines) + "\n", "note_count": notes.size()}
