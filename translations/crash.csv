@@ -1,0 +1,14 @@
+keys,de,en
+Normal,Normal,Normal
+Stufe 1: Shader-Cache geleert,Stufe 1: Shader-Cache geleert,Level 1: shader cache cleared
+"Stufe 2: einfache Welt, Texturen max. 4096","Stufe 2: einfache Welt, Texturen max. 4096","Level 2: simple world, textures max. 4096"
+Stufe 3: Renderer D3D12,Stufe 3: Renderer D3D12,Level 3: D3D12 renderer
+Absturzschutz,Absturzschutz,Crash protection
+Zuruecksetzen,Zurücksetzen,Reset
+Das Spiel wurde beim letzten Mal nicht sauber beendet.,Das Spiel wurde beim letzten Mal nicht sauber beendet.,The game did not close properly last time.
+"Ein Bericht liegt im Absturz-Ordner. Schick ihn uns, wenn es wieder passiert.","Ein Bericht liegt im Absturz-Ordner. Schick ihn uns, wenn es wieder passiert.","A report is in the crash folder. Send it to us if it happens again."
+OMEN startet vorsichtiger:,OMEN startet vorsichtiger:,OMEN now starts more carefully:
+Ordner öffnen,Ordner öffnen,Open folder
+Bericht kopieren,Bericht kopieren,Copy report
+Kopiert,Kopiert,Copied
+Schließen,Schließen,Close

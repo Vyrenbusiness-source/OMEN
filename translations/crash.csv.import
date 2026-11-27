@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://dktwik8o4qwoa"
+
+[deps]
+
+files=["res://translations/crash.de.translation", "res://translations/crash.en.translation"]
+
+source_file="res://translations/crash.csv"
+dest_files=["res://translations/crash.de.translation", "res://translations/crash.en.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true
