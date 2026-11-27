@@ -3723,7 +3723,7 @@ func _build_hud() -> void:
 
 	# Rang links bei der Genauigkeit, rechts eine kompakte Zaehler-Gruppe.
 	var left := _stat_column(Vector2(0.085, 0.42))
-	_grade_label = _stat_block(left, "RANG", 26)
+	_grade_label = _stat_block(left, "RANG", 72)  # gross: Rang muss im Spiel auf einen Blick lesbar sein
 	_acc_label = _stat_block(left, "GENAUIGKEIT", 28)
 	var right := _stat_column(Vector2(0.915, 0.42))
 	_score_label = _stat_block(right, "PUNKTE", 30)
