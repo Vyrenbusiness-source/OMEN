@@ -15,6 +15,8 @@ func _ok(cond: bool, what: String) -> void:
 
 
 func _initialize() -> void:
+	# Erwartete Texte sind deutsch: nicht von der gespeicherten Sprache des Rechners abhaengen.
+	TranslationServer.set_locale("de")
 	_test_data()
 	_test_goals()
 	_test_stars()

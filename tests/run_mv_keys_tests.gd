@@ -155,7 +155,7 @@ func _test_import_filter() -> void:
 		_check(SongImport.header_usable({"mode": 3, "keys": k}), "%dK wird importiert" % k)
 	_check(not SongImport.header_usable({"mode": 3, "keys": 8}), "8K nicht")
 	_check(not SongImport.header_usable({"mode": 3, "keys": 1}), "1K nicht")
-	_check(SongImport.header_usable({"mode": 0, "keys": 5}), "osu!standard unveraendert")
+	_check(not SongImport.header_usable({"mode": 0, "keys": 5}), "osu!standard wird nicht importiert")
 	_check(int(SongImport.osu_header(_osu(7)).get("keys", 0)) == 7, "osu_header liest 7K")
 	_check(MapLibrary.osu_key_count(_osu(6)) == 6, "osu_key_count 6K")
 	_check(MapLibrary.osu_key_count(_osu(5, 0)) == 0, "osu_key_count Standard = 0")

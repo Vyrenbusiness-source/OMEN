@@ -40,6 +40,8 @@ func _fill(t: Tournament, ids: Array) -> void:
 
 
 func _init() -> void:
+	# Erwartete Texte sind deutsch: nicht von der gespeicherten Sprache des Rechners abhaengen.
+	TranslationServer.set_locale("de")
 	# --- Konfiguration
 	var c := Tournament.clean_config({ "maps": 7, "stars_lo": 9.0, "stars_hi": 3.0 })
 	_check(c.maps == 10 and c.stars_lo == 3.0 and c.stars_hi == 9.0, "Config: ungueltige Mapzahl -> 10, lo/hi getauscht")

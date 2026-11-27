@@ -11,6 +11,8 @@ var _sections := 0
 
 
 func _initialize() -> void:
+	# Erwartete Texte sind deutsch: nicht von der gespeicherten Sprache des Rechners abhaengen.
+	TranslationServer.set_locale("de")
 	print("=== OMEN Mirror-Tests ===")
 	_test_genres()
 	_test_url()
