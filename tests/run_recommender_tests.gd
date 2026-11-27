@@ -672,10 +672,10 @@ func _test_online_parse() -> void:
 	_ok(not bool(OnlineBrowser.quiet_parse("").ok), "leere Antwort: still verworfen")
 	_ok(OnlineBrowser.genre_name(10) == "electronic" and OnlineBrowser.genre_name(1) == "" and OnlineBrowser.genre_name(6) == "",
 		"Genre-Namen")
-	var urls: Array = OnlineBrowser.quiet_urls("electronic", 0, 50)
-	_ok(urls.size() == 3 and "mode=0" in str(urls[0]) and "offset=50" in str(urls[0]) and "osu.direct" in str(urls[0])
+	var urls: Array = OnlineBrowser.quiet_urls("electronic", 50)
+	_ok(urls.size() == 3 and "mode=3" in str(urls[0]) and "offset=50" in str(urls[0]) and "osu.direct" in str(urls[0])
 		and "catboy" in str(urls[1]) and "osu.direct" in str(urls[2]), "Mirror-Kette wie im Online-Browser")
-	_ok("mode=3" in str(OnlineBrowser.quiet_urls("4k", 3)[1]), "4K-Suche")
+	_ok("mode=3" in str(OnlineBrowser.quiet_urls("4k")[1]), "4K-Suche")
 	# Antwort -> Vorschlaege, wie im Browser.
 	var pl := _style_player()
 	var sk := Recommender.skill("mania", _profile("mania", 2.6, 0.90))
