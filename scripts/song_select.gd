@@ -269,6 +269,7 @@ func _ready() -> void:
 				if kv.size() == 2:
 					d[kv[0]] = Array(kv[1].split("+")) if kv[0] == "grades" else int(kv[1])
 			_mode_filters[_play_mode] = sanitize_mode_filter(d)
+			_group_mode = clampi(int(d.get("group", _group_mode)), 0, GROUP_KEYS.size() - 1)
 	for a in OS.get_cmdline_args():
 		# Debug/Shots: --rec-level=push, --rec-hidden, --rec-collapsed (nie gespeichert).
 		if a.begins_with("--rec-level="):
