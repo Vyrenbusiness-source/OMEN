@@ -93,7 +93,43 @@ func _ready() -> void:
 	_fit()
 
 
+var _online_label: Label = null
+
+
+## Ruhige Statuszeile unten links: Online: gesendet / wartet (Grund) / nicht gesendet /
+## nicht angemeldet. Aktualisiert sich ueber OnlineApi.state_changed, kein Popup.
+func _build_online_status() -> void:
+	_online_label = null
+	var api: OnlineApi = GameSession.online
+	if api == null or not api.enabled() or bool(_data.get("lobby", false)) or bool(_data.get("is_replay", false)):
+		return
+	var l := Label.new()
+	l.add_theme_font_size_override("font_size", 13)
+	l.add_theme_color_override("font_color", Color(1, 1, 1, 0.55))
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	l.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+	l.offset_left = 40
+	l.offset_bottom = -8
+	l.offset_top = -30
+	add_child(l)
+	_online_label = l
+	if not api.state_changed.is_connected(_refresh_online_status):
+		api.state_changed.connect(_refresh_online_status)
+	_refresh_online_status()
+
+
+func _refresh_online_status() -> void:
+	if _online_label == null or not is_instance_valid(_online_label):
+		return
+	var api: OnlineApi = GameSession.online
+	_online_label.text = api.status_line() if api != null else ""
+	_online_label.visible = _online_label.text != ""
+
+
 func _exit_tree() -> void:
+	var api: OnlineApi = GameSession.online
+	if api != null and api.state_changed.is_connected(_refresh_online_status):
+		api.state_changed.disconnect(_refresh_online_status)
 	var vp := get_viewport()
 	if vp != null and _set_oversampling:
 		vp.oversampling_override = 0.0
@@ -261,6 +297,7 @@ func show_results(data: Dictionary) -> void:
 		_build_rank_area(_main_row)
 	_build_campaign(group)
 	_build_buttons(group)
+	_build_online_status()
 	_shown = true
 	_campaign_run_shot()
 	if bool(data.get("lobby", false)):

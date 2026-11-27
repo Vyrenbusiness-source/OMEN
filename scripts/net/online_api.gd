@@ -121,6 +121,7 @@ var catch_up_provider := Callable()
 ## Test-Hook: Callable() -> Array von ScoreStore-Bestwerten (sonst ScoreStore.best_plays).
 var catch_up_entries := Callable()
 var _uid_n := 0
+var _submit_ms := -1000000
 var _latest_uid := ""
 var _catch_t := -1.0
 var _registered_md5: Dictionary = {}
@@ -767,6 +768,7 @@ func _note_error(code: int, msg: String) -> void:
 func _set_submit(entry: Dictionary, state: String, reason: String) -> void:
 	if str(entry.get("uid", "")) == _latest_uid or _latest_uid == "":
 		last_submit = {"state": state, "reason": reason}
+		_submit_ms = Time.get_ticks_msec()
 
 
 ## Kurzer Klartext zu HTTP-Code + Servertext.
@@ -805,7 +807,10 @@ static func status_text(state: String, reason: String) -> String:
 	return ""
 
 
+## Leer, wenn der letzte Lauf lange her ist (Ergebnisbild eines Laufs ohne Submit).
 func status_line() -> String:
+	if Time.get_ticks_msec() - _submit_ms > 300000:
+		return ""
 	return status_text(str(last_submit.state), str(last_submit.reason))
 
 
