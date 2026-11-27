@@ -13,12 +13,11 @@ weighted 0.95ⁿ in descending order (like pp)"
 Vier Spuren,Vier Spuren,Four lanes
 Den Takt zeichnen,Den Takt zeichnen,Draw the beat
 Im Takt springen,Im Takt springen,Bounce on the beat
-"Ein Leuchtfaden zeichnet die Map: jede Note ein Knick (4K-Maps)","Ein Leuchtfaden zeichnet die Map: jede Note ein Knick (4K-Maps)","A glowing thread draws the map: every note is a turn (4K maps)"
+Ein Leuchtfaden zeichnet die Map: jede Note ein Knick (4K-Maps),Ein Leuchtfaden zeichnet die Map: jede Note ein Knick (4K-Maps),A glowing thread draws the map: every note is a turn (4K maps)
 Vier Bälle springen auf ihre Noten (4K-Maps),Vier Bälle springen auf ihre Noten (4K-Maps),Four balls bounce onto their notes (4K maps)
 Tutorial,Tutorial,Tutorial
 Tutorial: %s,Tutorial: %s,Tutorial: %s
 Map passt nicht zum Turnier-Modus.,Map passt nicht zum Turnier-Modus.,Map does not fit the tournament mode.
-REBOUND,REBOUND,REBOUND
 TRACE,TRACE,TRACE
 Map passt nicht zum Modus %s.,Map passt nicht zum Modus %s.,Map does not fit the mode %s.
 For you,Für dich,For you
@@ -54,9 +53,9 @@ Long notes,Long Notes,Long notes
 Jumps,Sprünge,Jumps
 Dense patterns,Dichte Muster,Dense patterns
 Patterns,Muster,Patterns
-"Mirror: links und rechts getauscht (Score x1,0)","Mirror: links und rechts getauscht (Score x1,0)","Mirror: left and right swapped (score x1.0)"
-"Hidden: der Weg blendet zum Kopf hin aus (Score x1,06)","Hidden: der Weg blendet zum Kopf hin aus (Score x1,06)","Hidden: the path fades out toward the head (score x1.06)"
-"Short Sight: nur 500 ms Weg voraus (Score x1,08)","Short Sight: nur 500 ms Weg voraus (Score x1,08)","Short Sight: only 500 ms of path ahead (score x1.08)"
+"Mirror: links und rechts getauscht (Score x1,0)","Mirror: links und rechts getauscht (Score x1,0)",Mirror: left and right swapped (score x1.0)
+"Hidden: der Weg blendet zum Kopf hin aus (Score x1,06)","Hidden: der Weg blendet zum Kopf hin aus (Score x1,06)",Hidden: the path fades out toward the head (score x1.06)
+"Short Sight: nur 500 ms Weg voraus (Score x1,08)","Short Sight: nur 500 ms Weg voraus (Score x1,08)",Short Sight: only 500 ms of path ahead (score x1.08)
 DAILY TRACE,DAILY TRACE,DAILY TRACE
 Score %s,Wertung %s,Score %s
 played today,heute gespielt,played today
@@ -65,3 +64,4 @@ Streak: %d days,Serie: %d Tage,Streak: %d days
 Streak %d,Serie %d,Streak %d
 Finding today's map …,Suche Tagesmap …,Finding today's map …
 No 4K map found,Keine 4K-Map gefunden,No 4K map found
+"Vier bis sieben Spuren, 2D oder 3D","Vier bis sieben Spuren, 2D oder 3D","Four to seven lanes, 2D or 3D"

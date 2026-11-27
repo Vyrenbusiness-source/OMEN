@@ -1,7 +1,7 @@
 extends SceneTree
 
 ## Headless-Tests fuer die Lobby-Oberflaeche (scripts/ui/mp_lobby.gd):
-## Zustandsspalte, 3D/2D/Orbit-Abzeichen, Format-Reiter, Alleine-Hinweis,
+## Zustandsspalte, 3D/2D/Trace-Abzeichen, Format-Reiter, Alleine-Hinweis,
 ## lobbycraft.csv vollstaendig, kein Ueberlauf bei 1280x720 und 2560x1440.
 ## Lobby-Zustand wird direkt gesetzt (kein Netz). Szene per load(): Finding
 ## mania-2d-options (statische Referenzen auf Autoload-Skripte kompilieren nicht).
@@ -54,7 +54,7 @@ func _init() -> void:
 	L.players[2].view = "2D"
 	L.players[2].ready = true
 	L.players[3] = L._new_player("Ben")
-	L.players[3].view = "Orbit"
+	L.players[3].view = "Trace"
 	L.players[my_id].view = "3D"
 	ui._refresh_room()
 	_check(ui._alone_hint.get_parent() == null, "mit Mitspielern kein Alleine-Hinweis")
@@ -62,14 +62,14 @@ func _init() -> void:
 	_check(ui._ready_count.text.contains("1") and ui._ready_count.text.contains("3"), "Bereit-Zaehler 1 / 3")
 
 	# Abzeichen: ruhig, fester Text, nichts bei unbekannter Darstellung.
-	for v in ["3D", "2D", "Orbit"]:
+	for v in ["3D", "2D", "Trace"]:
 		var b: Control = ui._view_badge(v)
 		_check(b != null and _first_label_text(b) == v, "Abzeichen " + v)
 		if b != null:
 			b.free()
 	_check(ui._view_badge("") == null, "kein Abzeichen ohne Angabe")
 	var row_texts := _all_label_texts(ui._players_box)
-	_check(row_texts.has("2D") and row_texts.has("Orbit") and row_texts.has("3D"), "Zeilen zeigen alle drei Abzeichen")
+	_check(row_texts.has("2D") and row_texts.has("Trace") and row_texts.has("3D"), "Zeilen zeigen alle drei Abzeichen")
 
 	# Zustandsspalte: Bereit / Wartet / Map fehlt / Laedt Map.
 	_check(ui._row_state(2, L.players[2], my_id)[1] == ui.COL_READY, "bereit = gruen")
@@ -108,9 +108,9 @@ func _init() -> void:
 	if ui._royale_board != null:
 		_check(_max_radius(ui._royale_board) <= ui.R, "Royale-Tafel flach (Ecken <= R)")
 	L.mm = MM.new()
-	L.play_mode = "orbit"
+	L.play_mode = "trace"
 	ui._refresh_room()
-	_check(ui._play_btns["orbit"].button_pressed and not ui._play_btns["mania"].button_pressed, "Spielmodus-Reiter Orbit")
+	_check(ui._play_btns["trace"].button_pressed and not ui._play_btns["mania"].button_pressed, "Spielmodus-Reiter Trace")
 	L.play_mode = "mania"
 
 	# Kein Ueberlauf: alles Sichtbare liegt im Fenster.

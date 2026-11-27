@@ -139,7 +139,7 @@ func _ready() -> void:
 		_debug_start_usec = Time.get_ticks_usec()
 		_debug_running = true
 	if _mp_bot:
-		print("MPORBIT start: %d Noten, autoplay=%s" % [_beatmap.hit_objects.size(), _autoplay])
+		print("MPBOT start: %d Noten, autoplay=%s" % [_beatmap.hit_objects.size(), _autoplay])
 	if DisplayServer.get_name() == "headless" and not _mp_bot:
 		print("=== Trace Smoke: %d Noten, %d Knoten, %d Haarnadeln ===" % [
 			_beatmap.hit_objects.size(), path.knots.size(), path.hairpin_count()])
@@ -942,7 +942,7 @@ func _show_results(is_fail: bool) -> void:
 		get_tree().quit()
 		return
 	if _mp_bot:
-		print("MPORBIT final score=%d acc=%.4f combo=%d failed=%s live_seen=%s" % [
+		print("MPBOT final score=%d acc=%.4f combo=%d failed=%s live_seen=%s" % [
 			int(s.score), float(s.accuracy), int(s.get("max_combo", 0)), str(s.failed), str(_mp_live_seen)])
 		var back_s := 1.5
 		for a in _args():
@@ -980,7 +980,7 @@ func _build_results(is_fail: bool, s: Dictionary, new_best: bool) -> void:
 	if _prev_best != null:
 		data["previous_best"] = _prev_best
 	if is_fail:
-		# Letzte Wertungszeit wie Rebound: die Uhr steht hier schon (SyncClock.stop -> 0:00).
+		# Letzte Wertungszeit: die Uhr steht hier schon (SyncClock.stop -> 0:00).
 		data["fail_ms"] = maxf(_last_update_t, 0.0)
 	var cover := OszImporter.load_background_texture(GameSession.osz_path, _beatmap)
 	if cover != null:

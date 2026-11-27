@@ -90,7 +90,7 @@ func _test_skip_key() -> void:
 	var hint: Label = ov.get("_hint")
 	_ok(hint.visible and hint.text == "Enter: Intro überspringen", "Overlay zeigt Enter-Hinweis")
 	ov.call("show_break", 0.0, 8000.0, 500.0, true)
-	_ok(hint.text == "Leertaste: Intro überspringen", "Overlay ohne Text: Leertaste (Orbit usw.)")
+	_ok(hint.text == "Leertaste: Intro überspringen", "Overlay ohne Text: Leertaste")
 	ov.free()
 	g.free()
 	st.set("key_lanes", old4)

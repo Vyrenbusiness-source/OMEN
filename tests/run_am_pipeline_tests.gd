@@ -196,7 +196,7 @@ func _test_writer() -> void:
 	var audio := _fake_audio(src, "song.mp3")
 	var out := _sub("out_writer")
 	var charts := [_chart("Easy", 1000.0), _chart("Hard", 250.0), _chart("Expert", 125.0)]
-	var meta := {"artist": "Test: Artist", "title": "Title?", "with_orbit": true, "ffmpeg": ""}
+	var meta := {"artist": "Test: Artist", "title": "Title?", "ffmpeg": ""}
 	var w: Dictionary = AmWriter.write_osz(audio, out, meta, _grid2(), _features(), charts)
 	_ok(bool(w.ok), "write_osz ok: " + str(w.get("error", "")))
 	if not bool(w.ok):
@@ -224,7 +224,7 @@ func _test_writer() -> void:
 	for n in names:
 		if str(n).ends_with(".osu"):
 			osu_count += 1
-	_ok(osu_count == 3 + AudioMapper.DIFFS.size(), "3 Profile + Orbit-Diffs (%d)" % osu_count)
+	_ok(osu_count == 3, "nur die 3 Profile (%d)" % osu_count)
 
 	for c in charts:
 		var prof := str(c.profile)
@@ -285,23 +285,6 @@ func _test_writer() -> void:
 		_ok(same, prof + ": Zeiten, Spalten und Holds wie im Chart")
 		_ok(holds > 0, prof + ": Holds als LN (%d)" % holds)
 
-	# Orbit-Diffs: Mode 0, lesbar, Noten auf dem Gitter.
-	var g := _grid2()
-	for d in AudioMapper.DIFFS:
-		var text := _zip_text(osz, AmWriter.osu_name("Test: Artist", "Title?", "Orbit " + str(d)))
-		var p: Dictionary = OsuParser.parse(text)
-		_ok(bool(p.ok), "Orbit %s: OsuParser ok" % d)
-		if not bool(p.ok):
-			continue
-		var bm: Beatmap = p.beatmap
-		_ok(bm.mode() == 0, "Orbit %s: Mode 0" % d)
-		_ok(bm.hit_objects.size() >= 8, "Orbit %s: Noten (%d)" % [d, bm.hit_objects.size()])
-		var off_grid := 0
-		for h in bm.hit_objects:
-			if absf(h.time - AmGrid.snap(g, h.time, 4)) > 0.6:
-				off_grid += 1
-		_ok(off_grid == 0, "Orbit %s: alle Noten auf dem Gitter (%d daneben)" % [d, off_grid])
-
 	var imp: Dictionary = OszImporter.import(osz)
 	_ok(bool(imp.ok), "OszImporter laedt das Set")
 
@@ -340,7 +323,6 @@ func _test_cover_beside() -> void:
 	_ok(bool(p.ok) and p.beatmap.background_file == "bg.png", "Hintergrund in [Events]")
 	var tex := OszImporter.load_image_texture(osz, "bg.png")
 	_ok(tex != null and tex.get_width() == 64, "Hintergrund ladbar")
-	_ok(not bool(meta.get("with_orbit", false)) and not _zip_names(osz).has(AmWriter.osu_name("A", "B", "Orbit Normal")), "ohne with_orbit keine Orbit-Diffs")
 	# Genau ein Bild im Ordner (anderer Name) zaehlt auch; webp wird zu jpg.
 	var src2 := _sub("src_cover2")
 	var audio2 := _fake_audio(src2, "x.mp3")
@@ -391,7 +373,7 @@ func _test_unranked() -> void:
 	_ok(not api.submit({"score": 1000, "accuracy": 0.9}, meta, "mania"), "Auto-Set: kein Online-Submit")
 	_ok(api.queue_size() == 0, "Auto-Set: nichts in der Warteschlange")
 	meta.creator = "Someone"
-	_ok(not api.submit({"score": 1000}, meta, "orbit"), "Auto-Set (Dateiname): kein Online-Submit")
+	_ok(not api.submit({"score": 1000}, meta, "trace"), "Auto-Set (Dateiname): kein Online-Submit")
 	api.free()
 	var entries := [
 		{"mode": "mania", "osz_file": "A - B (OMEN Auto).osz", "version": "Hard", "grade": "S"},
@@ -548,7 +530,7 @@ func _test_real_audio() -> void:
 	_ok(tex != null and tex.get_width() == 96, "Cover im Set ladbar, Groesse unveraendert")
 	_ok(OszImporter.read_file_bytes(osz, "audio.mp3") == FileAccess.get_file_as_bytes(mp3), "Audio unveraendert im Set")
 	var mania := 0
-	var orbit := 0
+	var other := 0
 	for n in _zip_names(osz):
 		if not str(n).ends_with(".osu"):
 			continue
@@ -561,12 +543,12 @@ func _test_real_audio() -> void:
 		if bm.mode() == 3:
 			mania += 1
 			_ok(bm.column_count() == 4 and bm.hit_objects.size() > 0, "4K mit Noten: " + str(n))
-		elif bm.mode() == 0:
-			orbit += 1
+		else:
+			other += 1
 	_ok(mania == AmChart.PROFILES.size(), "5 Mania-Diffs (%d)" % mania)
-	_ok(orbit > 0, "Orbit-Diffs dabei (%d)" % orbit)
+	_ok(other == 0, "nur Mania-Diffs im Set (%d andere)" % other)
 	# Neu erzeugen mit Tempo x2 und Offset: ersetzt das Set, doppelte BPM.
-	var r2: Dictionary = AutoMapper4K.generate(mp3, out, {"stars": false, "with_orbit": false,
+	var r2: Dictionary = AutoMapper4K.generate(mp3, out, {"stars": false,
 		"profiles": ["Hard"], "tempo_factor": 2.0, "offset_ms": 10.0})
 	_ok(bool(r2.ok) and str(r2.osz_path) == osz, "Neu erzeugen: gleiches Set")
 	if bool(r2.ok):
@@ -584,7 +566,7 @@ func _test_real_audio() -> void:
 	var wav2 := src_w.path_join("Click Wave.wav")
 	_write_click_wav(wav2, 120.0, 12.0)
 	var out_w := _sub("out_wav")
-	var rw: Dictionary = AutoMapper4K.generate(wav2, out_w, {"stars": false, "with_orbit": false, "profiles": ["Hard"]})
+	var rw: Dictionary = AutoMapper4K.generate(wav2, out_w, {"stars": false, "profiles": ["Hard"]})
 	_ok(bool(rw.ok), "wav: generate ok: " + str(rw.get("error", "")))
 	if bool(rw.ok):
 		var ow := str(rw.osz_path)

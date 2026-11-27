@@ -160,7 +160,7 @@ class Frame:
         self.a1, self.a2 = a1, np.cross(self.N, a1)
 
 
-class Orbits:
+class Satellites:
     """Lichtbahn-Tabelle u(b, psi) und u'(b, psi), psi = Bahnwinkel ab Beobachter."""
 
     def __init__(self, bmax, dpsi=0.0015, psi_max=3.4 * math.pi):
@@ -391,7 +391,7 @@ def render_main(W, seed, rng_bg):
     H = W // 2
     fr = Frame()
     t0 = time.time()
-    orb = Orbits(math.radians(70) / fr.S)
+    orb = Satellites(math.radians(70) / fr.S)
     print("  Bahnen: %d b-Werte, %.1f s" % (orb.b.size, time.time() - t0))
     bg = make_background(W, H, rng_bg)
     dtex = disk_textures(np.random.default_rng(seed + 7))

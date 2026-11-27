@@ -215,12 +215,10 @@ func picks_of(peer: int) -> int:
 	return n
 
 
-## Passt eine Diff (osu-Modus 0 = standard, 3 = mania 4K) zum Turnier-Modus?
-## Mania/Trace/Rebound: nur 4K; Orbit/Rally/Dirigent: 4K und osu!standard.
-static func map_mode_ok(play_mode: String, map_mode: int) -> bool:
-	if ScoreStore.is_mania_like(ScoreStore.normalize_mode(play_mode)):
-		return map_mode == 3
-	return map_mode == 3 or map_mode == 0
+## Passt eine Diff (osu-Modus, 3 = mania) zum Turnier-Modus? Mania und Trace
+## spielen nur Mania-Maps.
+static func map_mode_ok(_play_mode: String, map_mode: int) -> bool:
+	return map_mode == 3
 
 
 ## Map vorschlagen. Fehlertext, "" = ok.
@@ -239,7 +237,7 @@ func add_map(data: Dictionary, by: int) -> String:
 	var stars := float(st)
 	if is_nan(stars) or stars < float(config.stars_lo) or stars > float(config.stars_hi):
 		return tr("Sterne ausserhalb des Bereichs.")
-	# Modus-Filter: Mania/Trace/Rebound nur Mania-4K (osu-Modus 3). "map_mode" fehlt bei alten Clients.
+	# Modus-Filter: Mania/Trace nur Mania-Maps (osu-Modus 3). "map_mode" fehlt bei alten Clients.
 	var mm = data.get("map_mode", null)
 	if (mm is int or mm is float) and not map_mode_ok(str(config.get("play_mode", "mania")), int(mm)):
 		return tr("Map passt nicht zum Turnier-Modus.")

@@ -16,18 +16,13 @@ const EXPECTED := {
 		"Konstante Geschwindigkeit"],
 	"look2d": ["Aktiver Skin", "Hintergrund", "Spielfeld abdunkeln", "Hintergrund-Unschärfe", "Skin-Werte nutzen",
 		"Judgement-Position", "Kombo-Position", "Tasten unter den Noten", "Trefferlinie"],
-	"orbit": ["Orbit-Tasten: A | B", "Vorlauf", "Tasten in Zielen", "Zielgröße", "Cursor-Größe", "Musik-Reaktion",
-		"Hintergrund", "Welt"],
 	"notes": ["Notenfarben"],
 	"audio": ["Lautstärke", "Klarheit", "Bass", "Treffer-Sounds", "Hitsound", "Treffer-Lautstärke",
 		"Audio-Offset", "Offset-Assistent"],
 	"gfx": ["Qualität", "FPS-Limit", "Vollbild", "Spur-Leuchten", "Sicherer Grafikmodus"],
-	"keys": ["Tasten 1–4", "Rally: Zonen", "Rally-Tasten (3 Zonen)", "Rally keys (4 zones)", "Orbit-Tasten: A | B",
-		"Dirigent keys: A | B", "Trace speed", "Rebound drop time"],
+	"keys": ["Tasten 1–4", "Trace keys", "Trace speed"],
 	"profile": ["Name", "Spielsprache"],
 }
-## Optionen der alten Bahnen-Orbit-Seite, die es nicht mehr geben darf.
-const ORBIT_GONE := ["Scroll Speed", "Takt-Raster", "Vorschau", "Notengröße", "Bahn-Deckkraft"]
 
 var _panel: Control
 var _failed := 0
@@ -156,54 +151,14 @@ func _run() -> void:
 		for cap in EXPECTED[page]:
 			_check(_row(page, cap) != null, "Zeile '%s' auf Seite %s" % [cap, page])
 
-	for cap in ORBIT_GONE:
-		_check(_row("orbit", cap) == null, "Alte Bahnen-Option '%s' ist weg" % cap)
-
 	# --- Modus -------------------------------------------------------------------
 	var modes: Array = _panel.get("_mode_btns")
 	_check(_panel.get("_cur") == "field3d", "Start: Mania 3D, Seite Spielfeld & Welt")
 	await _click(modes[1])
 	_check(S.playfield_2d and _panel.get("_cur") == "field2d", "Mania 2D: 2D an, Seite Spielfeld")
 	_check(_nav("look2d") != null and _nav("field3d") == null, "Mania 2D: nur 2D-Kategorien")
-	await _click(modes[2])
-	_check(S.playfield_2d and _panel.get("_cur") == "orbit", "Orbit: eigene Seite, 2D-Schalter bleibt")
 	await _click(modes[0])
 	_check(not S.playfield_2d and _nav("field3d") != null and _nav("field2d") == null, "Mania 3D: 2D aus")
-
-	# --- Orbit-Seite ----------------------------------------------------------------
-	await _click(modes[2])
-	var laps: OptionButton = _ctrl("orbit", "Vorlauf")
-	laps.select(3)
-	laps.item_selected.emit(3)
-	await _frames(2)
-	_check(S.orbit_laps == 3 and S.orbit_laps_for_ar(9.5) == 3, "Vorlauf 3 Runden gilt fest")
-	laps.select(0)
-	laps.item_selected.emit(0)
-	await _frames(2)
-	_check(S.orbit_laps == 0 and S.orbit_laps_for_ar(4.0) == 3 and S.orbit_laps_for_ar(7.0) == 2
-		and S.orbit_laps_for_ar(9.0) == 1, "Vorlauf Auto folgt AR (3/2/1)")
-	var ts: HSlider = _ctrl("orbit", "Zielgröße")
-	_check(ts != null and is_equal_approx(ts.min_value, 90.0) and is_equal_approx(ts.max_value, 120.0),
-		"Zielgröße 90-120 %")
-	ts.value = 115.0
-	await _frames(2)
-	_check(S.orbit_target_size == 115, "Zielgröße wirkt (%d)" % S.orbit_target_size)
-	var cs: HSlider = _ctrl("orbit", "Cursor-Größe")
-	cs.value = 70.0
-	await _frames(2)
-	_check(S.orbit_cursor_size == 70, "Cursor-Größe wirkt (%d)" % S.orbit_cursor_size)
-	var pv: Control = _panel.get("_orbit_preview")
-	_check(pv != null and pv.is_visible_in_tree() and pv.get_global_rect().size.x > 100.0,
-		"Orbit-Vorschau sichtbar (%s)" % ("Standbild" if pv == null or pv.get_script() == null or pv.get_script().resource_path == "" else pv.get_script().resource_path))
-	if OS.get_cmdline_args().has("--shot") or OS.get_cmdline_user_args().has("--shot"):
-		await _frames(20)
-		var img := root.get_texture().get_image()
-		img.save_png("user://settings_orbit.png")
-		print("SHOT ", ProjectSettings.globalize_path("user://settings_orbit.png"))
-	var og: VBoxContainer = _row("orbit", "Zielgröße").get_parent()
-	await _click(og.get_meta("reset_btn"))
-	_check(S.orbit_target_size == 100 and S.orbit_cursor_size == 100, "Gruppe Darstellung zurueckgesetzt")
-	await _click(modes[0])
 
 	# --- Kategorie ----------------------------------------------------------------
 	await _click(_nav("audio"))
@@ -252,13 +207,13 @@ func _run() -> void:
 	var search: LineEdit = _panel.get("_search")
 	await _key(KEY_F, true)
 	_check(search.has_focus(), "Strg+F fokussiert die Suche")
-	await _type("unsch")
+	await _type("kombo")
 	var results: VBoxContainer = _panel.get("_results")
 	_check(results.visible and results.get_child_count() >= 1, "Suche zeigt Treffer")
 	await _key(KEY_ENTER)
 	await _frames(4)
-	_check(_panel.get("_cur") == "look2d" and S.playfield_2d, "Enter springt zu Hintergrund-Unschärfe (Mania 2D)")
-	var target := _row("look2d", "Hintergrund-Unschärfe")
+	_check(_panel.get("_cur") == "look2d" and S.playfield_2d, "Enter springt zu Kombo-Position (Mania 2D)")
+	var target := _row("look2d", "Kombo-Position")
 	var sc: ScrollContainer = _panel.get("_scroll")
 	_check(sc.get_global_rect().encloses(target.get_global_rect()), "Gesuchte Zeile ist sichtbar")
 	_check(search.text == "" and (_panel.get("_nav") as Control).visible, "Suche danach leer, Kategorien wieder da")
@@ -313,14 +268,7 @@ func _conflict_shown(base: int) -> bool:
 ## dieselbe Taste in einem anderen Modus ist erlaubt. Jede Belegung ist aenderbar.
 func _test_key_conflicts(S: Node) -> void:
 	# Ausgangsbelegung fest (die echte settings.cfg kann andere Tasten haben).
-	S.orbit_key_inner = KEY_Z
-	S.orbit_key_outer = KEY_X
-	S.dirigent_key_a = KEY_Z
-	S.dirigent_key_b = KEY_X
-	var k3: Array[int] = [KEY_F, KEY_J, KEY_K]
-	var k4: Array[int] = [KEY_D, KEY_F, KEY_J, KEY_K]
-	S.rally_keys_3 = k3
-	S.rally_keys_4 = k4
+	S.key_lanes = [KEY_D, KEY_F, KEY_J, KEY_K] as Array[int]
 	_panel.call("_refresh_labels")
 	var lanes: Array = _panel.get("_lane_btns")
 	await _click(lanes[1])
@@ -332,59 +280,13 @@ func _test_key_conflicts(S: Node) -> void:
 	await _key(KEY_ESCAPE)
 	_check(not _conflict_shown(3) and S.key_lanes[1] == KEY_F, "Esc: Hinweis weg, nichts geaendert")
 
-	# Dirigent: eigene Tasten A|B
-	var dir: Array = _panel.get("_dirigent_btns")
-	_check(dir.size() == 2 and (dir[0] as Button).text == "Z" and (dir[1] as Button).text == "X", "Dirigent zeigt Z | X")
-	await _click(dir[0])
-	await _key(KEY_A)
-	_check(S.dirigent_key_a == KEY_A and S.dirigent_key_for(KEY_A) == 0 and S.orbit_key_inner == KEY_Z,
-		"Dirigent A = A, Orbit bleibt Z")
-	await _click(dir[1])
-	await _key(KEY_A)
-	_check(S.dirigent_key_b == KEY_X and _conflict_shown(50), "Dirigent: A doppelt -> nicht uebernommen")
-	await _key(KEY_Z)
-	_check(S.dirigent_key_b == KEY_Z and S.dirigent_key_for(KEY_Z) == 1 and not _conflict_shown(50),
-		"Dirigent B = Z (Orbit nutzt Z auch: anderer Modus, erlaubt)")
-	await _click(_row("keys", "Dirigent keys: A | B").get_parent().get_meta("reset_btn"))
-	_check(S.dirigent_key_a == KEY_Z and S.dirigent_key_b == KEY_X, "Dirigent zurueckgesetzt")
-
-	# Orbit
-	var orb: Array = _panel.get("_orbit_btns")
-	await _click(orb[orb.size() - 1])
-	await _key(KEY_Z)
-	_check(S.orbit_key_outer == KEY_X and _conflict_shown(20), "Orbit: Z doppelt -> nicht uebernommen")
-	await _key(KEY_C)
-	_check(S.orbit_key_outer == KEY_C and S.orbit_ring_for_key(KEY_C) == 1, "Orbit B = C")
-	S.orbit_key_outer = KEY_X
-
-	# Rally: eigene Belegung je Zonenzahl
-	var r3: Array = _panel.get("_rally_btns")
-	var r4: Array = _panel.get("_rally4_btns")
-	_check(r3.size() == 3 and r4.size() == 4, "Rally: 3 + 4 Tastenknoepfe")
-	await _click(r3[0])
-	await _key(KEY_J)
-	_check(S.rally_keys_3[0] == KEY_F and _conflict_shown(30), "Rally 3: J doppelt -> nicht uebernommen")
-	await _key(KEY_A)
-	_check(S.rally_keys(3)[0] == KEY_A and S.rally_zone_for_key(KEY_A, 3) == 0, "Rally 3 links = A")
-	await _click(r4[3])
-	await _key(KEY_L)
-	_check(S.rally_keys(4)[3] == KEY_L and S.rally_zone_for_key(KEY_L, 4) == 3 and S.key_lanes[3] == KEY_K,
-		"Rally 4 Zone 4 = L, Mania bleibt K")
-	await _click(_row("keys", "Rally keys (4 zones)").get_parent().get_meta("reset_btn"))
-	_check(S.rally_keys_3 == [KEY_F, KEY_J, KEY_K] and S.rally_keys_4 == [KEY_D, KEY_F, KEY_J, KEY_K],
-		"Rally-Tasten zurueckgesetzt")
-
-	# Trace / Rebound
+	# Trace
 	var ts: HSlider = _ctrl("keys", "Trace speed")
 	ts.value = 700.0
 	await _frames(2)
 	_check(S.trace_speed == 700, "Trace speed wirkt (%d)" % S.trace_speed)
-	var rd: HSlider = _ctrl("keys", "Rebound drop time")
-	rd.value = 1200.0
-	await _frames(2)
-	_check(S.rebound_drop_ms == 1200, "Rebound drop time wirkt (%d)" % S.rebound_drop_ms)
 	await _click(_row("keys", "Trace speed").get_parent().get_meta("reset_btn"))
-	_check(S.trace_speed == 520 and S.rebound_drop_ms == 1000, "Trace / Rebound zurueckgesetzt")
+	_check(S.trace_speed == 520, "Trace zurueckgesetzt")
 	if OS.get_cmdline_args().has("--shot") or OS.get_cmdline_user_args().has("--shot"):
 		await _click(_panel.get("_lane_btns")[1])
 		await _key(KEY_D)
@@ -392,28 +294,24 @@ func _test_key_conflicts(S: Node) -> void:
 		root.get_texture().get_image().save_png("user://settings_keys.png")
 		print("SHOT ", ProjectSettings.globalize_path("user://settings_keys.png"))
 		await _key(KEY_ESCAPE)
-		(_panel.get("_scroll") as ScrollContainer).ensure_control_visible(_row("keys", "Rebound drop time"))
+		(_panel.get("_scroll") as ScrollContainer).ensure_control_visible(_row("keys", "Trace speed"))
 		await _frames(20)
 		root.get_texture().get_image().save_png("user://settings_keys2.png")
 		print("SHOT ", ProjectSettings.globalize_path("user://settings_keys2.png"))
 
 
-## Neue Felder: Speichern/Laden; alte Configs ohne Eintrag uebernehmen die bisherigen Tasten.
+## Trace-Tasten: Speichern/Laden. Alte Configs mit Tasten entfernter Modi (bis
+## v1.43) laden ohne Fehler, die alten Schluessel werden still ignoriert.
 func _test_key_roundtrip() -> void:
 	var SettingsScript: GDScript = root.get_node("/root/Settings").get_script()
 	var path := "user://test_tmp/keys_all_%d.cfg" % OS.get_process_id()
 	DirAccess.make_dir_recursive_absolute("user://test_tmp")
 	var a = SettingsScript.new()
-	_check(a.dirigent_key_a == KEY_Z and a.dirigent_key_b == KEY_X, "Dirigent Standard Z/X")
-	a.dirigent_key_a = KEY_Q
-	a.dirigent_key_b = KEY_W
-	a.rally_keys_4 = [KEY_A, KEY_S, KEY_K, KEY_L] as Array[int]
+	a.trace_keys = [KEY_A, KEY_S, KEY_W, KEY_D] as Array[int]
 	a.save(path)
 	var b = SettingsScript.new()
 	b.load_settings(path)
-	_check(b.dirigent_key_a == KEY_Q and b.dirigent_key_b == KEY_W and b.dirigent_key_for(KEY_W) == 1,
-		"Dirigent-Tasten Roundtrip")
-	_check(b.rally_keys_4 == [KEY_A, KEY_S, KEY_K, KEY_L], "Rally-4-Tasten Roundtrip")
+	_check(b.trace_keys == [KEY_A, KEY_S, KEY_W, KEY_D], "Trace-Tasten Roundtrip")
 	var cfg := ConfigFile.new()
 	cfg.set_value("keys", "orbit_inner", KEY_C)
 	cfg.set_value("keys", "orbit_outer", KEY_V)
@@ -422,8 +320,7 @@ func _test_key_roundtrip() -> void:
 	cfg.save(path)
 	var c = SettingsScript.new()
 	c.load_settings(path)
-	_check(c.dirigent_key_a == KEY_C and c.dirigent_key_b == KEY_V, "Alte Config: Dirigent uebernimmt Orbit-Tasten")
-	_check(c.rally_keys_4 == [KEY_A, KEY_S, KEY_K, KEY_L], "Alte Config: Rally 4 uebernimmt Mania-Tasten")
+	_check(c.key_lanes == [KEY_A, KEY_S, KEY_K, KEY_L], "Alte Config: Mania-Tasten geladen, alte Modus-Tasten ignoriert")
 	a.free()
 	b.free()
 	c.free()

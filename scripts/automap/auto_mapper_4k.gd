@@ -93,7 +93,7 @@ static func generate(audio_path: String, maps_dir: String, opts: Dictionary = {}
 
 	_report(progress, STAGE_WRITE, 0.0)
 	var wmeta := {"artist": str(meta.get("artist", "Unknown")), "title": str(meta.get("title", "")),
-		"with_orbit": bool(opts.get("with_orbit", true)), "ffmpeg": ff, "waveform": wave}
+		"ffmpeg": ff, "waveform": wave}
 	if wmeta.title == "":
 		wmeta.title = audio_path.get_file().get_basename()
 	var w: Dictionary = AmWriter.write_osz(audio_path, maps_dir, wmeta, grid, features, charts)

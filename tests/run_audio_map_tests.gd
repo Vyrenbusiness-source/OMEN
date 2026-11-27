@@ -1,7 +1,7 @@
 extends SceneTree
 
 ## Headless-Tests fuer AudioMapper (Task audio-map). Synthetischer Klick-Track mit
-## bekannter BPM -> BPM/Offset, lesbare Map, Orbit-Ziele. Braucht ffmpeg (sonst SKIP).
+## bekannter BPM -> BPM/Offset, Noten-Auswahl, Dekodieren per ffmpeg (sonst SKIP).
 ## Ausfuehren:
 ##   Godot..._console.exe --headless --audio-driver Dummy --path . --script res://tests/run_audio_map_tests.gd
 ## Messung gegen echte Maps (Bericht docs/modes/audio_map.md):
@@ -99,32 +99,11 @@ func _test_click_track() -> void:
 	DirAccess.make_dir_recursive_absolute(dir)
 	var wav := dir.path_join("Testband - Klickspur.wav")
 	_write_wav(wav, _click_samples(128.0, 350.0, 40.0))
-	var res := AudioMapper.generate(wav, dir, "Normal")
-	_ok(res.ok, "generate ok: " + str(res.error))
-	if not res.ok:
-		return
-	_ok(res.osz_path.get_file() == "Testband - Klickspur (OMEN Auto).osz", "osz-Name: " + res.osz_path.get_file())
-	_ok(absf(res.bpm - 128.0) < 0.05, "generate BPM %s" % res.bpm)
-	var imp := OszImporter.import(res.osz_path)
-	_ok(imp.ok, "OszImporter liest die Map")
-	if not imp.ok:
-		return
-	var bm: Beatmap = imp.difficulties[0].beatmap
-	_ok(bm.mode() == 0, "Mode 0")
-	_ok(bm.artist() == "Testband" and bm.title() == "Klickspur", "Metadaten aus Dateiname: %s / %s" % [bm.artist(), bm.title()])
-	_ok(bm.audio_filename() == "audio.wav", "Audio-Name")
-	_ok(OszImporter.read_file_bytes(res.osz_path, "audio.wav").size() == FileAccess.get_file_as_bytes(wav).size(), "Audio unveraendert im osz")
-	_ok(bm.hit_objects.size() == res.note_count, "Notenzahl %d" % bm.hit_objects.size())
-	var targets := OrbitConverter.convert_std(bm)
-	_ok(targets.size() >= bm.hit_objects.size() * 9 / 10, "Orbit-Ziele %d von %d" % [targets.size(), bm.hit_objects.size()])
-	# Fluessige Winkel: Winkelgeschwindigkeit zwischen Zielen begrenzt.
-	var worst := 0.0
-	for i in range(1, targets.size()):
-		var gap := targets[i].time_ms - targets[i - 1].time_ms
-		var d := absf(OrbitNote.delta_deg(targets[i - 1].angle_deg, targets[i].angle_deg))
-		worst = maxf(worst, d / maxf(gap, 1.0))
-	_ok(worst <= 0.3, "Winkelgeschwindigkeit max %.3f Grad/ms" % worst)
-	DirAccess.remove_absolute(res.osz_path)
+	var an := AudioMapper.analyze(wav)
+	_ok(an.ok, "analyze ok: " + str(an.get("error", "")))
+	if an.ok:
+		_ok(absf(an.bpm - 128.0) < 0.05, "Datei: BPM %s" % an.bpm)
+		_ok(AudioMapper.pick_notes(an, "Normal").size() >= 8, "Datei: Noten gewaehlt")
 	DirAccess.remove_absolute(wav)
 
 

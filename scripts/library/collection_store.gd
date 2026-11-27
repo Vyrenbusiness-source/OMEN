@@ -7,9 +7,10 @@ extends RefCounted
 ## Geloeschte Sammlungen wandern in die Section "deleted" (Papierkorb) und
 ## lassen sich mit restore() zurueckholen: ein Fehlklick kostet keine Daten.
 ## Vor jedem Schreiben wird der letzte Stand mit Inhalt nach <Datei>.bak kopiert.
-## Modus je Sammlung: Section "modes", Key = Name, Value = Modus (mania, orbit,
-## rally, dirigent, trace, rebound). Kein Eintrag = "alle Modi" (MODE_ALL): alte
-## Dateien bleiben unveraendert gueltig, nichts wird umgeschrieben.
+## Modus je Sammlung: Section "modes", Key = Name, Value = Modus (mania, trace).
+## Kein Eintrag = "alle Modi" (MODE_ALL): alte Dateien bleiben unveraendert
+## gueltig, nichts wird umgeschrieben. Sammlungen eines entfernten Modus
+## (v1.44.0) bleiben in der Datei, list_for zeigt sie in keinem Modus.
 
 const PATH := "user://collections.cfg"
 const SEC := "collections"
@@ -17,7 +18,7 @@ const SEC_TRASH := "deleted"
 const SEC_MODE := "modes"
 const SEC_TRASH_MODE := "deleted_modes"
 const MODE_ALL := ""  # Sammlung gilt in allen Modi
-const MODES: Array[String] = ["mania", "orbit", "rally", "dirigent", "trace", "rebound"]
+const MODES: Array[String] = ["mania", "trace"]
 
 ## Tests setzen hier eine eigene Datei (nie gegen die echten Nutzerdaten).
 static var path_override := ""
@@ -117,11 +118,12 @@ static func set_mode(name: String, mode: String) -> bool:
 
 
 ## Sammlungen fuer einen Modus: die des Modus und alle "alle Modi", sortiert.
+## Sammlungen mit unbekanntem Modus (entfernte Modi) werden uebersprungen.
 static func list_for(mode: String) -> Array:
 	var cfg := _read()
 	var out: Array = []
 	for name in list_names():
-		var m := normalize_mode(str(cfg.get_value(SEC_MODE, name, MODE_ALL)))
+		var m := str(cfg.get_value(SEC_MODE, name, MODE_ALL))
 		if m == MODE_ALL or m == mode:
 			out.append(name)
 	return out

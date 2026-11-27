@@ -18,6 +18,8 @@ func _r(peer: int, score: int, acc: float = 90.0, combo: int = 100, failed: bool
 
 
 func _init() -> void:
+	# Erwartete Texte sind deutsch: nicht von der gespeicherten Sprache des Rechners abhaengen.
+	TranslationServer.set_locale("de")
 	_teams()
 	_series()
 	_royale()

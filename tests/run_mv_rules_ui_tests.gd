@@ -94,31 +94,23 @@ func _test_maxpp_delivers() -> void:
 
 ## Bug: Rueckläufer aus Threads/Signalen (call_deferred) kommen nach einem
 ## Szenenwechsel an, wenn der Browser schon aus dem Baum ist, aber noch lebt:
-## _bg_finished griff auf get_tree() (null) zu, _orbit_stars_done startete einen
-## neuen Thread, _on_import_finished baute Hinweis/Auswahl.
+## _bg_finished griff auf get_tree() (null) zu, _on_import_finished baute
+## Hinweis/Auswahl.
 func _test_callbacks_after_leave() -> void:
 	print("- Thread-/Signal-Ruecklaeufer nach Verlassen des Browsers")
 	var SS: GDScript = load("res://scripts/song_select.gd")
 	var ss: Control = SS.new()
 	var log := ErrLog.new()
 	OS.add_logger(log)
-	ss.call("_bg_finished", {"key": "qa|leave", "osz": "", "mode": "orbit"}, -1.0)
-	ss.set("_play_mode", "orbit")
-	ss.call("_bg_finished", {"key": "qa|leave2", "osz": "", "mode": "orbit"}, -1.0)
-	ss.set("_os_want", "qa|other")
-	ss.set("_os_want_args", ["", "", "orbit"])
-	ss.call("_orbit_stars_done", "qa|leave", -1.0)
-	var started: bool = ss.get("_os_thread") != null
-	if started:
-		(ss.get("_os_thread") as Thread).wait_to_finish()
-		ss.set("_os_thread", null)
+	ss.call("_bg_finished", {"key": "qa|leave", "osz": "", "mode": "mania"}, -1.0)
+	ss.set("_play_mode", "trace")
+	ss.call("_bg_finished", {"key": "qa|leave2", "osz": "", "mode": "trace"}, -1.0)
 	ss.call("_on_import_progress", 1, 2, "")
 	ss.call("_on_import_finished", {"imported": [], "failed": 1})
 	for i in 3:
 		await process_frame
 	OS.remove_logger(log)
 	_ok(log.n == 0, "kein Fehler ausserhalb des Baums (%d: %s)" % [log.n, log.last])
-	_ok(not started, "kein neuer Orbit-Sterne-Thread nach dem Verlassen")
 	ss.free()
 
 
@@ -179,7 +171,7 @@ func _test_results_mines() -> void:
 
 
 ## Trace (Sudden Death/Perfect-Fail): Fail-Marker zeigte 0:00, weil fail_ms nach
-## SyncClock.stop() aus der Uhr kam. Jetzt die letzte Wertungszeit wie in Rebound.
+## SyncClock.stop() aus der Uhr kam. Jetzt die letzte Wertungszeit.
 func _test_trace_fail_time() -> void:
 	print("- Trace: Fail-Zeit")
 	var src := FileAccess.get_file_as_string("res://scripts/trace/trace_game.gd")

@@ -11,11 +11,7 @@ const ICON_DIR := "res://assets_game/icons/modes/"
 ## Gedaempfte Modusfarben auf Basis der UiTheme-Palette (nicht bunt).
 const COLORS := {
 	"mania": Color(0.788, 0.643, 0.416),     # #C9A46A Bernstein (UiTheme.ACCENT, gedaempft)
-	"orbit": Color(0.557, 0.651, 0.776),     # #8EA6C6 (UiTheme.ACCENT2)
-	"rally": Color(0.553, 0.725, 0.549),     # #8DB98C (UiTheme.GOOD, gedaempft)
-	"dirigent": Color(0.788, 0.604, 0.557),  # #C99A8E
 	"trace": Color(0.706, 0.612, 0.769),     # #B49CC4
-	"rebound": Color(0.561, 0.722, 0.706),   # #8FB8B4
 }
 
 static var _cache := {}

@@ -161,8 +161,6 @@ func _test_view() -> void:
 	_check((v.shown as Array).size() == 2, "Mania: alle spielbaren Maps der Sammlung, egal welche Sterne")
 	_check(int(v.other_mode) == 1, "Mania: osu!standard-Map als 'anderer Modus' gezaehlt")
 	_check(int(v.missing) == 1, "fehlende .osz gezaehlt")
-	v = SongSelect.collection_view(sets, files, "orbit", "")
-	_check((v.shown as Array).size() == 3 and int(v.other_mode) == 0, "Orbit: auch die osu!standard-Map")
 	v = SongSelect.collection_view(sets, files, "mania", "ghost")
 	_check((v.shown as Array).size() == 1 and int(v.search_hidden) == 1, "Suche grenzt ein und wird gezaehlt")
 	v = SongSelect.collection_view(sets, [], "mania", "")
@@ -194,27 +192,27 @@ func _test_modes() -> void:
 		_check(CollectionStore.list_for(m) == ["Alt", "Zweite"], "alte Sammlungen in %s sichtbar" % m)
 	_check(FileAccess.get_file_as_bytes(TEST_PATH) == before, "Lesen schreibt die alte Datei nicht um")
 	# Neue Sammlung mit Modus.
-	_check(CollectionStore.create("Orbit-Liste", "orbit"), "Sammlung mit Modus anlegen")
+	_check(CollectionStore.create("Trace-Liste", "trace"), "Sammlung mit Modus anlegen")
 	_check(FileAccess.get_file_as_bytes(TEST_PATH + ".bak") == before, ".bak haelt den Stand vor der Aenderung")
 	_check(CollectionStore.maps_in("Alt") == ["1 a.osz", "3 c.osz"], "Maps der alten Sammlung unveraendert")
-	_check(CollectionStore.mode_of("Orbit-Liste") == "orbit", "Modus gespeichert")
-	_check(CollectionStore.list_for("orbit") == ["Alt", "Orbit-Liste", "Zweite"], "Orbit: eigene + alle Modi")
-	_check(CollectionStore.list_for("mania") == ["Alt", "Zweite"], "Mania: Orbit-Sammlung nicht in der Liste")
+	_check(CollectionStore.mode_of("Trace-Liste") == "trace", "Modus gespeichert")
+	_check(CollectionStore.list_for("trace") == ["Alt", "Trace-Liste", "Zweite"], "Trace: eigene + alle Modi")
+	_check(CollectionStore.list_for("mania") == ["Alt", "Zweite"], "Mania: Trace-Sammlung nicht in der Liste")
 	_check(CollectionStore.list_names().size() == 3, "list_names kennt weiter alle")
 	_check(CollectionStore.create("Frei") and CollectionStore.mode_of("Frei") == "", "ohne Angabe = alle Modi")
 	_check(CollectionStore.create("Kaputt", "tennis") and CollectionStore.mode_of("Kaputt") == "", "unbekannter Modus = alle Modi")
 	# Modus aendern, umbenennen, loeschen, zurueckholen.
-	_check(CollectionStore.set_mode("Alt", "rally") and CollectionStore.mode_of("Alt") == "rally", "Modus aendern")
+	_check(CollectionStore.set_mode("Alt", "mania") and CollectionStore.mode_of("Alt") == "mania", "Modus aendern")
 	_check(CollectionStore.maps_in("Alt") == ["1 a.osz", "3 c.osz"], "Modus aendern laesst die Maps")
 	_check(CollectionStore.set_mode("Alt", "") and CollectionStore.mode_of("Alt") == "", "zurueck auf alle Modi")
-	_check(not CollectionStore.set_mode("Gibt es nicht", "orbit"), "Modus nur fuer vorhandene Sammlung")
-	_check(CollectionStore.rename("Orbit-Liste", "Orbit 2") and CollectionStore.mode_of("Orbit 2") == "orbit"
-		and CollectionStore.mode_of("Orbit-Liste") == "", "Umbenennen nimmt den Modus mit")
-	CollectionStore.toggle("Orbit 2", "3 c.osz")
-	CollectionStore.delete("Orbit 2")
-	_check(not CollectionStore.list_for("orbit").has("Orbit 2"), "geloescht: nicht mehr in der Liste")
-	_check(CollectionStore.restore("Orbit 2") and CollectionStore.mode_of("Orbit 2") == "orbit"
-		and CollectionStore.maps_in("Orbit 2") == ["3 c.osz"], "Zurueckholen bringt Modus und Maps")
+	_check(not CollectionStore.set_mode("Gibt es nicht", "trace"), "Modus nur fuer vorhandene Sammlung")
+	_check(CollectionStore.rename("Trace-Liste", "Trace 2") and CollectionStore.mode_of("Trace 2") == "trace"
+		and CollectionStore.mode_of("Trace-Liste") == "", "Umbenennen nimmt den Modus mit")
+	CollectionStore.toggle("Trace 2", "3 c.osz")
+	CollectionStore.delete("Trace 2")
+	_check(not CollectionStore.list_for("trace").has("Trace 2"), "geloescht: nicht mehr in der Liste")
+	_check(CollectionStore.restore("Trace 2") and CollectionStore.mode_of("Trace 2") == "trace"
+		and CollectionStore.maps_in("Trace 2") == ["3 c.osz"], "Zurueckholen bringt Modus und Maps")
 	# Ansicht: im Modus nicht spielbare Maps werden gezeigt, aber markiert.
 	var sets := [
 		_mk("1 a.osz", "Ghost", [_d("Easy", 1.5)]),
@@ -225,8 +223,6 @@ func _test_modes() -> void:
 		"Mania: osu!standard-Map als nicht spielbar gelistet")
 	v = SongSelect.collection_view(sets, ["1 a.osz", "3 c.osz"], "mania", "ghost")
 	_check((v.unplayable as Array).is_empty(), "Suche gilt auch fuer nicht spielbare Maps")
-	v = SongSelect.collection_view(sets, ["1 a.osz", "3 c.osz"], "orbit", "")
-	_check((v.unplayable as Array).is_empty(), "Orbit: alles spielbar")
-	_check(SongSelect.collection_mode_hint("orbit") != "" and SongSelect.collection_mode_hint("") != ""
-		and SongSelect.collection_mode_hint("orbit") != SongSelect.collection_mode_hint(""),
+	_check(SongSelect.collection_mode_hint("trace") != "" and SongSelect.collection_mode_hint("") != ""
+		and SongSelect.collection_mode_hint("trace") != SongSelect.collection_mode_hint(""),
 		"Modus-Hinweis fuer Modus und alle Modi")

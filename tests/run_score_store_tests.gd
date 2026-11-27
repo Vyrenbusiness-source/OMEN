@@ -1,7 +1,8 @@
 extends SceneTree
 
 ## Tests fuer ScoreStore: Mods im Bestwert, alte Eintraege ohne Mods,
-## Modus-Trennung (Mania/Orbit), SV-Stufe, Migration alter Dateien.
+## Modus-Trennung (Mania/Trace), SV-Stufe, Migration alter Dateien,
+## Daten entfernter Modi (v1.44.0) werden uebersprungen.
 ## Laeuft immer auf einer Test-Datei (ScoreStore.PATH unter --script).
 
 var _failed := 0
@@ -94,7 +95,8 @@ func _init() -> void:
 	_check(ScoreStore.fill_others_pp(mk2, online) == 0, "zweiter Abgleich aendert nichts")
 
 	_test_modes()
-	_test_four_modes()
+	_test_mode_list()
+	_test_removed_modes()
 	_test_sv_level()
 	_test_migration()
 	_test_legacy_rescore()
@@ -110,96 +112,114 @@ func _init() -> void:
 	quit(1 if _failed > 0 else 0)
 
 
-## Rally/Dirigent: eigene Sektionen, Wertung wie Orbit, Modi mischen sich nie.
-func _test_four_modes() -> void:
-	_check(ScoreStore.MODES == ["mania", "orbit", "rally", "dirigent", "trace", "rebound"], "6 Modi in Reihenfolge")
-	_check(ScoreStore.mode_label("trace") == "Trace" and ScoreStore.mode_label("rebound") == "Rebound", "mode_label Trace/Rebound")
-	_check(ScoreStore.uses_points("trace") and ScoreStore.uses_points("rebound") and not ScoreStore.uses_points("quatsch"), "Trace/Rebound ohne pp")
-	_check(ScoreStore.is_mania_like("") and ScoreStore.is_mania_like("trace") and ScoreStore.is_mania_like("rebound")
-		and not ScoreStore.is_mania_like("orbit") and not ScoreStore.is_mania_like("rally"), "is_mania_like")
-	_check(ScoreStore.mode_scene("trace") == "res://scenes/trace.tscn" and ScoreStore.mode_scene("rebound") == "res://scenes/rebound.tscn", "mode_scene Trace/Rebound")
-	_check(ScoreStore.mode_tutorial("orbit") == "res://scenes/orbit_tutorial.tscn" and ScoreStore.mode_tutorial("quatsch") == ""
-		and (ScoreStore.mode_tutorial("rally") == "" or ResourceLoader.exists(ScoreStore.mode_tutorial("rally"))), "mode_tutorial nur mit Szene")
+## Modus-Liste: nur Mania und Trace, unbekannte Modi -> Mania bzw. unbekannt.
+func _test_mode_list() -> void:
+	_check(ScoreStore.MODES == ["mania", "trace"], "2 Modi in Reihenfolge")
+	_check(ScoreStore.mode_label("trace") == "Trace" and ScoreStore.mode_label("") == "Mania 4K", "mode_label je Modus")
+	_check(ScoreStore.uses_points("trace") and not ScoreStore.uses_points("quatsch")
+		and not ScoreStore.uses_points("") and not ScoreStore.uses_points("mania"), "uses_points")
+	_check(ScoreStore.is_mania_like("") and ScoreStore.is_mania_like("trace") and not ScoreStore.is_mania_like("quatsch"), "is_mania_like")
+	_check(ScoreStore.mode_scene("trace") == "res://scenes/trace.tscn" and ScoreStore.mode_scene("") == "res://scenes/mania_3d.tscn"
+		and ScoreStore.mode_scene("quatsch") == "res://scenes/mania_3d.tscn", "mode_scene")
+	_check(ScoreStore.mode_tutorial("quatsch") == "" and (ScoreStore.mode_tutorial("trace") == ""
+		or ResourceLoader.exists(ScoreStore.mode_tutorial("trace"))), "mode_tutorial nur mit Szene")
+	_check(ScoreStore.normalize_mode("quatsch") == "mania" and ScoreStore.normalize_mode("trace") == "trace", "normalize_mode")
+	_check(ScoreStore.known_mode("") and ScoreStore.known_mode("mania") and ScoreStore.known_mode("trace")
+		and not ScoreStore.known_mode("quatsch"), "known_mode")
+	_check(is_equal_approx(ScoreStore.rating_of([100.0, 50.0]), 100.0 + 50.0 * 0.95), "Gewichtung 0,95^Platz")
+	var pp0 := ScoreStore.profile_pp()
 	ScoreStore.submit("78 Six.osz", "Hard", { "score": 900000, "grade": "S", "accuracy": 0.97, "stars": 5.0, "mode": "trace" }, ScoreStore.MODE_TRACE)
 	_check(int(ScoreStore.best("78 Six.osz", "Hard", ScoreStore.MODE_TRACE).score) == 900000
-		and ScoreStore.best("78 Six.osz", "Hard").is_empty() and ScoreStore.best("78 Six.osz", "Hard", ScoreStore.MODE_REBOUND).is_empty(), "Trace-Bestwert getrennt von Mania/Rebound")
-	_check(ScoreStore.mode_label("rally") == "Rally" and ScoreStore.mode_label("dirigent") == "Dirigent"
-		and ScoreStore.mode_label("") == "Mania 4K" and ScoreStore.mode_label("orbit") == "Orbit", "mode_label je Modus")
-	_check(ScoreStore.uses_points("rally") and ScoreStore.uses_points("dirigent") and ScoreStore.uses_points("orbit")
-		and not ScoreStore.uses_points("") and not ScoreStore.uses_points("mania"), "uses_points")
-	_check(ScoreStore.normalize_mode("quatsch") == "mania" and ScoreStore.normalize_mode("rally") == "rally", "normalize_mode")
-	_check(ScoreStore.mode_scene("rally") == "res://scenes/rally.tscn" and ScoreStore.mode_scene("dirigent") == "res://scenes/dirigent.tscn"
-		and ScoreStore.mode_scene("") == "res://scenes/mania_3d.tscn", "mode_scene")
-	var pp0 := ScoreStore.profile_pp()
-	var R := ScoreStore.MODE_RALLY
-	var D := ScoreStore.MODE_DIRIGENT
-	ScoreStore.submit("77 Four.osz", "Hard", { "score": 700000, "grade": "A", "accuracy": 0.9, "stars": 6.0, "mode": "rally" }, R)
-	ScoreStore.submit("77 Four.osz", "Hard", { "score": 800000, "grade": "S", "accuracy": 0.95, "stars": 8.0, "mode": "dirigent" }, D)
-	ScoreStore.log_play("77 Four.osz", "Hard", "Four", { "score": 700000, "grade": "A", "accuracy": 0.9, "mode": "rally" }, R)
-	ScoreStore.log_play("77 Four.osz", "Hard", "Four", { "score": 800000, "grade": "S", "accuracy": 0.95, "mode": "dirigent" }, D)
-	_check(int(ScoreStore.best("77 Four.osz", "Hard", R).score) == 700000, "Rally-Bestwert eigen")
-	_check(int(ScoreStore.best("77 Four.osz", "Hard", D).score) == 800000, "Dirigent-Bestwert eigen")
-	_check(ScoreStore.best("77 Four.osz", "Hard", ScoreStore.MODE_ORBIT).is_empty()
-		and ScoreStore.best("77 Four.osz", "Hard").is_empty(), "Rally/Dirigent nie in Orbit/Mania")
-	_check(is_equal_approx(ScoreStore.profile_pp(), pp0), "Mania-pp nie durch Rally/Dirigent veraendert")
-	_check(float(ScoreStore.best("77 Four.osz", "Hard", R).stars) == 6.0, "Sterne im Rally-Bestwert")
-	var rr := ScoreStore.mode_stats(R)
-	_check(int(rr.plays) == 1 and int(rr.maps) == 1 and int(rr.best_score) == 700000, "Rally-Kennzahlen")
-	_check(is_equal_approx(float(rr.rating), 4.0 * 36.0 * pow(0.9, 4.0)), "Rally-Wertung 4 x Sterne^2 x Acc^4")
-	_check(is_equal_approx(ScoreStore.mode_rating(D), 4.0 * 64.0 * pow(0.95, 4.0)), "Dirigent-Wertung")
-	_check(is_equal_approx(ScoreStore.orbit_rating_of([100.0, 50.0]), 100.0 + 50.0 * 0.95), "Gewichtung 0,95^Platz")
-	_check(ScoreStore.top_scores("77 Four.osz", "Hard", 9, D).size() == 1 and ScoreStore.top_scores("77 Four.osz", "Hard", 9, R).size() == 1, "Verlauf je Modus")
-	ScoreStore.submit_others(ScoreStore.map_id_for_set(77, "Hard"), "Rob", [{ "score": 500000, "accuracy": 0.8, "grade": "B", "max_combo": 3, "pp": 0.0, "mods": [], "date": "d" }], R)
-	var tr_r := ScoreStore.top_scores_all("77 Four.osz", "Hard", 9, R)
-	var tr_d := ScoreStore.top_scores_all("77 Four.osz", "Hard", 9, D)
-	_check(tr_r.any(func(e): return e.player == "Rob") and not tr_d.any(func(e): return e.player == "Rob"), "Fremd-Scores je Modus getrennt")
-	_check(tr_r.all(func(e): return e.mode == "rally") and tr_d.all(func(e): return e.mode == "dirigent"), "Rangliste traegt Modus")
+		and ScoreStore.best("78 Six.osz", "Hard").is_empty(), "Trace-Bestwert getrennt von Mania")
+	_check(is_equal_approx(ScoreStore.profile_pp(), pp0), "Mania-pp nie durch Trace veraendert")
 
 
-## Mania und Orbit getrennt: Bestwerte, Plays, Verlauf, Profil, Rangliste.
+## Alte Nutzerdaten entfernter Modi (Orbit, Rally, Dirigent, Rebound, bis v1.43):
+## Sektionen und Eintraege mit mode=orbit bleiben in der Datei liegen, werden nie
+## als Mania/Trace gezaehlt, nichts stuerzt ab, nichts wird geloescht.
+func _test_removed_modes() -> void:
+	var real := ScoreStore.PATH
+	var path := real.get_base_dir().path_join("removed_%d.cfg" % OS.get_process_id())
+	ScoreStore.PATH = path
+	var old := ConfigFile.new()
+	var k := ScoreStore._key("20 Gone.osz", "Hard")
+	old.set_value("meta", "schema", ScoreStore.SCHEMA)
+	old.set_value("scores", k, { "score": 500, "grade": "B", "accuracy": 0.9, "pp": 12.0, "mode": "mania" })
+	old.set_value("plays", k, 1)
+	old.set_value("orbit_scores", k, { "score": 990000, "grade": "SS", "accuracy": 1.0, "stars": 9.0, "mode": "orbit" })
+	old.set_value("orbit_plays", k, 7)
+	old.set_value("orbit_history", k, [{ "score": 990000, "grade": "SS", "accuracy": 1.0, "mode": "orbit" }])
+	old.set_value("orbit_recent", "plays", [{ "score": 990000, "map": "Gone", "mode": "orbit" }])
+	old.set_value("rebound_scores", k, { "score": 880000, "grade": "S", "accuracy": 0.97, "mode": "rebound" })
+	old.set_value("history", k, [{ "score": 500, "grade": "B", "accuracy": 0.9, "mode": "mania" }])
+	old.set_value("recent", "plays", [{ "score": 500, "map": "Gone", "mode": "mania" }])
+	old.save(path)
+	ScoreStore._migrated_path = ""
+	_check(int(ScoreStore.best("20 Gone.osz", "Hard").score) == 500, "Alt-Modi: Mania-Bestwert unveraendert")
+	_check(ScoreStore.best("20 Gone.osz", "Hard", ScoreStore.MODE_TRACE).is_empty(), "Alt-Modi: nichts landet in Trace")
+	_check(is_equal_approx(ScoreStore.profile_pp(), 12.0), "Alt-Modi: pp nur aus Mania")
+	_check(ScoreStore.total_plays() == 1 and ScoreStore.total_plays(ScoreStore.MODE_TRACE) == 0, "Alt-Modi: Plays nicht mitgezaehlt")
+	_check(ScoreStore.recent_plays(9).size() == 1 and ScoreStore.best_plays(9).size() == 1, "Alt-Modi: Verlauf/Bestwerte nur Mania")
+	_check(int(ScoreStore.mode_stats().maps) == 1 and int(ScoreStore.mode_stats(ScoreStore.MODE_TRACE).maps) == 0, "Alt-Modi: Profil-Kennzahlen")
+	var tops := ScoreStore.top_scores_all("20 Gone.osz", "Hard", 9)
+	_check(tops.size() == 1 and int(tops[0].score) == 500, "Alt-Modi: Rangliste nur Mania")
+	_check(not ScoreStore.known_mode("orbit") and not ScoreStore.known_mode("rally")
+		and not ScoreStore.known_mode("dirigent") and not ScoreStore.known_mode("rebound"), "Alt-Modi: unbekannte Modi")
+	# Neuer Lauf schreibt die Datei: alte Sektionen bleiben unangetastet liegen.
+	ScoreStore.submit("20 Gone.osz", "Hard", { "score": 600, "grade": "A", "accuracy": 0.92 })
+	var after := ConfigFile.new()
+	after.load(path)
+	_check(int((after.get_value("orbit_scores", k, {}) as Dictionary).get("score", 0)) == 990000
+		and int(after.get_value("orbit_plays", k, 0)) == 7 and after.has_section("rebound_scores"), "Alt-Modi: Daten bleiben liegen")
+	DirAccess.remove_absolute(path)
+	ScoreStore.PATH = real
+	ScoreStore._migrated_path = ""
+
+
+## Mania und Trace getrennt: Bestwerte, Plays, Verlauf, Profil, Rangliste.
 func _test_modes() -> void:
 	_check(ScoreStore.PATH != "user://scores.cfg", "Test nutzt nie die echte scores.cfg")
-	var O := ScoreStore.MODE_ORBIT
+	var O := ScoreStore.MODE_TRACE
 	ScoreStore.submit("88 Mix.osz", "Hard", { "score": 5000, "grade": "A", "accuracy": 0.91, "pp": 40.0 })
 	ScoreStore.log_play("88 Mix.osz", "Hard", "A - Mix", { "score": 5000, "grade": "A", "accuracy": 0.91, "pp": 40.0 })
 	var pp0 := ScoreStore.profile_pp()
 	var plays0 := ScoreStore.total_plays()
 	var best0 := ScoreStore.best_plays(99).size()
 	var recent0 := ScoreStore.recent_plays(99).size()
-	# Orbit-Score (mit pp-Wert, darf trotzdem nie in Mania-pp fliessen)
-	var r := ScoreStore.submit("88 Mix.osz", "Hard", { "score": 9000, "grade": "S", "accuracy": 0.97, "pp": 500.0, "mode": "orbit" }, O)
+	# Trace-Score (mit pp-Wert, darf trotzdem nie in Mania-pp fliessen)
+	var r := ScoreStore.submit("88 Mix.osz", "Hard", { "score": 9000, "grade": "S", "accuracy": 0.97, "pp": 500.0, "mode": "trace" }, O)
 	ScoreStore.log_play("88 Mix.osz", "Hard", "A - Mix", { "score": 9000, "grade": "S", "accuracy": 0.97, "pp": 500.0 }, O)
 	ScoreStore.log_play("88 Mix.osz", "Hard", "A - Mix", { "score": 100, "grade": "F", "accuracy": 0.2, "failed": true }, O)
-	_check(bool(r.is_new_best), "erster Orbit-Score ist Bestwert (Mania-Bestwert egal)")
+	_check(bool(r.is_new_best), "erster Trace-Score ist Bestwert (Mania-Bestwert egal)")
 	_check(int(ScoreStore.best("88 Mix.osz", "Hard").score) == 5000, "Mania-Bestwert unveraendert")
-	_check(int(ScoreStore.best("88 Mix.osz", "Hard", O).score) == 9000, "Orbit-Bestwert eigen")
-	_check(str(ScoreStore.best("88 Mix.osz", "Hard", O).get("mode", "")) == "orbit", "Orbit-Eintrag traegt mode")
+	_check(int(ScoreStore.best("88 Mix.osz", "Hard", O).score) == 9000, "Trace-Bestwert eigen")
+	_check(str(ScoreStore.best("88 Mix.osz", "Hard", O).get("mode", "")) == "trace", "Trace-Eintrag traegt mode")
 	_check(str(ScoreStore.best("88 Mix.osz", "Hard").get("mode", "")) == "mania", "Mania-Eintrag traegt mode")
-	_check(is_equal_approx(ScoreStore.profile_pp(), pp0), "Mania-pp nie durch Orbit veraendert")
+	_check(is_equal_approx(ScoreStore.profile_pp(), pp0), "Mania-pp nie durch Trace veraendert")
 	_check(ScoreStore.total_plays() == plays0 and ScoreStore.total_plays(O) == 1, "Plays je Modus")
 	_check(ScoreStore.best_plays(99).size() == best0 and ScoreStore.best_plays(99, O).size() == 1, "Bestwerte je Modus")
 	_check(ScoreStore.recent_plays(99).size() == recent0 and ScoreStore.recent_plays(99, O).size() == 2, "Verlauf je Modus")
 	_check(ScoreStore.most_played(9, O).size() == 1 and int(ScoreStore.most_played(9, O)[0].count) == 1, "Meistgespielt je Modus")
-	# Rangliste: Mania-Fremdscores nie in Orbit, Orbit-Fremdscores nie in Mania
+	# Rangliste: Mania-Fremdscores nie in Trace, Trace-Fremdscores nie in Mania
 	var fe := { "score": 7000, "accuracy": 0.9, "grade": "A", "max_combo": 5, "pp": 10.0, "mods": [], "date": "d" }
 	ScoreStore.submit_others(ScoreStore.map_id_for_set(88, "Hard"), "Mia", [fe])
 	ScoreStore.submit_others(ScoreStore.map_id_for_set(88, "Hard"), "Oli", [fe.merged({ "score": 7100 }, true)], O)
 	var tm := ScoreStore.top_scores_all("88 Mix.osz", "Hard", 10)
 	var to := ScoreStore.top_scores_all("88 Mix.osz", "Hard", 10, O)
-	_check(tm.size() == 2 and tm.any(func(e): return e.player == "Mia") and not tm.any(func(e): return e.player == "Oli"), "Mania-Rangliste ohne Orbit")
-	_check(to.size() == 2 and to.any(func(e): return e.player == "Oli") and not to.any(func(e): return e.player == "Mia"), "Orbit-Rangliste ohne Mania")
-	_check(to.all(func(e): return e.mode == "orbit") and tm.all(func(e): return e.mode == "mania"), "Rangliste traegt Modus")
-	_check(int(to[0].score) == 9000, "Orbit-Rangliste: eigener Orbit-Score zuerst")
+	_check(tm.size() == 2 and tm.any(func(e): return e.player == "Mia") and not tm.any(func(e): return e.player == "Oli"), "Mania-Rangliste ohne Trace")
+	_check(to.size() == 2 and to.any(func(e): return e.player == "Oli") and not to.any(func(e): return e.player == "Mia"), "Trace-Rangliste ohne Mania")
+	_check(to.all(func(e): return e.mode == "trace") and tm.all(func(e): return e.mode == "mania"), "Rangliste traegt Modus")
+	_check(int(to[0].score) == 9000, "Trace-Rangliste: eigener Trace-Score zuerst")
 	# Profil-Kennzahlen je Modus
 	var so := ScoreStore.mode_stats(O)
-	_check(int(so.plays) == 1 and int(so.maps) == 1 and int(so.best_score) == 9000, "Orbit-Kennzahlen")
-	_check(is_equal_approx(float(so.avg_acc), 0.97), "Orbit-Acc ohne Fails")
-	_check(is_equal_approx(float(so.rating), 100.0 * pow(0.97, 4.0)), "Orbit-Wertung")
+	_check(int(so.plays) == 1 and int(so.maps) == 1 and int(so.best_score) == 9000, "Trace-Kennzahlen")
+	_check(is_equal_approx(float(so.avg_acc), 0.97), "Trace-Acc ohne Fails")
+	_check(is_equal_approx(float(so.rating), 100.0 * pow(0.97, 4.0)), "Trace-Wertung 4 x Sterne^2 x Acc^4 (Standard 5 Sterne)")
 	_check(is_equal_approx(float(ScoreStore.mode_stats().rating), ScoreStore.profile_pp()), "Mania-Wertung = pp")
 	# Vergleich im Results-Screen: nur derselbe Modus
 	ScoreStore.submit("88 Mix.osz", "Hard", { "score": 9500, "grade": "S", "accuracy": 0.98 }, O)
 	var prev = ScoreStore.previous_best_for("88 Mix.osz", "Hard", O, 9500)
-	_check(prev is Dictionary and int(prev.score) == 9000, "Bestleistung: vorheriger Orbit-Score")
+	_check(prev is Dictionary and int(prev.score) == 9000, "Bestleistung: vorheriger Trace-Score")
 	_check(ScoreStore.previous_best_for("88 Mix.osz", "Hard", "", 9500) == null, "Bestleistung: nie anderer Modus")
 	_check(ScoreStore.previous_best_for("88 Mix.osz", "Hard", O, 1) == null, "Bestleistung: nur gespeichertes Ergebnis")
 
@@ -235,7 +255,7 @@ func _test_sv_level() -> void:
 
 
 ## Alte Datei (Schema 1): alles bleibt Mania, nichts geht verloren; nur
-## Verlaufs-Eintraege mit mode = "orbit" wandern zu Orbit.
+## Verlaufs-Eintraege mit anderem mode (hier Trace) wandern in dessen Sektion.
 func _test_migration() -> void:
 	var real := ScoreStore.PATH
 	var path := real.get_base_dir().path_join("migrate_%d.cfg" % OS.get_process_id())
@@ -244,18 +264,18 @@ func _test_migration() -> void:
 	var k := ScoreStore._key("10 Old.osz", "Hard")
 	old.set_value("scores", k, { "score": 800, "grade": "A", "accuracy": 0.93, "pp": 77.0 })
 	old.set_value("plays", k, 3)
-	old.set_value("history", k, [{ "score": 800, "grade": "A" }, { "score": 600, "grade": "B", "mode": "orbit" }])
-	old.set_value("recent", "plays", [{ "score": 800, "map": "x" }, { "score": 600, "map": "x", "mode": "orbit" }])
+	old.set_value("history", k, [{ "score": 800, "grade": "A" }, { "score": 600, "grade": "B", "mode": "trace" }])
+	old.set_value("recent", "plays", [{ "score": 800, "map": "x" }, { "score": 600, "map": "x", "mode": "trace" }])
 	old.set_value("others", "10|Hard", [{ "player": "Bob", "score": 1 }])
 	old.save(path)
 	ScoreStore._migrated_path = ""
 	_check(int(ScoreStore.best("10 Old.osz", "Hard").score) == 800, "Migration: Bestwert bleibt Mania")
-	_check(ScoreStore.best("10 Old.osz", "Hard", ScoreStore.MODE_ORBIT).is_empty(), "Migration: kein Orbit-Bestwert erfunden")
+	_check(ScoreStore.best("10 Old.osz", "Hard", "trace").is_empty(), "Migration: kein Bestwert anderer Modi erfunden")
 	_check(is_equal_approx(ScoreStore.profile_pp(), 77.0), "Migration: pp unveraendert")
 	_check(ScoreStore.play_count("10 Old.osz", "Hard") == 3, "Migration: Plays bleiben")
-	_check(ScoreStore.top_scores("10 Old.osz", "Hard", 9).size() == 1, "Migration: Mania-Verlauf ohne Orbit")
-	_check(ScoreStore.top_scores("10 Old.osz", "Hard", 9, ScoreStore.MODE_ORBIT).size() == 1, "Migration: Orbit-Verlauf verschoben")
-	_check(ScoreStore.recent_plays(9).size() == 1 and ScoreStore.recent_plays(9, ScoreStore.MODE_ORBIT).size() == 1, "Migration: Recent getrennt")
+	_check(ScoreStore.top_scores("10 Old.osz", "Hard", 9).size() == 1, "Migration: Mania-Verlauf ohne andere Modi")
+	_check(ScoreStore.top_scores("10 Old.osz", "Hard", 9, "trace").size() == 1, "Migration: Verlauf anderer Modi verschoben, nicht geloescht")
+	_check(ScoreStore.recent_plays(9).size() == 1 and ScoreStore.recent_plays(9, "trace").size() == 1, "Migration: Recent getrennt")
 	var after := ConfigFile.new()
 	after.load(path)
 	_check(int(after.get_value("meta", "schema", 0)) == ScoreStore.SCHEMA, "Migration: Schema gesetzt")
@@ -322,7 +342,7 @@ func _test_playtime() -> void:
 	_check(ScoreStore.playtime_ms() == 60000, "Spielzeit: Startwert nur einmal")
 	ScoreStore.add_playtime(15000)
 	_check(ScoreStore.playtime_ms() == 75000, "Spielzeit: addiert")
-	ScoreStore.add_playtime(5000, ScoreStore.MODE_ORBIT)
-	_check(ScoreStore.playtime_ms(ScoreStore.MODE_ORBIT) == 5000 and ScoreStore.playtime_ms() == 75000, "Spielzeit: Modi getrennt")
+	ScoreStore.add_playtime(5000, ScoreStore.MODE_TRACE)
+	_check(ScoreStore.playtime_ms(ScoreStore.MODE_TRACE) == 5000 and ScoreStore.playtime_ms() == 75000, "Spielzeit: Modi getrennt")
 	var GS = load("res://scripts/game_session.gd")
-	_check(GS.playtime_mode_of("res://scenes/orbit.tscn") == "orbit" 			and GS.playtime_mode_of("res://scenes/mania_3d.tscn") == "" 			and GS.playtime_mode_of("res://scenes/song_select.tscn") == null, "Spielzeit: Szenen-Modus")
+	_check(GS.playtime_mode_of("res://scenes/trace.tscn") == "trace" 			and GS.playtime_mode_of("res://scenes/mania_3d.tscn") == "" 			and GS.playtime_mode_of("res://scenes/song_select.tscn") == null, "Spielzeit: Szenen-Modus")

@@ -10,7 +10,7 @@ extends Control
 ## unranked, new_best, title, artist, version, cover_path, offsets (ms),
 ## player, date. Optional: cover (Texture2D), allow_retry, can_replay,
 ## is_replay, lobby, mods (Dictionary, sonst GameSession.mods).
-## Modus kommt aus s.mode ("orbit", sonst Mania 4K): Abzeichen im Kopf, der
+## Modus kommt aus s.mode ("trace", sonst Mania): Abzeichen im Kopf, der
 ## Bestleistungs-Vergleich nutzt nur Scores desselben Modus
 ## (ScoreStore.previous_best_for).
 ## Details (optional, Mania): judge_log = Array[Vector4(Notenzeit ms, Spur,
@@ -317,69 +317,6 @@ func _auto_board() -> void:
 	set_placement(txt, better == 0)
 
 
-## Cover der laufenden Map (GameSession) fuer Endbilder ohne eigenes Beatmap-Objekt.
-static func session_cover() -> Texture2D:
-	var osz := str(GameSession.osz_path)
-	if osz == "" or not FileAccess.file_exists(osz):
-		return null
-	var zr := ZIPReader.new()
-	if zr.open(osz) != OK:
-		return null
-	var want := str(GameSession.difficulty_version)
-	var bg := ""
-	for f in zr.get_files():
-		if not f.to_lower().ends_with(".osu"):
-			continue
-		var txt := zr.read_file(f).get_string_from_utf8()
-		var file := _osu_background(txt)
-		if file == "":
-			continue
-		if bg == "":
-			bg = file
-		if want == "":
-			break
-		if txt.contains("Version:" + want):
-			bg = file
-			break
-	zr.close()
-	return OszImporter.load_image_texture(osz, bg) if bg != "" else null
-
-
-static func _osu_background(txt: String) -> String:
-	var at := txt.find("[Events]")
-	if at < 0:
-		return ""
-	for line in txt.substr(at, 4000).split("\n"):
-		var l := line.strip_edges()
-		if l.begins_with("0,0,"):
-			var parts := l.split(",")
-			if parts.size() >= 3:
-				return parts[2].strip_edges().trim_prefix("\"").trim_suffix("\"")
-	return ""
-
-
-## Gemeinsame Felder fuer die Modus-Endbilder (Orbit, Rally, Dirigent), die nur
-## Lauf-Daten bekommen: Spieler, Datum, Cover, Multiplayer-Rangliste.
-static func mode_data(src: Dictionary, mp: MultiplayerAPI) -> Dictionary:
-	var d := src.duplicate()
-	if not d.has("player"):
-		d["player"] = Settings.profile_name
-	if not d.has("date"):
-		d["date"] = Time.get_datetime_string_from_system()
-	d["pp"] = -1.0
-	if not (d.get("cover", null) is Texture2D) and str(d.get("cover_path", "")) == "":
-		var c := session_cover()
-		if c != null:
-			d["cover"] = c
-	if Lobby.in_round() and mp != null:
-		var me := mp.get_unique_id()
-		d["lobby"] = true
-		d["my_id"] = me
-		if Lobby.players.has(me):
-			d["final"] = Lobby.players[me].get("final", {})
-	return d
-
-
 # ---------------------------------------------------------------------------
 # Formatierung (deutsch)
 # ---------------------------------------------------------------------------
@@ -436,7 +373,7 @@ func active_mods() -> Array:
 	return out
 
 
-## Spielmodus des Ergebnisses aus s.mode: "orbit", "trace", "rebound" ... oder "" (Mania 4K).
+## Spielmodus des Ergebnisses aus s.mode: "trace" oder "" (Mania).
 func score_mode() -> String:
 	var m := ScoreStore.normalize_mode(str(_stats.get("mode", "")))
 	return "" if m == ScoreStore.MODE_MANIA else m
@@ -451,7 +388,7 @@ func mod_badge_texts() -> Array:
 		out.append(ScoreStore.mods_label({ "mods": [m], "sv_level": lv }))
 	# Regel-Mods: "SD", "PF", "Mines" (RuleMods).
 	out.append_array(RuleMods.badge_texts(_data.get("mods", GameSession.mods)))
-	# Modus-eigene Mods (Orbit: HD, PR ...) als fertige Texte.
+	# Weitere Mods als fertige Texte (z. B. "Turbo 120 %").
 	for m in _data.get("mod_texts", []):
 		if str(m) != "" and not out.has(str(m)):
 			out.append(str(m))
@@ -558,7 +495,6 @@ func _build_header() -> void:
 	var sub := Label.new()
 	# Diff-Name; der Modus steht als Abzeichen dahinter (nicht mehr "· 4K").
 	var ver := str(_data.get("version", "")).strip_edges()
-	ver = ver.trim_suffix("·  " + tr("Orbit")).trim_suffix("· " + tr("Orbit")).strip_edges()
 	sub.text = ver
 	sub.position = Vector2(tx + 1.0, 48)
 	sub.add_theme_font_override("font", UiTheme.heading_font(1))
@@ -913,16 +849,16 @@ func _hero_stat(cap: String, value: String, col: Color) -> VBoxContainer:
 
 func _hero_pp() -> VBoxContainer:
 	var pp := float(_data.get("pp", -1.0))
-	# Trace/Rebound: keine pp, sondern Punkte wie Rangliste und Empfehlungen
+	# Trace: keine pp, sondern Punkte wie Rangliste und Empfehlungen
 	# (4 * Sterne^2 * Acc^4, Recommender.K_POINTS).
-	if score_mode() == "trace" or score_mode() == "rebound":
+	if score_mode() == ScoreStore.MODE_TRACE:
 		var st := float(_data.get("stars", GameSession.stars))
 		if st > 0.0 and not bool(_data.get("unranked", false)) and not bool(_stats.get("failed", false)):
 			var acc := clampf(float(_stats.get("accuracy", 0.0)), 0.0, 1.0)
 			var pts := 4.0 * st * st * pow(acc, 4.0)
 			return _hero_stat("PERFORMANCE", "%s pts" % fmt_dec(pts, 1), UiTheme.ACCENT2)
 		return _hero_stat("PERFORMANCE", "—", MUTED)
-	if pp < 0.0 or bool(_data.get("unranked", false)) or score_mode() == ScoreStore.MODE_ORBIT:
+	if pp < 0.0 or bool(_data.get("unranked", false)):
 		return _hero_stat("PERFORMANCE", "—", MUTED)
 	return _hero_stat("PERFORMANCE", "%s pp" % fmt_dec(pp, 1), UiTheme.ACCENT2)
 
@@ -1105,8 +1041,8 @@ func _build_buttons(group: Control) -> void:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bar.add_child(spacer)
-	# Clip-Export gibt es nur fuer Mania (mania_3d) und Orbit; andere Modi ohne Knopf.
-	if score_mode() in ["", ScoreStore.MODE_ORBIT] and bool(_data.get("can_clip", true)):
+	# Clip-Export gibt es hier nur fuer Mania (mania_3d); Trace ohne Knopf.
+	if score_mode() == "" and bool(_data.get("can_clip", true)):
 		var clip := _button("⤓  Clip speichern", false, clip_pressed.emit)
 		clip.name = "ClipButton"
 		bar.add_child(clip)
@@ -2180,8 +2116,7 @@ func hero_deltas() -> Dictionary:
 	out["combo"] = delta_entry(float(int(_stats.get("max_combo", 0)) - int(p.get("max_combo", 0))), "combo")
 	var pp := float(_data.get("pp", -1.0))
 	var old_pp := float(p.get("pp", -1.0))
-	if pp >= 0.0 and old_pp >= 0.0 and not bool(_data.get("unranked", false)) \
-			and score_mode() != ScoreStore.MODE_ORBIT:
+	if pp >= 0.0 and old_pp >= 0.0 and not bool(_data.get("unranked", false)):
 		out["pp"] = delta_entry(pp - old_pp, "pp")
 	return out
 
@@ -2514,7 +2449,7 @@ func _best_row(prev: Dictionary) -> Control:
 		return row
 	var parts: Array = [fmt_int(int(prev.get("score", 0))), fmt_pct(float(prev.get("accuracy", 0.0))),
 		"%s×" % fmt_int(int(prev.get("max_combo", 0)))]
-	if float(prev.get("pp", -1.0)) >= 0.0 and score_mode() != ScoreStore.MODE_ORBIT:
+	if float(prev.get("pp", -1.0)) >= 0.0:
 		parts.append("%s pp" % fmt_dec(float(prev.pp), 1))
 	var mods_txt := ScoreStore.mods_label(prev)
 	if mods_txt != "":

@@ -40,15 +40,21 @@ func _check(ok: bool, msg: String) -> void:
 		_failed += 1
 
 
+## Startzeit dieses Runners: mehrere Runner teilen sich eine Engine, die Laufzeit
+## der Engine sagt nichts ueber diesen Test.
+var _begin_ms := 0
+
+
 func _process(_delta: float) -> bool:
 	if not _started:
 		_started = true
+		_begin_ms = Time.get_ticks_msec()
 		_static_checks()
 		_start_measure()
 		return false
 	if _run >= _runs.size():
 		return true
-	if Time.get_ticks_msec() > 60000:
+	if Time.get_ticks_msec() - _begin_ms > 60000:
 		_check(false, "Timeout")
 		_finish()
 		return true
@@ -92,9 +98,10 @@ func _static_checks() -> void:
 	var master := AudioServer.get_bus_index(&"Master")
 	var mcount := AudioServer.get_bus_effect_count(master)
 	_check(mcount == 1 and AudioServer.get_bus_effect(master, 0) is AudioEffectCompressor, "Master nur Schutz-Limiter")
-	# Verbotene Effekte (Lookahead/Delay) auf allen Bussen.
+	# Verbotene Effekte (Lookahead/Delay) in der Mastering-Kette (Music -> Master). Der
+	# Tempo-Bus traegt absichtlich einen PitchShift (Uebungsmodus/Turbo) und zaehlt nicht.
 	var bad := 0
-	for b in AudioServer.bus_count:
+	for b in [_music, master]:
 		for i in AudioServer.get_bus_effect_count(b):
 			var e := AudioServer.get_bus_effect(b, i)
 			if e is AudioEffectHardLimiter or e is AudioEffectDelay or e is AudioEffectChorus \

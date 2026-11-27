@@ -56,7 +56,7 @@ func _process(_delta: float) -> bool:
 
 
 # ===========================================================================
-# Adapter: alter AudioMapper (Orbit) hinter den Schnittstellen der Spec
+# Adapter: alter AudioMapper hinter den Schnittstellen der Spec
 # ===========================================================================
 
 ## Der alte Mapper kennt ein Tempo, einen Offset und Notenzeiten in drei Stufen. Er kennt keine
@@ -1047,7 +1047,7 @@ static func target_rows(a: Dictionary, caps: Dictionary) -> Array:
 				_verdict(int(a.lint_charts), int(a.lint_sum) == 0, "AmChart.lint fehlt")])
 	else:
 		rows.append(["Stufen", "Sterne im Band, schlechtestes Profil", "≥ 90 %",
-				"nicht messbar, weil dieser Mapper keine 4K-Map erzeugt (Orbit ohne Spalten; nur 3 Stufen)", "**nein** (fehlt)"])
+				"nicht messbar, weil dieser Mapper keine 4K-Map erzeugt (ohne Spalten; nur 3 Stufen)", "**nein** (fehlt)"])
 		rows.append(["Spielbarkeit", "Regelverletzungen (AmChart.lint), Summe", "0",
 				"nicht messbar, weil die Noten keine Spalten haben", "**nein** (fehlt)"])
 	rows.append(["Dauer", "ganzer Ablauf je Song, auf 4 min umgerechnet, 95. Perzentil (Maximum)", "≤ 15 s",
@@ -1235,7 +1235,7 @@ static func render_report(runs: Array, tune_log: String = "") -> String:
 		var recs: Array = run.recs
 		var caps: Dictionary = run.caps
 		var info: Dictionary = run.get("info", {})
-		var label := "alter Mapper (`AudioMapper`, Orbit) über Adapter" if run.name == "alt" else "neue Module (AmGrid, AmFeatures, AmChart, AutoMapper4K)"
+		var label := "alter Mapper (`AudioMapper`) über Adapter" if run.name == "alt" else "neue Module (AmGrid, AmFeatures, AmChart, AutoMapper4K)"
 		s += "## Mapper „%s“: %s\n\n" % [run.name, label]
 		var at := aggregate(recs, "test")
 		var au := aggregate(recs, "tune")
@@ -1553,7 +1553,7 @@ func _cli_bench(args: PackedStringArray) -> int:
 		if audio != "":
 			if use_generate:
 				# Sterne einmal am Ende fuer alle (_fill_stars), nicht je Song ein starcalc-Prozess
-				var res: Dictionary = mods.mapper.generate(audio, gen_dir, {"with_orbit": false, "stars": false})
+				var res: Dictionary = mods.mapper.generate(audio, gen_dir, {"stars": false})
 				if res.get("ok", false):
 					prod = product_from_osz(str(res.osz_path), res, mods)
 					if want_stars:

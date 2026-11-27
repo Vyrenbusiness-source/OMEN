@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Modus-Multiplayer-Smoke (MODE=mania|orbit|rally|dirigent|trace|rebound; jede Spielszene gibt
-# die Zeilen "MPORBIT start:" und "MPORBIT final ... live_seen=" wie orbit_game aus).
+# Modus-Multiplayer-Smoke (MODE=mania|trace; jede Spielszene gibt die Zeilen
+# "MPBOT start:" und "MPBOT final ... live_seen=" aus).
 # MODS=NF (oder SV,NF): Raum-Mods der ersten Runde (--mp-mods), geprueft auf beiden Seiten.
 # RELAY=1: derselbe Ablauf ueber einen echten Relay-Prozess (ws://127.0.0.1:$PORT/mp)
 #   statt direkt (ENet); so ruft ihn tools/mp_relay_smoke.sh MODE=<modus> auf.
-# Orbit-Multiplayer-Smoke: zwei echte Godot-Prozesse (Host + Client, headless)
-# ueber 127.0.0.1. Ablauf (scripts/ui/mp_lobby.gd _mp_orbit):
-#   Raum -> Modus Orbit -> Map -> beide bereit -> Runde (Bots, Client mit
-#   Fehlern) -> Live-Scores + Endergebnisse -> zurueck im Raum -> Orbit-Turnier
+# Zwei echte Godot-Prozesse (Host + Client, headless) ueber 127.0.0.1.
+# Ablauf (scripts/ui/mp_lobby.gd _mp_mode_smoke):
+#   Raum -> Modus -> Map -> beide bereit -> Runde (Bots, Client mit
+#   Fehlern) -> Live-Scores + Endergebnisse -> zurueck im Raum -> Turnier
 #   (4 Maps, je 1 Ban, 2 Runden) -> Endstand.
 # Client bleibt 10 s im Endscreen (laenger als der Turnier-Autoablauf bis zur
 # naechsten Map): prueft das Bereit-Melden bei der Rueckkehr in den Raum.
@@ -21,7 +21,7 @@
 set -u
 cd "$(dirname "$0")/.."
 G=${GODOT:-/c/Users/Gexanx/Desktop/rhyg/Godot_v4.7-stable_win64_console.exe}
-MODE=${MODE:-orbit}
+MODE=${MODE:-trace}
 LABEL=${LABEL:-$(echo "${MODE:0:1}" | tr a-z A-Z)${MODE:1}}
 VIEW=$LABEL
 [ "$MODE" = mania ] && VIEW="(2D|3D)"
@@ -60,7 +60,7 @@ if [ "$RELAY" = 1 ]; then
 fi
 
 APPDATA=$(cygpath -w "$WORK/host" 2>/dev/null || echo "$WORK/host") \
-	timeout "$LIMIT" "$G" "${COMMON[@]}" --mp-orbit-host --mp-mode="$MODE" --auto-seed=1 \
+	timeout "$LIMIT" "$G" "${COMMON[@]}" --mp-mode-host --mp-mode="$MODE" --auto-seed=1 \
 	> "$WORK/host.log" 2>&1 &
 HP=$!
 sleep 2
@@ -75,15 +75,15 @@ if [ "$RELAY" = 1 ]; then
 	CODE_ARG=(--mp-relay-code="$CODE")
 fi
 APPDATA=$(cygpath -w "$WORK/client" 2>/dev/null || echo "$WORK/client") \
-	timeout "$LIMIT" "$G" "${COMMON[@]}" --mp-orbit-client --mp-mode="$MODE" --auto-seed=7 --auto-miss=6 --mp-back=10 ${CODE_ARG[@]+"${CODE_ARG[@]}"} \
+	timeout "$LIMIT" "$G" "${COMMON[@]}" --mp-mode-client --mp-mode="$MODE" --auto-seed=7 --auto-miss=6 --mp-back=10 ${CODE_ARG[@]+"${CODE_ARG[@]}"} \
 	> "$WORK/client.log" 2>&1 &
 CP=$!
 wait $HP; HRC=$?
 wait $CP; CRC=$?
 [ -n "$RP" ] && { kill $RP 2>/dev/null; wait $RP 2>/dev/null; }
 
-grep -hE "^MP(ORBIT|RALLY|TRACE versus)" "$WORK/host.log" | sed 's/^/H| /'
-grep -hE "^MP(ORBIT|RALLY|TRACE versus)" "$WORK/client.log" | sed 's/^/C| /'
+grep -hE "^MP(BOT|TRACE versus)" "$WORK/host.log" | sed 's/^/H| /'
+grep -hE "^MP(BOT|TRACE versus)" "$WORK/client.log" | sed 's/^/C| /'
 
 fail=0
 check() {  # check <log> <regex> <text>
@@ -94,9 +94,9 @@ check() {  # check <log> <regex> <text>
 [ $HRC -eq 0 ] || { echo "FAIL host rc=$HRC"; fail=1; }
 [ $CRC -eq 0 ] || { echo "FAIL client rc=$CRC"; fail=1; }
 for side in host client; do
-	check $side "MPORBIT [A-Z]+ s0 all ready, views $VIEW/$VIEW" "Raum + bereit"
-	check $side "MPORBIT [A-Z]+ s1 room finals \[[0-9]+:[^]]* score=[1-9][0-9]*[^]]*, [0-9]+:[^]]* score=[1-9]" "Endergebnisse beider im Raum"
-	check $side "MPORBIT [A-Z]+ s1 ranking ok=true \[1\.[^]]*, 2\." "Platzierung = absteigende Endergebnisse"
+	check $side "MPBOT [A-Z]+ s0 all ready, views $VIEW/$VIEW" "Raum + bereit"
+	check $side "MPBOT [A-Z]+ s1 room finals \[[0-9]+:[^]]* score=[1-9][0-9]*[^]]*, [0-9]+:[^]]* score=[1-9]" "Endergebnisse beider im Raum"
+	check $side "MPBOT [A-Z]+ s1 ranking ok=true \[1\.[^]]*, 2\." "Platzierung = absteigende Endergebnisse"
 	if [ -n "$MODS" ]; then
 		want=$(echo "$MODS" | tr a-z A-Z | tr ',' '\n' | sort -r | tr '\n' ' ' | sed 's/ $//')
 		check $side "^MPLOBBY round mods=\[$want\]" "Raum-Mods $want in Runde 1"
@@ -104,14 +104,14 @@ for side in host client; do
 	if grep -q "ObjectDB instances leaked" "$WORK/$side.log"; then
 		echo "FAIL $side: ObjectDB instances leaked at exit"; fail=1
 	fi
-	check $side "MPORBIT [A-Z]+ s1 back in room: in_game=false play_mode=$MODE" "Rueckkehr in den Raum"
-	check $side "MPORBIT [A-Z]+ s2 tour rounds=1 " "Turnierrunde 1 gewertet"
-	n=$(grep -Ec "^MP(ORBIT|RALLY) start:" "$WORK/$side.log")
-	[ "$n" -eq 3 ] || { echo "FAIL $side: $n statt 3 Orbit-Runden gestartet"; fail=1; }
-	check $side "MPORBIT [A-Z]+ s3 tour rounds=2 " "2 Turnierrunden gewertet"
-	check $side "MPORBIT [A-Z]+ s3 DONE" "Ende"
+	check $side "MPBOT [A-Z]+ s1 back in room: in_game=false play_mode=$MODE" "Rueckkehr in den Raum"
+	check $side "MPBOT [A-Z]+ s2 tour rounds=1 " "Turnierrunde 1 gewertet"
+	n=$(grep -Ec "^MPBOT start:" "$WORK/$side.log")
+	[ "$n" -eq 3 ] || { echo "FAIL $side: $n statt 3 Runden gestartet"; fail=1; }
+	check $side "MPBOT [A-Z]+ s3 tour rounds=2 " "2 Turnierrunden gewertet"
+	check $side "MPBOT [A-Z]+ s3 DONE" "Ende"
 	# Live-Score des anderen kam waehrend der Runde an (> 0, vor dessen Finale).
-	n=$(grep -Ec "^MP(ORBIT|RALLY) final .*live_seen=\{ ?[0-9]+: [1-9]" "$WORK/$side.log")
+	n=$(grep -Ec "^MPBOT final .*live_seen=\{ ?[0-9]+: [1-9]" "$WORK/$side.log")
 	[ "$n" -ge 3 ] || { echo "FAIL $side: Live-Scores nur in $n von 3 Runden"; fail=1; }
 	if grep -qE "SCRIPT ERROR|Parse Error|Invalid call|Invalid access|Watchdog" "$WORK/$side.log"; then
 		grep -E -A2 "SCRIPT ERROR|Parse Error|Invalid call|Invalid access|Watchdog" "$WORK/$side.log" | head -12
@@ -126,14 +126,14 @@ if [ "$MODE" = trace ] && ! grep -q -- "--auto-miss" scripts/trace/trace_game.gd
 	echo "SKIP client misses: trace_game.gd kennt --auto-miss noch nicht"
 fi
 if [ $AUTO_MISS -eq 1 ]; then
-	grep -Eq "^MP(ORBIT|RALLY) final .*acc=0\.[0-9]+ .*failed=" "$WORK/client.log" \
+	grep -Eq "^MPBOT final .*acc=0\.[0-9]+ .*failed=" "$WORK/client.log" \
 		|| { echo "FAIL client: keine Fehler gespielt"; fail=1; }
 fi
 if [ "$MODE" = trace ]; then
 	for side in host client; do
 		check $side "^MPTRACE versus bar players=2" "Versus-Live-Leiste in der Trace-Runde"
-		check $side "MPORBIT [A-Z]+ s1 room finals \[[0-9]+:[^]]* miss=[0-9]+ bits=[0-9]+/[1-9][0-9]*, [0-9]+:[^]]* miss=[0-9]+ bits=[0-9]+/[1-9]" "Miss-Bitfeld in beiden Endergebnissen"
-		check $side "MPORBIT [A-Z]+ s1 versus pictures n=2" "Versus-Bilder im Raum"
+		check $side "MPBOT [A-Z]+ s1 room finals \[[0-9]+:[^]]* miss=[0-9]+ bits=[0-9]+/[1-9][0-9]*, [0-9]+:[^]]* miss=[0-9]+ bits=[0-9]+/[1-9]" "Miss-Bitfeld in beiden Endergebnissen"
+		check $side "MPBOT [A-Z]+ s1 versus pictures n=2" "Versus-Bilder im Raum"
 		# Gezaehlte Misses = Bits im Feld (das Feld traegt genau die verfehlten Noten).
 		if ! grep -E "s1 room finals" "$WORK/$side.log" | grep -Eo "miss=[0-9]+ bits=[0-9]+" \
 				| awk -F'[= ]' '$2 != $4 { bad = 1 } END { exit bad }'; then
@@ -146,9 +146,9 @@ if [ "$MODE" = trace ]; then
 fi
 
 if [ $fail -eq 0 ]; then
-	echo "MP-ORBIT-SMOKE OK mode=$MODE relay=$RELAY mods=[$MODS] (logs: $WORK)"
+	echo "MP-MODE-SMOKE OK mode=$MODE relay=$RELAY mods=[$MODS] (logs: $WORK)"
 	[ "${KEEP:-0}" = 1 ] || rm -rf "$WORK"
 	exit 0
 fi
-echo "MP-ORBIT-SMOKE FAIL (logs: $WORK)"
+echo "MP-MODE-SMOKE FAIL (logs: $WORK)"
 exit 1

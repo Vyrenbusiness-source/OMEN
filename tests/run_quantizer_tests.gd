@@ -24,8 +24,13 @@ func _tp(time: float, bl: float, meter: int = 4) -> TimingPoint:
 	return p
 
 
+## Alle erzeugten Quantizer (Nodes ohne Baum): am Ende freigeben.
+var _made: Array = []
+
+
 func _mk(bl: float = 250.0) -> BeatQuantizer:
 	var q := BeatQuantizer.new()
+	_made.append(q)
 	q.setup([_tp(0.0, bl)])
 	return q
 
@@ -79,6 +84,7 @@ func _initialize() -> void:
 	# Ohne Timing: sofort
 	_fired.clear()
 	var e := BeatQuantizer.new()
+	_made.append(e)
 	e.process(0.0)
 	e.schedule(_mark.bind("e"))
 	_check(_fired == ["e"], "ohne Daten sofort")
@@ -108,6 +114,7 @@ func _initialize() -> void:
 	# Timing-Wechsel: roter Punkt bei 300 vor Beat 500
 	_fired.clear()
 	q = BeatQuantizer.new()
+	_made.append(q)
 	q.setup([_tp(0.0, 250.0), _tp(300.0, 1000.0)])
 	q.process(260.0)
 	q.schedule(_mark.bind("w"), 1)
@@ -116,5 +123,7 @@ func _initialize() -> void:
 	q.process(301.0)
 	_check(_fired == ["w"], "Kante am neuen roten Punkt")
 
+	for n in _made:
+		n.free()
 	print("FAILED: ", _failed)
 	quit(1 if _failed > 0 else 0)

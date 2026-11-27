@@ -500,8 +500,13 @@ static func parse_score(text: String) -> Dictionary:
 	if str(pl) == "" and mp.is_empty() and title == "":
 		return {}
 	var mode := str(d.get("mode", "mania")) if d.get("mode") != null else "mania"
+	if mode == "":
+		mode = "mania"
+	# Karten fremder oder entfernter Modi (bis v1.43 z. B. Orbit) still ueberspringen.
+	if not (ScoreStore.MODES.has(mode) or ManiaKeys.is_mania_online(mode)):
+		return {}
 	var pp := _num(d.get("pp"))
-	var points := _num(d.get("points", d.get("orbit_points", d.get("rating"))))
+	var points := _num(d.get("points", d.get("rating")))
 	var diff := _field(d, mp, ["difficulty_name", "difficulty", "version"])
 	return {
 		"player": str(pl),
@@ -519,7 +524,7 @@ static func parse_score(text: String) -> Dictionary:
 		"points": points,
 		"stars": _num(d.get("stars")),
 		"mods": mod_list,
-		"mode": mode if mode != "" else "mania",
+		"mode": mode,
 		"has_replay": bool(d.get("has_replay", false)) if d.get("has_replay") != null else false,
 	}
 

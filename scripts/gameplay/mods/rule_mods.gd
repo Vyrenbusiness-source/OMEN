@@ -1,7 +1,7 @@
 class_name RuleMods
 extends RefCounted
 
-## Regel-Mods fuer Mania (und Trace/Rebound, die ManiaCore nutzen):
+## Regel-Mods fuer Mania (und Trace, das ManiaCore nutzt):
 ##   "SD" Sudden Death: der erste Miss beendet den Lauf (Fail-Bild "Sudden Death: Miss").
 ##   "PF" Perfect: schon alles unter 300 beendet den Lauf (MAX und 300 sind ok).
 ##   "MN" Minen: der Konverter MineGen setzt Minen in freie Spalten; Druck/Halten beim
@@ -19,8 +19,8 @@ const MN_VERSION_KEY := "MN_v"
 const KEYS: Array[String] = ["SD", "PF", "MN"]
 ## Modi, in denen ein Schalter erscheint und wirkt.
 const MODES := {
-	"SD": ["mania", "trace", "rebound"],
-	"PF": ["mania", "trace", "rebound"],
+	"SD": ["mania", "trace"],
+	"PF": ["mania", "trace"],
 	"MN": ["mania"],
 }
 ## Score-Modus (ScoreStore) fuer Laeufe mit Minen: eigene Rangliste.
@@ -243,7 +243,7 @@ static func extend_body(body: Dictionary, result: Dictionary) -> void:
 
 
 ## Song-Browser: Score-Modus der Liste unter BESTE SCORES. mode_score = bisheriger
-## Modus der Liste ("" Mania, "orbit", "trace" ...); Minen nur in Mania.
+## Modus der Liste ("" Mania, "trace"); Minen nur in Mania.
 static func board_mode(mode_score: String, sel: Dictionary) -> String:
 	var m := "" if mode_score == "mania" else mode_score
 	if m == "" and bool(sel.get(MN, false)):

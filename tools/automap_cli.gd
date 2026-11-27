@@ -2,7 +2,7 @@ extends SceneTree
 
 ## Kommandozeile fuer den 4K-Auto-Mapper (Tests und Stapel). Je Song eine JSON-Zeile.
 ##   Godot --headless --audio-driver Dummy --path . --script res://tools/automap_cli.gd -- <audio|ordner>
-##       [--out <dir>] [--profiles Easy,Hard] [--tempo <faktor>] [--offset <ms>] [--no-orbit] [--no-stars]
+##       [--out <dir>] [--profiles Easy,Hard] [--tempo <faktor>] [--offset <ms>] [--no-stars]
 ## Ohne --out landet das Set im maps-Ordner des Spiels (MapLibrary.default_maps_dir()).
 ## Ende-Code 0, wenn jeder Song ein Set ergab, sonst 1.
 ##
@@ -45,8 +45,6 @@ func _initialize() -> void:
 			"--shot":
 				_shot_dir = next
 				i += 1
-			"--no-orbit":
-				opts["with_orbit"] = false
 			"--no-stars":
 				opts["stars"] = false
 			_:
@@ -54,7 +52,7 @@ func _initialize() -> void:
 					src = a.replace("\\", "/")
 		i += 1
 	if src == "":
-		printerr("usage: -- <audio|folder> [--out <dir>] [--profiles a,b] [--tempo f] [--offset ms] [--no-orbit] [--no-stars]")
+		printerr("usage: -- <audio|folder> [--out <dir>] [--profiles a,b] [--tempo f] [--offset ms] [--no-stars]")
 		quit(2)
 		return
 	if _shot_dir != "":

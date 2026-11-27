@@ -8,7 +8,7 @@ Alle Spieler spielen dieselben Maps, damit die Scores vergleichbar sind.
 - Je Modus eine eigene Kampagne (Auswahl oben in der Szene). Fortschritt und Sterne je Modus getrennt
   (Stufen-IDs tragen den Modus: `mania-c03s2`).
 - Mania 4K: vollstaendig, 13 Kapitel, je Kapitel eine Welt (`WorldTheme`), Finale in der Boss-Welt.
-- Orbit, Rally, Dirigent, Trace, Rebound: Start mit je 1 Kapitel (6 Stufen, Band 1.0 - 1.8).
+- Trace: Start mit 1 Kapitel (6 Stufen, Band 1.0 - 1.8).
   Ein Modus ohne Kapitel steht in der Auswahl als "Kommt bald".
 - Je Kapitel 5 Stufen und 1 Boss-Stufe (schwerste Map des Kapitels). Mania = 78 Stufen.
 - Jede Stufe: feste Map + Diff (+ Mod) und drei Ziele.
@@ -18,7 +18,7 @@ Alle Spieler spielen dieselben Maps, damit die Scores vergleichbar sind.
 - Freischaltung: naechste Stufe nach dem Hauptziel, naechstes Kapitel nach der Boss-Stufe.
 - Eine Stufe startet wie ein Start aus dem Song-Browser: eigene Einstellungen (2D/3D, Welt
   inklusive Auto, Scroll Speed, Skin, Notenfarben, Spurbreite, Hintergrund ...) und eigene Mods
-  des Modus (Mania SV, Orbit HD/FI/PR, Trace MR/HD/SS). Dazu kommen die Mods der Stufe.
+  des Modus (Mania SV, Trace MR/HD/SS). Dazu kommen die Mods der Stufe.
   No Fail gibt es in der Kampagne nicht (`Campaign.start_mods`, `Campaign.player_mods`).
 - Die Kapitel-Welt ist nur Thema der Kampagnen-Ansicht (Kapitelbild, Name), im Spiel laeuft
   die Welt des Spielers.
@@ -30,7 +30,7 @@ Alle Spieler spielen dieselben Maps, damit die Scores vergleichbar sind.
   Modi mit nur einem Kapitel haben keine.
 - Bestanden mit mindestens 99 % Accuracy (`TRIAL_ACC`) in einem Lauf, ohne Fail und ohne Mods,
   die die Wertung erleichtern (`EASY_MODS`: NF, CS/Konstant). Gilt fuer jeden Modus auf seine
-  eigene Accuracy. Ungewertete Laeufe (`unranked`, z. B. eigene AR in Orbit) zaehlen auch nicht;
+  eigene Accuracy. Ungewertete Laeufe (`unranked`) zaehlen auch nicht;
   Konstant kommt bei Mania aus `Settings.mod_constant`. Sonst passiert nichts; beliebig oft versuchbar, das Ergebnis nennt, was fehlte.
 - Bestanden: alle Kapitel bis einschliesslich des Pruefungs-Kapitels sind offen, ihre Stufen alle
   spielbar. Weil der Lauf auch als Lauf der Boss-Stufe zaehlt, ist deren Hauptziel meist erfuellt
@@ -67,7 +67,7 @@ Mania-Kapitel (Band = osu!mania-Sternwert der 4K-Diff):
 | 12 | singularity | 4.4 - 5.0 | |
 | 13 | boss | 4.8 - 5.6 | |
 
-Andere Modi, Kapitel 1: Orbit eclipse, Rally fractal, Dirigent obsidian, Trace aurora, Rebound abyss.
+Trace, Kapitel 1: aurora.
 
 Ziel-Arten (`goals[].type`): `pass` (ohne Fail), `acc` (Genauigkeit ab Wert 0..1),
 `grade` (Rang oder besser), `miss` (hoechstens n Misses, 0 = kein Miss).
@@ -76,7 +76,7 @@ Die Schwellen steigen linear von Kapitel 1 bis 13.
 ## Map-Liste (`data/campaign.json`)
 
 Fest und fuer alle gleich, nach Modus gegliedert:
-`{version, campaigns: {mania: {chapters: [...]}, orbit: ...}}`. Je Stufe: `id` (`mania-c03s2`), `boss`, `mode`, `mods`, `set_id`,
+`{version, campaigns: {mania: {chapters: [...]}, trace: ...}}`. Je Stufe: `id` (`mania-c03s2`), `boss`, `mode`, `mods`, `set_id`,
 `beatmap_id`, `diff`, `md5` (der .osu), `artist`, `title`, `creator`, `map_stars`,
 `length_s`, `bpm`, `goals`.
 
@@ -142,5 +142,5 @@ setzt bei Mania die Tastenzahl vor den Namen (`[4K] Easy`), in der .osu steht nu
 
 ## Offen
 
-- Orbit, Rally, Dirigent, Trace, Rebound: Kapitel 2 bis 13 fehlen noch. Baender nach Spieltests festlegen.
+- Trace: Kapitel 2 bis 13 fehlen noch. Baender nach Spieltests festlegen.
 - Sudden Death gibt es als Mod noch nicht. Das Ziel "Kein Miss" ersetzt es.

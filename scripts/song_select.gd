@@ -104,10 +104,6 @@ var _nf_btn: Button
 var _sv_enabled := Settings.mod_sv
 var _sv_btn: Button
 var _sv_level_box: Control
-## Orbit-Mods (OrbitCore.ORBIT_MODS): nur im Orbit-Modus sichtbar und aktiv,
-## dort statt SV. HD und FI schliessen sich aus. Gespeichert im Browser-Zustand.
-var _orbit_mods := {"HD": false, "FI": false, "PR": false}
-var _orbit_mod_btns := {}
 ## Trace-Mods (TraceMods.MODS): nur im Trace-Modus sichtbar, neben No-Fail.
 var _trace_mods := {"MR": false, "HD": false, "SS": false}
 var _trace_mod_btns := {}
@@ -119,14 +115,9 @@ const TRACE_MOD_TIPS := {
 	"HD": "Hidden: der Weg blendet zum Kopf hin aus (Score x1,06)",
 	"SS": "Short Sight: nur 500 ms Weg voraus (Score x1,08)",
 }
-const ORBIT_MOD_TIPS := {
-	"HD": "Hidden: Ziele verblassen kurz vor dem Ring (Score x1,06)",
-	"FI": "Fade-In: Ziele erscheinen erst spät (Score x1,06)",
-	"PR": "Präzision: Zeit- und Zielfenster 30 % enger (Score x1,12)",
-}
 ## SV-Stufe (SvMod.strength): kleine Auswahl Normal | Stark am SV-Chip.
 var _sv_level_btns: Array[Button] = []
-## Ranglisten-Kopf: Titel + Modus-Tag (Mania 4K / Orbit).
+## Ranglisten-Kopf: Titel + Modus-Tag (Mania 4K / Trace).
 var _lb_title: Label
 var _lb_mode_tag: Label
 ## Beste Scores: false = lokal, true = Online-Rangliste (OnlineApi).
@@ -153,7 +144,7 @@ var _bg_wait_set: MapSet = null
 # (ResourceLoader-Threads): SPIELEN wechselt dann per change_scene_to_packed,
 # ohne mania_3d.gd erst zu kompilieren und die Stationen zu laden. Statisch
 # gehalten -> bleiben im ResourceCache, auch fuer Retry/naechsten Song.
-const GAME_SCENES := ["res://scenes/mania_3d.tscn", "res://scenes/gameplay_3d.tscn", "res://scenes/orbit.tscn"]
+const GAME_SCENES := ["res://scenes/mania_3d.tscn", "res://scenes/gameplay_3d.tscn", "res://scenes/trace.tscn"]
 const GAME_ASSET_DIRS := ["res://assets_game/stations"]
 const GAME_PRELOAD_DELAY := 0.3
 static var _game_res: Dictionary = {}
@@ -172,7 +163,7 @@ var _coll_unplayable: Array = []  # Maps der Sammlung ohne Diff fuer den Modus (
 # Lokale Filter: Sterne-Bereich + Sortierung (clean als Chip-Reihe).
 var _star_filter := 0
 ## Sortierung (SORT_*) und Bestwert-Filter je Spielmodus getrennt:
-## {"mania": {"sort": int, "best": BEST_*, "grades": Array[String]}, "orbit": {...}}
+## {"mania": {"sort": int, "best": BEST_*, "grades": Array[String]}, "trace": {...}}
 var _mode_filters := {}
 var _sort_btn: OptionButton
 var _best_chips: Array[Button] = []
@@ -189,33 +180,17 @@ var _keys_btn: OptionButton
 ## Filter/Sortierung/Sammlung/Suche bleiben ueber Map-Ende und Neustart erhalten.
 const BROWSER_STATE_PATH := "user://browser_state.cfg"
 var _state_ready := false
-## Spielmodus fuer 4K-Diffs: "mania" (Standard, unveraendert) oder "orbit"
-## (zusaetzlicher Modus). Wird mit dem Browser-Zustand gemerkt.
-const PLAY_MODES := ["mania", "orbit", "rally", "dirigent", "trace", "rebound"]
+## Spielmodus: "mania" (4K-7K) oder "trace" (4K-Maps). Wird mit dem
+## Browser-Zustand gemerkt.
+const PLAY_MODES := ["mania", "trace"]
 var _play_mode := "mania"
 var _mode_btns: Array[Button] = []
 ## Kleiner "Tutorial"-Knopf neben dem Modus-Umschalter (nur wenn der Modus eins hat).
 var _tutorial_btn: Button = null
-## Orbit-Einfuehrung: dezenter Hinweis beim ersten Wechsel auf Orbit, bis
-## das Tutorial einmal gesehen (gestartet oder weggeklickt) ist.
-const ORBIT_TUTORIAL_SCENE := "res://scenes/orbit_tutorial.tscn"
-const ORBIT_TUTORIAL_SCRIPT := "res://scripts/orbit/orbit_tutorial.gd"
-var _orbit_hint: PanelContainer
-var _orbit_hint_force := false  # Harness: auch wenn schon gesehen
-var _hint_kind := ""            # "teach" (Tutorial) | "offer" (Karriere)
 ## Filter-Reihen als ein Stapel: die Listen-Oberkante folgt seiner echten Hoehe.
 var _filter_stack: VBoxContainer
 var _filter_row: HBoxContainer
 var _score_chips_row: HBoxContainer
-## Orbit-Karriere (scripts/orbit/orbit_career.gd): Umschalter Karriere | Frei,
-## Panel statt Liste, Empfehlungen im Frei-Modus.
-var _career_row: HBoxContainer
-var _career_btns: Array[Button] = []
-var _career_level_lbl: Label
-var _career_panel: OrbitCareerPanel
-var _career_state := {}
-var _career_items: Array = []        # aktuelle Vorschlaege (Reihenfolge wie im Panel)
-var _career_dirty := false           # Panel-Neuaufbau steht aus (entprellt)
 var _share_btn: Button
 var _marathon_btn: Button
 var _saved_search := ""
@@ -269,8 +244,6 @@ func _ready() -> void:
 
 	var t_ui := Time.get_ticks_usec()
 	var restore := _load_browser_state()
-	if OS.get_cmdline_args().has("--orbit"):
-		_play_mode = "orbit"  # Debug/Shots: Orbit vorwaehlen (nie gespeichert)
 	for a in OS.get_cmdline_args():
 		if a.begins_with("--mode=") and PLAY_MODES.has(a.trim_prefix("--mode=")):
 			_play_mode = a.trim_prefix("--mode=")  # Debug/Shots: Modus vorwaehlen (nie gespeichert)
@@ -294,11 +267,6 @@ func _ready() -> void:
 			_rec.levels[_play_mode] = Recommender.normalize_level(a.trim_prefix("--rec-level="))
 		elif a == "--rec-hidden" or a == "--rec-collapsed":
 			_rec[a.trim_prefix("--rec-")] = true
-	_career_state = OrbitCareer.load_state()
-	if OS.get_cmdline_args().has("--career"):
-		_career_state["mode"] = OrbitCareer.MODE_CAREER  # Debug/Shots: nie gespeichert
-	elif OS.get_cmdline_args().has("--career-free"):
-		_career_state["mode"] = OrbitCareer.MODE_FREE
 	_coll_translations()
 	_build_ui()
 	GameSession.perf_since("Browser: UI aufbauen", t_ui)
@@ -318,10 +286,10 @@ func _ready() -> void:
 		if a == "--shot-coll-dialog":
 			_collection_name_dialog.call_deferred(tr("Neue Sammlung"), "", tr("Anlegen"),
 				func(_n: String, _m: String) -> bool: return true, _play_mode)
-	_apply_career_layout()
+	_apply_filter_layout()
 	_refresh_filter(_search.text)
 	_state_ready = restore
-	_career_start.call_deferred()
+	_mode_stars_start.call_deferred()
 	GameSession.perf_since("Browser: %d Karten bauen" % _filtered.size(), t_ui)
 	get_window().files_dropped.connect(_on_files_dropped)
 	_offer_own_songs.call_deferred()
@@ -350,22 +318,6 @@ func _ready() -> void:
 		_headless_report()
 	elif GameSession.perf_enabled:
 		_perf_flow.call_deferred()
-	elif OS.get_cmdline_args().has("--orbit") and OS.get_cmdline_args().has("--autoplay"):
-		# Debug/Shots: erste 4K-Diff im Orbit-Modus automatisch starten.
-		# --orbit-mods=HD,PR setzt Orbit-Mods nur fuer diesen Lauf (nie gespeichert).
-		_play_mode = "orbit"
-		for a in OS.get_cmdline_args():
-			if a.begins_with("--orbit-mods="):
-				_state_ready = false  # Debug-Mods nie in browser_state.cfg
-				for k in OrbitCore.ORBIT_MODS:
-					_orbit_mods[k] = k in a.trim_prefix("--orbit-mods=").to_upper().split(",")
-		var pk := _debug_pick()
-		if not pk.is_empty():
-			_select_set(pk[0], pk[1])
-			_selected_diff = pk[1]
-			_on_play_pressed.call_deferred()
-			return
-		push_warning("--orbit: keine passende 4K-Diff gefunden")
 	elif OS.get_cmdline_args().has("--mania"):
 		# Debug: erste 4K-Mania-Diff automatisch starten.
 		var pk := _debug_pick()
@@ -395,9 +347,6 @@ func _ready() -> void:
 	elif OS.get_cmdline_args().has("--shot-import"):
 		# Harness: Import-Fenster mit Fortschritt und Drop-Hinweis als PNGs.
 		_shot_import.call_deferred()
-	elif OS.get_cmdline_args().has("--shot-orbit-hint"):
-		# Harness: Hinweis "Orbit lernen" beim Wechsel auf Orbit als PNG.
-		_shot_orbit_hint.call_deferred()
 	elif OS.get_cmdline_args().has("--shot-settings"):
 		# Harness: Einstellungen oeffnen, das Panel fotografiert seine Reiter selbst.
 		# --skin2d=<Ordnername>: Skin fuer die Vorschau (nur im Speicher, nicht gespeichert).
@@ -411,7 +360,7 @@ func _ready() -> void:
 		_capture_screenshot_and_quit()
 
 
-## Debug (--mania/--orbit): erste im Modus sichtbare Diff (Orbit auch osu!standard), optional gefiltert. --map=<text>
+## Debug (--mania): erste im Modus sichtbare Diff, optional gefiltert. --map=<text>
 ## sucht in "artist - title [version]", --diff=<text> in der Version (beides
 ## ohne Gross/Klein). Nur fuer Harness/Videos, nie gespeichert. [] = keine.
 func _debug_pick() -> Array:
@@ -497,7 +446,7 @@ func _shot_online() -> void:
 	get_tree().quit(0)
 
 
-## Harness --shot-modes: Demo-Scores (Mania, Mania+SV, Orbit) fuer die erste
+## Harness --shot-modes: Demo-Scores (Mania, Mania+SV, Trace) fuer die erste
 ## 4K-Diff, dann Browser in beiden Modi, Results mit Modus-Abzeichen und
 ## Profil in beiden Modi als PNGs (MODES_SHOT_DIR). Laeuft NUR mit
 ## --scores-path=<Test-Kopie>, nie gegen user://scores.cfg; speichert weder
@@ -535,11 +484,7 @@ func _shot_modes() -> void:
 			"mods": ["SV"], "sv_level": "strong" }, ""],
 		[{ "score": 801220, "grade": "A", "accuracy": 0.9301, "max_combo": 377, "pp": 139.2,
 			"mods": ["SV", "NF"], "sv_level": "normal" }, ""],
-		[{ "score": 951880, "grade": "S", "accuracy": 0.9821, "max_combo": 640, "mode": "orbit" }, ScoreStore.MODE_ORBIT],
-		[{ "score": 702115, "grade": "B", "accuracy": 0.8874, "max_combo": 210, "mode": "orbit",
-			"mods": ["SV"], "sv_level": "strong" }, ScoreStore.MODE_ORBIT],
 		[{ "score": 883400, "grade": "A", "accuracy": 0.9520, "max_combo": 498, "mode": "trace" }, ScoreStore.MODE_TRACE],
-		[{ "score": 905120, "grade": "S", "accuracy": 0.9655, "max_combo": 530, "mode": "rebound" }, ScoreStore.MODE_REBOUND],
 	]
 	for d in demo:
 		ScoreStore.submit(osz, ver, d[0], d[1])
@@ -558,7 +503,7 @@ func _shot_modes() -> void:
 		await get_tree().create_timer(1.2).timeout
 		await RenderingServer.frame_post_draw
 		get_viewport().get_texture().get_image().save_png(dir.path_join("modes_browser_%s.png" % mode))
-	# Results (Mania + Orbit): Fake-Daten, previous_best explizit (kein Speichern).
+	# Results (Mania + Trace): Fake-Daten, previous_best explizit (kein Speichern).
 	GameSession.osz_path = osz
 	GameSession.difficulty_version = ver
 	var rng := RandomNumberGenerator.new()
@@ -567,10 +512,10 @@ func _shot_modes() -> void:
 	for _i in 300:
 		offs.append(rng.randfn(3.2, 17.0))
 	for mode in PLAY_MODES:
-		var orbit: bool = mode == "orbit"
-		var s := { "score": 958210 if orbit else 931400, "grade": "S", "accuracy": 0.9764,
+		var trace: bool = mode == ScoreStore.MODE_TRACE
+		var s := { "score": 958210 if trace else 931400, "grade": "S", "accuracy": 0.9764,
 			"max_combo": 655, "combo": 0, "n_max": 700, "n300": 640, "n200": 41, "n100": 9,
-			"n50": 2, "n_miss": 8, "pp": -1.0 if orbit else 190.6, "sv_level": "normal" if orbit else "strong" }
+			"n50": 2, "n_miss": 8, "pp": -1.0 if trace else 190.6, "sv_level": "normal" if trace else "strong" }
 		if mode != "mania":
 			s["mode"] = mode
 		var rs := ResultsScreen.new()
@@ -591,22 +536,22 @@ func _shot_modes() -> void:
 	# Profil in beiden Modi.
 	var pp := ProfilePanel.new()
 	add_child(pp)
-	for mode in ["", ScoreStore.MODE_ORBIT]:
+	for mode in ["", ScoreStore.MODE_TRACE]:
 		pp._set_mode(mode)
 		await get_tree().create_timer(2.0).timeout
 		await RenderingServer.frame_post_draw
 		get_viewport().get_texture().get_image().save_png(
-			dir.path_join("modes_profile_%s.png" % ("orbit" if mode != "" else "mania")))
+			dir.path_join("modes_profile_%s.png" % ("trace" if mode != "" else "mania")))
 	print("MODES-SHOTS: " + dir)
 	get_tree().quit(0)
 
 
 func _capture_screenshot_and_quit() -> void:
-	# Orbit: Sterne werden asynchron berechnet, darum laenger warten.
+	# Trace: Sterne werden asynchron berechnet, darum laenger warten.
 	var wait := 1.0 if _play_mode == "mania" else 4.0
 	for a in OS.get_cmdline_args():
 		if a.begins_with("--shot-wait="):
-			wait = float(a.trim_prefix("--shot-wait="))  # Orbit-Karriere: Sterne brauchen laenger
+			wait = float(a.trim_prefix("--shot-wait="))
 	await get_tree().create_timer(wait).timeout
 	await RenderingServer.frame_post_draw
 	if not is_inside_tree():
@@ -645,7 +590,6 @@ func _build_ui() -> void:
 	_build_info_panel()
 	_build_stage()
 	_build_list()
-	_build_career_panel()
 	_update_list_top()
 
 
@@ -726,13 +670,12 @@ func _build_header() -> void:
 	top_right.add_child(_import_btn)
 
 	# Filter-Reihen stehen in einem Stapel: wird eine Reihe hoeher oder kommt eine
-	# dazu (Orbit: Karriere/Frei, Sammlungen), rutscht die Liste mit.
+	# dazu (Sammlungen), rutscht die Liste mit.
 	_filter_stack = VBoxContainer.new()
 	_place_right(_filter_stack, FILTER_Y, 0.0)
 	_filter_stack.add_theme_constant_override("separation", 8)
 	_filter_stack.minimum_size_changed.connect(_update_list_top)
 	add_child(_filter_stack)
-	_build_career_row()
 
 	# Filter-Reihe: Anzahl links, Sterne-Chips + Sortierung rechtsbuendig.
 	var filter_row := HBoxContainer.new()
@@ -1074,7 +1017,7 @@ func _build_info_panel() -> void:
 	_play_btn = play
 
 	# Mods + Sammlung: No-Fail als Schalter, Sammlung als Ghost-Button.
-	# Umbrechend: im Orbit-Modus kommen HD/FI/PR dazu; eine starre Zeile machte das
+	# Umbrechend: im Trace-Modus kommen MR/HD/SS dazu; eine starre Zeile machte das
 	# Panel breiter als INFO_W und es lief unter das Cover in der Mitte.
 	var mods_row := HFlowContainer.new()
 	mods_row.add_theme_constant_override("h_separation", 8)
@@ -1124,10 +1067,6 @@ func _build_info_panel() -> void:
 	_sv_btn = sv
 	_sv_level_box = _build_sv_level()
 	mods_row.add_child(_sv_level_box)
-	for k in OrbitCore.ORBIT_MODS:
-		var ob := _make_orbit_mod_button(k)
-		mods_row.add_child(ob)
-		_orbit_mod_btns[k] = ob
 	for k in TraceMods.MODS:
 		var tb := _make_trace_mod_button(k)
 		mods_row.add_child(tb)
@@ -1425,7 +1364,7 @@ func _set_collection_mode(on: bool) -> void:
 		var names := CollectionStore.list_for(_play_mode)
 		_active_collection = names[0] if not names.is_empty() else ""
 	_chips_row.visible = on
-	_apply_career_layout()
+	_apply_filter_layout()
 	_style_tabs()
 	_rebuild_chips()
 	_refresh_filter(_search.text)
@@ -1969,10 +1908,6 @@ func _load_browser_state() -> bool:
 		_play_mode = pm if PLAY_MODES.has(pm) else "mania"
 		SvMod.strength = SvMod.level_from_name(str(cfg.get_value("browser", "sv_level", "strong")))
 		_rec = rec_sanitize(cfg.get_value("browser", "recs", {}))
-		var om = cfg.get_value("browser", "orbit_mods", {})
-		if om is Dictionary:
-			for k in OrbitCore.ORBIT_MODS:
-				_orbit_mods[k] = bool(om.get(k, false))
 		var tmd = cfg.get_value("browser", "trace_mods", {})
 		if tmd is Dictionary:
 			for k in TraceMods.MODS:
@@ -1999,7 +1934,6 @@ func _save_browser_state() -> void:
 	cfg.set_value("browser", "collection_mode", _collection_mode)
 	cfg.set_value("browser", "play_mode", _play_mode)
 	cfg.set_value("browser", "sv_level", SvMod.level_name())
-	cfg.set_value("browser", "orbit_mods", _orbit_mods.duplicate())
 	cfg.set_value("browser", "trace_mods", _trace_mods.duplicate())
 	cfg.set_value("browser", "rule_mods", _rule_mods.duplicate())
 	cfg.set_value("browser", "recs", rec_sanitize(_rec))
@@ -2038,7 +1972,7 @@ func _refresh_filter(query: String) -> void:
 				continue
 		if _sv_filter and not coll and not ms.has_sv():
 			continue
-		# Modus-Filter: osu!standard-Diffs nur im Orbit-Modus (MapSet.mode_shows).
+		# Modus-Filter: nur die im Modus spielbaren Mania-Diffs (MapSet.mode_shows).
 		var vis := ms.visible_diffs(_vm())
 		if vis.is_empty():
 			if coll:
@@ -2124,7 +2058,7 @@ static func sanitize_mode_filter(d: Dictionary) -> Dictionary:
 	return out
 
 
-## Index aus scores.cfg fuer einen Modus ("" = Mania, "orbit"; Sektionen per
+## Index aus scores.cfg fuer einen Modus ("" = Mania, "trace"; Sektionen per
 ## ScoreStore._sec): {osz-Datei: {Version: {"grade", "last", "plays"}}}.
 ## "last" = juengstes Datum aus History/Recent (ISO, also als Text vergleichbar).
 static func build_score_index(cfg: ConfigFile, mode: String) -> Dictionary:
@@ -2344,7 +2278,7 @@ func _begin_game_preload() -> void:
 		if _game_res.has(p) or _game_req.has(p) or not ResourceLoader.exists(p):
 			continue
 		# Ohne Sub-Threads: parallele Unter-Ladevorgaenge gemeinsamer Abhaengigkeiten
-		# (mania_3d/gameplay_3d/orbit) liessen in Godot 4.7 interne Lade-Token liegen
+		# (mania_3d/gameplay_3d/trace) liessen in Godot 4.7 interne Lade-Token liegen
 		# (2-3 "ObjectDB instances leaked at exit", RefCounted, Referenzzahl 0).
 		if AsyncLoad.request(p, "", false) == OK:
 			_game_req.append(p)
@@ -2459,7 +2393,6 @@ func _rebuild_cards() -> void:
 	_scores_cfg = null
 	if _selected_set != null:
 		_apply_card_highlight()
-	_refresh_recommended()
 
 
 ## Sammlungs-Ansicht: Map ohne Diff fuer den aktuellen Modus. Bleibt sichtbar,
@@ -2680,17 +2613,6 @@ func _make_card(ms: MapSet) -> Button:
 	if kb != null:
 		hb.add_child(kb)
 
-	# Orbit/Frei: dezente Marke "Empfohlen", wenn die Map zur Karriere-Stufe passt.
-	var rec := Label.new()
-	rec.text = tr("Empfohlen")
-	rec.visible = false
-	rec.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	rec.add_theme_font_size_override("font_size", 11)
-	rec.add_theme_color_override("font_color", UiTheme.ACCENT2)
-	rec.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hb.add_child(rec)
-	card.set_meta("rec_lbl", rec)
-
 	# Grade-Badge des besten Scores im aktiven Modus: klein, fester Platz,
 	# Notenfarbe. Beim Moduswechsel per _refresh_card_grades() neu.
 	var g := Label.new()
@@ -2715,17 +2637,16 @@ func _make_card(ms: MapSet) -> Button:
 
 	return card
 
-## Bester Rang des Sets im aktiven Modus (Orbit: nur 4K-Diffs, eigene
-## Orbit-Sektion; Mania: wie bisher "scores"). "" ohne Score.
+## Bester Rang des Sets im aktiven Modus (Trace: eigene Sektion; Mania:
+## wie bisher "scores"). "" ohne Score.
 func _best_grade_badge(ms: MapSet) -> String:
 	if _scores_cfg == null:
 		return ""
-	var orbit := _play_mode != "mania"
 	var sec := ScoreStore._sec("scores", _pm())
 	var best_g := ""
 	var best_rank := 999
 	for i in range(ms.difficulty_count() - 1, -1, -1):
-		if not ms.diff_visible(i, _vm()) or (not orbit and int(ms.meta_at(i).get("mode", 0)) != 3):
+		if not ms.diff_visible(i, _vm()):
 			continue
 		# Gleiche Abfrage wie ScoreStore.best(), aber ohne scores.cfg pro Aufruf neu zu lesen.
 		var best = _scores_cfg.get_value(sec, ScoreStore._key(ms.osz_path, ms.version_name_at(i)), {})
@@ -2807,8 +2728,6 @@ func _cycle_difficulty(dir: int) -> void:
 func _update_info_panel() -> void:
 	if _selected_set == null:
 		return
-	if _career_panel != null:
-		_career_panel.set_selected(_selected_set, _selected_diff)
 	_recs_mark_selected()
 	var m := _selected_set.meta_at(_selected_diff)
 	# Sofort das schnelle Thumbnail zeigen, das Full-Res-Cover einen Frame
@@ -2828,9 +2747,6 @@ func _update_info_panel() -> void:
 	var keys := int(round(float(m.get("cs", 4.0))))
 	_diff_label.text = _selected_set.version_name_at(_selected_diff).strip_edges() 		+ (("  ·  %dK" % keys) if is_mania else "  ·  osu!standard")
 	_refresh_star_label()
-	var src := _star_src()
-	if src != "mania" and src != "trace" and _orbit_diff_ok(_selected_set, _selected_diff):
-		_orbit_stars_request(_selected_set.osz_path, _selected_set.version_name_at(_selected_diff))
 	_bg_front_set(_selected_set)
 	var notes := tr("%d Noten") % int(m.get("notes", 0))
 	var od := "OD " + UiTheme.fmt_num(float(m.get("od", 0.0)))
@@ -2850,9 +2766,8 @@ func _update_info_panel() -> void:
 	for c in _lb_box.get_children():
 		c.queue_free()
 	# Eigene + Scores von Mitspielern (Multiplayer-Sync), beste zuerst.
-	# Orbit-Modus (nur 4K-Diffs): nur Orbit-Scores, getrennt von Mania.
-	var orbit := _play_mode != "mania" and int(m.get("mode", 0)) in [0, 3]
-	var score_mode := _pm() if orbit else ""
+	# Trace: nur Trace-Scores, getrennt von Mania.
+	var score_mode := _pm()
 	# Mods-Schalter "Mines" an: eigene Liste "mania_mn" (RuleMods), Kopf zeigt "Mines".
 	if _play_mode == "mania":
 		score_mode = RuleMods.board_mode(score_mode, _rule_mods)
@@ -2875,14 +2790,15 @@ func _update_info_panel() -> void:
 		_lb_box.add_child(_score_row(i, tops[i]))
 	_fill_missing_pp(tops, score_mode)
 	# Replay-Button nur zeigen, wenn fuer diese Diff ein Replay existiert.
-	# Orbit: Replay des besten Orbit-Laufs (ReplayStore-Modus "orbit").
+	# Trace: Replay des besten Trace-Laufs (ReplayStore-Modus "trace").
 	if _replay_btn != null:
 		var ver := _selected_set.version_name_at(_selected_diff)
-		if orbit:
-			# Replay des besten Laufs; Rally/Dirigent nur, sobald ihre Szene da ist.
-			_replay_btn.visible = ScoreStore.mode_ready(score_mode) 					and ReplayStore.exists(_selected_set.osz_path, ver, ReplayStore.best_mode_of(score_mode))
+		if _play_mode != "mania":
+			_replay_btn.visible = ScoreStore.mode_ready(score_mode) \
+					and ReplayStore.exists(_selected_set.osz_path, ver, ReplayStore.best_mode_of(score_mode))
 		else:
-			_replay_btn.visible = int(m.get("mode", 0)) == 3 				and ReplayStore.exists(_selected_set.osz_path, ver)
+			_replay_btn.visible = int(m.get("mode", 0)) == 3 \
+					and ReplayStore.exists(_selected_set.osz_path, ver)
 	_apply_card_highlight()
 
 
@@ -3333,8 +3249,6 @@ func _score_row(rank: int, e: Dictionary) -> Control:
 			pp_lbl.tooltip_text = tr("Geschätzt aus Accuracy (Multiplayer-Score ohne pp)")
 			pp_lbl.mouse_filter = Control.MOUSE_FILTER_PASS
 			pp_lbl.modulate.a = 0.7
-	if str(e.get("mode", "")) == ScoreStore.MODE_ORBIT:
-		pp_lbl.visible = false  # Orbit hat keine pp
 	pp_lbl.add_theme_font_size_override("font_size", 13)
 	pp_lbl.add_theme_color_override("font_color", UiTheme.ACCENT2)
 	row.add_child(pp_lbl)
@@ -3365,24 +3279,20 @@ func _score_row(rank: int, e: Dictionary) -> Control:
 	return row
 
 
-## Modus-Umschalter Mania 4K | Orbit | Rally / Dirigent | Trace | Rebound als 3x2-Raster
+## Modus-Umschalter Mania | Trace als Zweier-Reihe
 ## (gleiche Toggle-Optik wie die Filter-Chips).
 const MODE_TIPS := {
 	"mania": "Classic: 4 to 7 lanes (4K to 7K maps)",
-	"orbit": "Zielen mit Maus/Tablet, Ring per Taste (osu!standard- und 4K-Maps)",
-	"rally": "Tischtennis im Takt: Schläge auf die Noten, zwei Tasten",
-	"dirigent": "Taktfigur mit der Maus führen, Einsätze per Taste",
 	"trace": "Ein Leuchtfaden zeichnet die Map: jede Note ein Knick (4K-Maps)",
-	"rebound": "Vier Bälle springen auf ihre Noten (4K-Maps)",
 }
 
 
 func _build_mode_switch() -> Control:
 	var grid := GridContainer.new()
-	grid.columns = 3
+	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 4)
 	grid.add_theme_constant_override("v_separation", 4)
-	grid.custom_minimum_size = Vector2(0, 58)
+	grid.custom_minimum_size = Vector2(0, 27)
 	_mode_btns.clear()
 	for m in PLAY_MODES:
 		var b := _make_toggle("Mania" if m == "mania" else ScoreStore.mode_label(m), 13, 6)  # Mania = 4K-7K
@@ -3398,8 +3308,8 @@ func _build_mode_switch() -> Control:
 	return grid
 
 
-## Sichtbarkeits-Modus fuer MapSet: Orbit/Rally/Dirigent zeigen 4K und osu!standard,
-## Trace/Rebound nur Mania-4K, Mania 4K-7K (mit Tasten-Filter nur diese Tastenzahl).
+## Sichtbarkeits-Modus fuer MapSet: Trace nur Mania-4K, Mania 4K-7K (mit
+## Tasten-Filter nur diese Tastenzahl).
 func _vm() -> String:
 	if _play_mode == "mania" and _key_filter > 0:
 		return "mania@%d" % _key_filter
@@ -3408,9 +3318,7 @@ func _vm() -> String:
 
 ## Sicht-Modus (MapSet.mode_shows) eines Spielmodus ohne Tasten-Filter.
 static func view_mode_of(m: String) -> String:
-	if m == "mania":
-		return "mania"
-	return "mania@4" if ScoreStore.is_mania_like(m) else "orbit"
+	return "mania" if m == "mania" else "mania@4"
 
 
 ## Tasten-Filter: Auswahl "Alle Tasten / 4K ... 7K" im Stil der Sortierung.
@@ -3469,7 +3377,7 @@ func _keys_badge(ms: MapSet) -> Control:
 	return pc
 
 
-## Aktiver Modus wertet wie Mania 4K auf Mania-Maps (Mania, Trace, Rebound).
+## Aktiver Modus wertet wie Mania 4K auf Mania-Maps (Mania, Trace).
 func _mania_like() -> bool:
 	return ScoreStore.is_mania_like(_play_mode)
 
@@ -3484,9 +3392,6 @@ func _apply_tutorial_btn() -> void:
 
 
 func _start_mode_tutorial() -> void:
-	if _play_mode == "orbit":
-		_start_orbit_tutorial()
-		return
 	var path := ScoreStore.mode_tutorial(_play_mode)
 	if path == "":
 		return
@@ -3520,14 +3425,12 @@ func _set_play_mode(mode: String) -> void:
 	_apply_play_state()
 	_restyle_score_chips()  # Sortierung/Bestwert-Filter sind je Modus gemerkt
 	_apply_mod_visibility()
-	if mode == "orbit":
-		_show_orbit_hint()
-	_apply_career_layout()
-	_career_start()
+	_apply_filter_layout()
+	_mode_stars_start()
 	_recs_refresh()
 	if _collection_mode:
 		_rebuild_chips()  # Sammlungen haengen am Modus
-	# Sichtbare Maps haengen am Modus (osu!standard nur im Orbit-Modus).
+	# Sichtbare Maps haengen am Modus (Trace nur 4K).
 	var keep := _selected_set
 	_refresh_filter(_search.text)
 	_refresh_card_grades()
@@ -3542,127 +3445,11 @@ func _set_play_mode(mode: String) -> void:
 		_save_browser_state()
 
 
-## Hinweis ueber dem Modus-Umschalter: "Orbit lernen (1 Min.)", bis das Tutorial
-## gesehen ist; danach einmalig "Karriere starten" (Angebot nach dem Tutorial).
-func _show_orbit_hint() -> void:
-	if _orbit_hint != null or _mode_btns.is_empty():
-		return
-	var tut: GDScript = load(ORBIT_TUTORIAL_SCRIPT)
-	var teach := _orbit_hint_force or not bool(tut.is_seen())
-	var offer := not teach and bool(_career_state.get("offer", false)) 			and str(_career_state.get("mode", "")) != OrbitCareer.MODE_CAREER
-	if not teach and not offer:
-		return
-	_hint_kind = "teach" if teach else "offer"
-	var p := PanelContainer.new()
-	var sb := UiTheme.glass_box(8, 0.96, 0.22)
-	sb.content_margin_left = 14
-	sb.content_margin_right = 12
-	sb.content_margin_top = 10
-	sb.content_margin_bottom = 10
-	p.add_theme_stylebox_override("panel", sb)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 12)
-	p.add_child(row)
-	var tick := ColorRect.new()
-	tick.color = UiTheme.ACCENT
-	tick.custom_minimum_size = Vector2(3, 0)
-	row.add_child(tick)
-	var txt := Label.new()
-	txt.text = tr("Neu in Orbit?") if teach else tr("Orbit in kleinen Schritten lernen?")
-	txt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	txt.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	txt.add_theme_font_size_override("font_size", 13)
-	txt.add_theme_color_override("font_color", COL_TEXT)
-	row.add_child(txt)
-	var learn := Button.new()
-	learn.text = tr("Orbit lernen (1 Min.)") if teach else tr("Karriere starten")
-	learn.tooltip_text = tr("Eine kurze Einführung zeigt Zielen, Ringe und Bögen.") if teach 			else tr("Empfiehlt dir passende Maps und steigert die Schwierigkeit mit dir.")
-	learn.focus_mode = Control.FOCUS_NONE
-	UiTheme.style_button(learn, true, 8)
-	learn.pressed.connect(_start_orbit_tutorial if teach else _accept_career_offer)
-	row.add_child(learn)
-	var later := Button.new()
-	later.text = tr("Später")
-	later.focus_mode = Control.FOCUS_NONE
-	UiTheme.style_ghost_button(later, 8)
-	later.pressed.connect(_dismiss_orbit_hint)
-	row.add_child(later)
-	p.modulate.a = 0.0
-	add_child(p)
-	_orbit_hint = p
-	_place_orbit_hint.call_deferred()
-	create_tween().tween_property(p, "modulate:a", 1.0, 0.25)
-
-
-## Ueber den Modus-Umschalter setzen, im Bild gehalten.
-func _place_orbit_hint() -> void:
-	if _orbit_hint == null or _mode_btns.is_empty():
-		return
-	# So breit wie die Zeile Modus-Umschalter + Spielen.
-	var anchor := (_mode_btns[0].get_parent() as Control).get_global_rect()
-	if _play_btn != null:
-		anchor = anchor.merge(_play_btn.get_global_rect())
-	var sz := _orbit_hint.get_combined_minimum_size()
-	sz.x = maxf(sz.x, anchor.size.x)
-	_orbit_hint.size = sz
-	var vp := get_viewport_rect().size
-	var pos := Vector2(anchor.position.x, anchor.position.y - sz.y - 10.0)
-	_orbit_hint.position = Vector2(clampf(pos.x, 8.0, maxf(vp.x - sz.x - 8.0, 8.0)), maxf(pos.y, 8.0))
-
-
-func _dismiss_orbit_hint() -> void:
-	if _hint_kind == "offer":
-		_career_state["offer"] = false  # Angebot nur einmal zeigen
-		OrbitCareer.save_state(_career_state)
-	else:
-		(load(ORBIT_TUTORIAL_SCRIPT) as GDScript).mark_seen()
-	if _orbit_hint == null:
-		return
-	var p := _orbit_hint
-	_orbit_hint = null
-	var tw := create_tween()
-	tw.tween_property(p, "modulate:a", 0.0, 0.18)
-	tw.tween_callback(p.queue_free)
-
-
-func _start_orbit_tutorial() -> void:
-	(load(ORBIT_TUTORIAL_SCRIPT) as GDScript).mark_seen()
-	_preview.stop()
-	SceneFader.go(ORBIT_TUTORIAL_SCENE)
-
-
-## Harness --shot-orbit-hint [--shot-out=<ordner>]: Wechsel Mania -> Orbit,
-## Hinweis de und en fotografieren.
-## Speichert den Browser-Zustand nicht (Modus des Nutzers bleibt).
-func _shot_orbit_hint() -> void:
-	_state_ready = false
-	_play_mode = "mania"
-	_orbit_hint_force = true
-	_set_play_mode("orbit")
-	var dir := OS.get_user_data_dir()
-	for a in OS.get_cmdline_args():
-		if a.begins_with("--shot-out="):
-			dir = a.trim_prefix("--shot-out=")
-	# Beide Sprachen in einem Lauf: Hinweis je Sprache neu bauen.
-	for lang in ["de", "en"]:
-		TranslationServer.set_locale(lang)
-		if _orbit_hint != null:
-			_orbit_hint.free()
-			_orbit_hint = null
-		_show_orbit_hint()
-		await get_tree().create_timer(0.9).timeout
-		await RenderingServer.frame_post_draw
-		var out := dir.path_join("orbit_hint_%s.png" % lang)
-		get_viewport().get_texture().get_image().save_png(out)
-		print("SHOT gespeichert: " + out)
-	get_tree().quit(0)
-
-
-## Modus-Tag im Ranglisten-Kopf (Mania 4K = ACCENT, Orbit = ACCENT2).
+## Modus-Tag im Ranglisten-Kopf (Akzentfarbe; Minen-Liste mit eigenem Text).
 func _style_lb_mode_tag(score_mode: String) -> void:
 	if _lb_mode_tag == null:
 		return
-	var col := UiTheme.ACCENT2 if score_mode == ScoreStore.MODE_ORBIT else COL_ACCENT
+	var col := COL_ACCENT
 	_lb_mode_tag.text = (RuleMods.board_tag(score_mode).replace("Mania 4K", _score_label(""))
 			if RuleMods.is_mines_board(score_mode) else _score_label(score_mode)).to_upper()   # Minen: "MANIA 7K · MINES"
 	_lb_mode_tag.add_theme_color_override("font_color", col.lerp(COL_TEXT, 0.25))
@@ -3746,8 +3533,8 @@ func _on_play_pressed() -> void:
 	_preview.stop()
 	# Auto-Erkennung: Mania-Diffs (Mode 3) starten die 4K-Szene.
 	var mode := int(_selected_set.meta_at(_selected_diff).get("mode", 0))
-	if (mode == 3 or mode == 0) and _play_mode != "mania":
-		# Orbit/Rally/Dirigent spielen 4K-Mania und osu!standard (eigene Szene je Modus).
+	if mode == 3 and _play_mode != "mania":
+		# Trace spielt 4K-Mania in eigener Szene.
 		if not ScoreStore.mode_ready(_play_mode):
 			_apply_play_state()
 			return
@@ -3758,13 +3545,11 @@ func _on_play_pressed() -> void:
 		_change_to_game("res://scenes/gameplay_3d.tscn")
 
 
-## Orbit-Mod-Schalter im Stil der NF/SV-Schalter.
-func _make_orbit_mod_button(key: String) -> CheckButton:
+## Mod-Schalter im Stil der NF/SV-Schalter (Tipp, Zustand und Signal setzt der Aufrufer).
+func _make_mod_button(key: String) -> CheckButton:
 	var b := CheckButton.new()
 	b.text = key
-	b.tooltip_text = str(ORBIT_MOD_TIPS.get(key, ""))  # Trace-Mods (MR/SS) setzen ihren Tipp selbst
 	b.focus_mode = Control.FOCUS_NONE
-	b.button_pressed = bool(_orbit_mods.get(key, false))
 	b.custom_minimum_size = Vector2(0, 40)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.add_theme_font_size_override("font_size", 14)
@@ -3777,29 +3562,24 @@ func _make_orbit_mod_button(key: String) -> CheckButton:
 	for fc in ["font_color", "font_pressed_color", "font_hover_color", "font_hover_pressed_color"]:
 		b.add_theme_color_override(fc, COL_TEXT)
 	UiTheme._attach_sounds(b)
-	b.toggled.connect(func(on: bool): _on_orbit_mod_toggled(key, on))
 	return b
 
 
 ## Trace-Mod-Schalter (MR/HD/SS) im Stil der NF/SV-Schalter.
 func _make_trace_mod_button(key: String) -> CheckButton:
-	var b := _make_orbit_mod_button(key)
+	var b := _make_mod_button(key)
 	b.tooltip_text = TRACE_MOD_TIPS[key]
 	b.button_pressed = bool(_trace_mods.get(key, false))
-	for c in b.toggled.get_connections():
-		b.toggled.disconnect(c["callable"])
 	b.toggled.connect(func(on: bool): _on_trace_mod_toggled(key, on))
 	return b
 
 
 ## Regel-Mod-Schalter (SD/PF/MN) im Stil der NF/SV-Schalter.
 func _make_rule_mod_button(key: String) -> CheckButton:
-	var b := _make_orbit_mod_button(key)
+	var b := _make_mod_button(key)
 	b.text = RuleMods.label(key)
 	b.tooltip_text = RuleMods.tip(key)
 	b.button_pressed = bool(_rule_mods.get(key, false))
-	for c in b.toggled.get_connections():
-		b.toggled.disconnect(c["callable"])
 	b.toggled.connect(func(on: bool): _on_rule_mod_toggled(key, on))
 	return b
 
@@ -3829,30 +3609,14 @@ func _on_trace_mod_toggled(key: String, on: bool) -> void:
 		_save_browser_state()
 
 
-func _on_orbit_mod_toggled(key: String, on: bool) -> void:
-	_orbit_mods[key] = on
-	# HD und FI zusammen liessen nur ein schmales Band sichtbar: einer von beiden.
-	var other := "FI" if key == "HD" else ("HD" if key == "FI" else "")
-	if on and other != "":
-		_orbit_mods[other] = false
-	for k in _orbit_mod_btns:
-		(_orbit_mod_btns[k] as CheckButton).set_pressed_no_signal(bool(_orbit_mods[k]))
-	if _state_ready:
-		_save_browser_state()
-
-
-## Mania zeigt SV (+ Stufe), Orbit stattdessen HD/FI/PR; No-Fail in beiden.
+## Mania zeigt SV (+ Stufe), Trace stattdessen MR/HD/SS; No-Fail in beiden.
 func _apply_mod_visibility() -> void:
-	var orbit := _play_mode == "orbit"
 	if _sv_btn != null:
 		_sv_btn.visible = _play_mode == "mania"
 	if _sv_level_box != null:
 		_sv_level_box.visible = _play_mode == "mania"
 	if _marathon_btn != null:
 		_marathon_btn.visible = _play_mode == "mania"
-	for k in _orbit_mod_btns:
-		(_orbit_mod_btns[k] as CheckButton).visible = orbit
-		(_orbit_mod_btns[k] as CheckButton).set_pressed_no_signal(bool(_orbit_mods[k]))
 	for k in _trace_mod_btns:
 		(_trace_mod_btns[k] as CheckButton).visible = _play_mode == "trace"
 		(_trace_mod_btns[k] as CheckButton).set_pressed_no_signal(bool(_trace_mods[k]))
@@ -3875,20 +3639,13 @@ func _current_mods() -> Dictionary:
 	return RuleMods.apply(_base_mods(), _rule_mods, _play_mode)
 
 
-## Orbit: NF + Orbit-Mods (SV wirkt im Orbit nicht und zaehlt dort nicht).
+## Trace: NF + Trace-Mods (SV wirkt dort nicht); Mania: NF + SV + Tempo.
 func _base_mods() -> Dictionary:
 	if _play_mode == "trace":
 		var tm := {"NF": _nf_enabled}
 		for k in TraceMods.MODS:
 			tm[k] = bool(_trace_mods.get(k, false))
 		return tm
-	if _play_mode in ["rally", "dirigent", "rebound"]:
-		return {"NF": _nf_enabled}
-	if _play_mode == "orbit":
-		var m := {"NF": _nf_enabled}
-		for k in OrbitCore.ORBIT_MODS:
-			m[k] = bool(_orbit_mods.get(k, false))
-		return m
 	return TempoBrowserRow.add_mods({"NF": _nf_enabled, "SV": _sv_enabled})
 
 
@@ -3921,19 +3678,16 @@ func _load_fullres_bg(target_set: MapSet) -> void:
 func _watch_replay() -> void:
 	if _selected_set == null:
 		return
-	var orbit := _play_mode == "orbit" 		and int(_selected_set.meta_at(_selected_diff).get("mode", 0)) in [0, 3]
-	var rg := _play_mode != "mania" and _play_mode != "orbit" 			and int(_selected_set.meta_at(_selected_diff).get("mode", 0)) in [0, 3]
-	if rg and not ScoreStore.mode_ready(_play_mode):
+	var trace := _play_mode != "mania"
+	if trace and not ScoreStore.mode_ready(_play_mode):
 		return
-	var rmode := ReplayStore.best_mode_of(_play_mode) if (orbit or rg) else "mania"
+	var rmode := ReplayStore.best_mode_of(_play_mode) if trace else "mania"
 	var data := ReplayStore.load_replay(_selected_set.osz_path,
 		_selected_set.version_name_at(_selected_diff), rmode)
 	if data.is_empty():
 		return
-	# Orbit-Replays tragen auch HD/FI/PR (sonst liefe die Wertung anders);
-	# Trace/Rebound speichern Mania-Mods (SV/NF ...) wie Mania.
-	var orbit_mods := (orbit or rg) and not _mania_like()
-	GameSession.mods = OrbitCore.replay_mods(data) if orbit_mods else GameSession._replay_mods(data)
+	# Trace speichert seine Mods wie Mania (NF/SV ...).
+	GameSession.mods = GameSession._replay_mods(data)
 	GameSession.set_selection(
 		_selected_set.osz_path, _selected_diff,
 		_selected_set.version_name_at(_selected_diff),
@@ -3944,7 +3698,7 @@ func _watch_replay() -> void:
 	GameSession.replay_mode = rmode
 	GameSession.replay_end_ms = float(data.get("meta", {}).get("end_ms", -1.0))
 	_preview.stop()
-	_change_to_game(ScoreStore.mode_scene(_play_mode) if (orbit or rg) else "res://scenes/mania_3d.tscn")
+	_change_to_game(ScoreStore.mode_scene(_play_mode) if trace else "res://scenes/mania_3d.tscn")
 
 
 ## Marathon-Auswahl (MarathonPanel): Start bzw. Replay ueber die Spielszene.
@@ -3976,7 +3730,7 @@ func _open_marathon() -> void:
 func _update_max_pp(m: Dictionary) -> void:
 	if _selected_set == null:
 		return
-	# pp gibt es nur in Mania; Orbit/Rally/Dirigent werten ohne pp.
+	# pp gibt es nur in Mania; Trace wertet ohne pp.
 	if _play_mode != "mania":
 		_maxpp_label.text = ""
 		return
@@ -4043,9 +3797,6 @@ func _exit_tree() -> void:
 	if _maxpp_thread != null:
 		_maxpp_thread.wait_to_finish()
 		_maxpp_thread = null
-	if _os_thread != null:
-		_os_thread.wait_to_finish()
-		_os_thread = null
 	if _rec_thread != null:
 		_rec_thread.wait_to_finish()
 		_rec_thread = null
@@ -4160,11 +3911,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			_on_play_pressed()
 			get_viewport().set_input_as_handled()
 		KEY_F2:
-			if _career_on():
-				if not _career_items.is_empty():
-					var ci: Dictionary = _career_items[randi() % _career_items.size()]
-					_select_set(ci.ms, int(ci.diff))
-			elif not _filtered.is_empty():
+			if not _filtered.is_empty():
 				var pick: MapSet = _filtered[randi() % _filtered.size()]
 				_select_set(pick, _hardest(pick))
 				_scroll_to_selected.call_deferred()
@@ -4172,27 +3919,12 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _move_selection(dir: int) -> void:
-	if _career_on():
-		_move_career_selection(dir)
-		return
 	if _filtered.is_empty():
 		return
 	var idx := _filtered.find(_selected_set)
 	idx = clampi(idx + dir, 0, _filtered.size() - 1) if idx >= 0 else 0
 	_select_set(_filtered[idx], _hardest(_filtered[idx]))
 	_scroll_to_selected()
-
-
-## Karriere: Pfeil hoch/runter geht durch die Vorschlaege.
-func _move_career_selection(dir: int) -> void:
-	if _career_items.is_empty():
-		return
-	var at := -1
-	for i in _career_items.size():
-		if _career_items[i].ms == _selected_set:
-			at = i
-	var n := clampi(at + dir, 0, _career_items.size() - 1) if at >= 0 else 0
-	_select_set(_career_items[n].ms, int(_career_items[n].diff))
 
 
 ## Liste zur ausgewaehlten Karte scrollen (Auswahl bleibt immer sichtbar).
@@ -4412,15 +4144,11 @@ func _on_import_finished(res: Dictionary) -> void:
 		return
 	var imported: Array = res.get("imported", [])
 	var last := ""
-	var orbit_only := 0
 	if not imported.is_empty():
 		# Cache ist im Thread vorgebaut (MapLibrary.prebuild): scan liest nur noch.
 		_library.scan()
 		_refresh_filter(_search.text)
 		last = String(imported[imported.size() - 1])
-		for ms in _library.mapsets:
-			if imported.has(ms.osz_path) and ms.visible_diffs("mania").is_empty():
-				orbit_only += 1
 	var parts: Array[String] = []
 	if bool(res.get("cancelled", false)):
 		parts.append(tr("Abgebrochen"))
@@ -4431,15 +4159,13 @@ func _on_import_finished(res: Dictionary) -> void:
 	if int(res.get("dup", 0)) > 0:
 		parts.append(tr("%d schon vorhanden") % int(res.dup))
 	if int(res.get("skipped", 0)) > 0:
-		parts.append(tr("%d ohne 4K bis 7K oder Standard") % int(res.skipped))
+		parts.append(SongImport.skip_text(int(res.skipped), imported.size()))
 	if int(res.get("failed", 0)) > 0:
 		parts.append(tr("%d fehlgeschlagen") % int(res.failed))
 	for e in res.get("errors", []):
 		if str(e) == AutoMapper4K.ERR_NO_FFMPEG:
 			parts.append(tr("ffmpeg is missing, so music cannot be analysed"))
 			break
-	if orbit_only > 0 and _mania_like():
-		parts.append(tr("%d nur im Orbit-Modus") % orbit_only)
 	parts.append_array(_import_pending_notes)
 	_import_pending_notes = []
 	var summary := "  ·  ".join(parts)
@@ -4758,9 +4484,7 @@ func _on_online_downloaded(_set_id: int, osz_path: String, select: bool) -> void
 		return  # Browser verlassen: der naechste scannt ohnehin neu
 	_library.scan()
 	_refresh_filter(_search.text)
-	if _career_on():
-		_career_refresh()
-	_career_start()
+	_mode_stars_start()
 	_recs_refresh()
 	if not select:
 		return
@@ -4841,64 +4565,20 @@ func _star_color(stars: float) -> Color:
 
 
 # ---------------------------------------------------------------------------
-# Orbit-Karriere (Logik: scripts/orbit/orbit_career.gd, Panel: scripts/ui/orbit_career_panel.gd)
+# Filter-Reihen und Hintergrund-Nachrechnung fehlender Trace-Sterne
 # ---------------------------------------------------------------------------
 
-## Hintergrund-Nachrechnung fehlender Orbit-Sterne: ein Thread, eine Diff nach
-## der anderen mit Pause, hoechstens BG_BUDGET pro Besuch, niedrige Prioritaet.
+## Hintergrund-Nachrechnung fehlender Trace-Sterne (StarService): ein Thread, eine
+## Diff nach der anderen mit Pause, hoechstens BG_BUDGET pro Besuch, niedrige Prioritaet.
 const BG_BUDGET := 240
 const BG_PAUSE := 0.4
-var _os_cache: Dictionary = {}
-var _os_cache_loaded := false
-var _okey_cache: Dictionary = {}
-var _bg_queue: Array = []        # {key, osz, ver}
+## Gewaehltes Set: erst nach so viel Ruhe vorn einreihen (Scrollen startet nichts).
+const STARS_DELAY := 0.25
+var _bg_queue: Array = []        # {key, osz, ver, inner, osu, mode}
 var _bg_queued: Dictionary = {}  # key -> true (steht in der Warteschlange)
 var _bg_failed: Dictionary = {}
 var _bg_thread: Thread
 var _bg_spent := 0
-
-
-func _career_on() -> bool:
-	return _play_mode == "orbit" and str(_career_state.get("mode", "")) == OrbitCareer.MODE_CAREER
-
-
-## Reihe unter der Kopfzeile: Umschalter Karriere | Frei, rechts der Hinweis.
-func _build_career_row() -> void:
-	_career_row = HBoxContainer.new()
-	_career_row.custom_minimum_size = Vector2(0, CHIPS_H)
-	_career_row.add_theme_constant_override("separation", 6)
-	_career_row.visible = false
-	_filter_stack.add_child(_career_row)
-	for m in [OrbitCareer.MODE_CAREER, OrbitCareer.MODE_FREE]:
-		var is_career: bool = m == OrbitCareer.MODE_CAREER
-		var b := _make_toggle(tr("Karriere") if is_career else tr("Frei"), 13, 15)
-		b.custom_minimum_size = Vector2(0, CHIPS_H)
-		b.tooltip_text = tr("Schlägt passende Maps vor und steigert die Schwierigkeit mit dir") if is_career \
-				else tr("Alle Maps, empfohlene sind markiert")
-		b.pressed.connect(_set_career_mode.bind(m))
-		_career_row.add_child(b)
-		_career_btns.append(b)
-	_career_level_lbl = Label.new()
-	_career_level_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_career_level_lbl.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	_career_level_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_career_level_lbl.add_theme_font_size_override("font_size", 13)
-	_career_level_lbl.add_theme_color_override("font_color", COL_DIM)
-	_career_row.add_child(_career_level_lbl)
-
-
-func _build_career_panel() -> void:
-	_career_panel = OrbitCareerPanel.new()
-	_career_panel.anchor_left = 1.0
-	_career_panel.anchor_right = 1.0
-	_career_panel.anchor_bottom = 1.0
-	_career_panel.offset_left = -M - RIGHT_W
-	_career_panel.offset_right = -M
-	_career_panel.offset_bottom = -M
-	_career_panel.visible = false
-	_career_panel.picked.connect(_on_career_picked)
-	_career_panel.online_requested.connect(_career_online)
-	add_child(_career_panel)
 
 
 ## Listen-Oberkante = echte Unterkante der Filter-Reihen (auch wenn eine Reihe
@@ -4906,98 +4586,30 @@ func _build_career_panel() -> void:
 func _update_list_top() -> void:
 	if _filter_stack == null or _list_mask == null:
 		return
-	var top := FILTER_Y + _filter_stack.get_combined_minimum_size().y
-	_list_mask.offset_top = top
-	if _career_panel != null:
-		_career_panel.offset_top = top + 12.0
+	_list_mask.offset_top = FILTER_Y + _filter_stack.get_combined_minimum_size().y
 
 
-func _apply_career_layout() -> void:
-	if _career_row == null or _filter_row == null:
+## Filter-Reihen je Ansicht: die Sammlungs-Ansicht zeigt ihre Chips statt der
+## Filter, die dort nicht gelten.
+func _apply_filter_layout() -> void:
+	if _filter_row == null:
 		return
-	var orbit := _play_mode == "orbit"
-	var career := _career_on()
-	_career_row.visible = orbit
-	for i in _career_btns.size():
-		_apply_toggle(_career_btns[i], (i == 0) == (str(_career_state.get("mode", "")) == OrbitCareer.MODE_CAREER))
-	_career_level_lbl.visible = orbit and not career
-	_career_level_lbl.text = tr("Empfohlen: %s ★") % OrbitCareer.range_text(float(_career_state.get("level", OrbitCareer.START_LEVEL)))
-	_filter_row.visible = not career
-	# Sammlungs-Ansicht: Filter, die dort nicht gelten, gar nicht erst zeigen.
-	_score_chips_row.visible = not career and not _collection_mode
+	_score_chips_row.visible = not _collection_mode
 	for sc in _star_chips:
 		sc.visible = not _collection_mode
 	if _sv_chip != null:
 		_sv_chip.visible = not _collection_mode
-	_chips_row.visible = _collection_mode and not career
-	if _list_mask != null:
-		_list_mask.visible = not career
-	if _career_panel != null:
-		_career_panel.visible = career
+	_chips_row.visible = _collection_mode
 	_apply_recs_visibility()
 	_update_list_top()
-	if career:
-		_career_refresh()
-	else:
-		_career_items = []
-		_refresh_recommended()
 
 
-func _set_career_mode(m: String) -> void:
-	if str(_career_state.get("mode", "")) == m and bool(_career_state.get("chosen", false)):
-		return
-	_career_state["mode"] = m
-	_career_state["chosen"] = true
-	_career_state["offer"] = false
-	OrbitCareer.save_state(_career_state)
-	if _hint_kind == "offer" and _orbit_hint != null:
-		_orbit_hint.queue_free()
-		_orbit_hint = null
-	_apply_career_layout()
-	_career_start()
-	_recs_refresh()
-
-
-func _accept_career_offer() -> void:
-	_set_career_mode(OrbitCareer.MODE_CAREER)
-
-
-## Nach Moduswechsel/Start: Angebot nach dem Tutorial zeigen, fehlende Sterne rechnen.
-func _career_start() -> void:
+## Nach Moduswechsel/Start: fehlende Modus-Sterne im Hintergrund rechnen.
+func _mode_stars_start() -> void:
 	if DisplayServer.get_name() == "headless":
 		return
-	_bg_scan()  # fehlende Modus-Sterne (alle Modi ausser Mania/Rebound)
+	_bg_scan()
 	_bg_pump()
-	if _play_mode != "orbit":
-		return
-	if bool(_career_state.get("offer", false)) and _orbit_hint == null:
-		_show_orbit_hint()
-
-
-func _on_career_picked(ms: MapSet, diff: int) -> void:
-	if _selected_set == ms and _selected_diff == diff:
-		_on_play_pressed()
-		return
-	_select_set(ms, diff)
-
-
-## Online-Suche mit dem Sterne-Filter, der die Stufe abdeckt.
-func _career_online() -> void:
-	_open_download_panel()
-	if _online != null:
-		_online.call("_set_star_filter", OrbitCareer.online_star_filter(float(_career_state.get("level", OrbitCareer.START_LEVEL))))
-
-
-func _os_cache_get() -> Dictionary:
-	if not _os_cache_loaded:
-		_os_cache = orbit_stars_cache_all()
-		_os_cache_loaded = true
-	return _os_cache
-
-
-## Modus, dessen Sterne gerade gezeigt werden (Mania zeigt Orbit-Sterne nur intern).
-func _stars_mode() -> String:
-	return "orbit" if _play_mode == "mania" else _play_mode
 
 
 # ---------------------------------------------------------------------------
@@ -5015,13 +4627,10 @@ var _front_token := 0
 var _resort_due := false
 
 
-## Sternquelle je Modus: "mania" (Mania, Rebound: Mania-Sterne), "trace"
-## (TraceStars ueber StarService), sonst der Modus selbst (Orbit, Rally,
-## Dirigent: orbit_stars.cfg).
+## Sternquelle je Modus: "mania" (Mania-Sterne) oder "trace" (TraceStars ueber
+## StarService).
 static func star_src(play_mode: String) -> String:
-	if play_mode == "" or play_mode == "mania" or play_mode == "rebound":
-		return "mania"
-	return play_mode
+	return "trace" if play_mode == ScoreStore.MODE_TRACE else "mania"
 
 
 func _star_src() -> String:
@@ -5040,19 +4649,16 @@ func _trace_cache_get() -> Dictionary:
 
 ## Cache-Schluessel der Modus-Sterne einer Diff ("" = Mania-Sterne/kein Cache).
 func _mode_star_key(ms: MapSet, i: int) -> String:
-	var src := _star_src()
-	if src == "mania":
+	if _star_src() == "mania":
 		return ""
-	if src == "trace":
-		if not _tbase.has(ms.osz_path):
-			_tbase[ms.osz_path] = StarService._cache_key(ms.osz_path)
-		var base: String = _tbase[ms.osz_path]
-		var inner := ms.osu_filename_at(i)
-		return "" if base == "" or inner == "" else StarService._trace_key(base, inner)
-	return _mkey(ms, ms.version_name_at(i), src)
+	if not _tbase.has(ms.osz_path):
+		_tbase[ms.osz_path] = StarService._cache_key(ms.osz_path)
+	var base: String = _tbase[ms.osz_path]
+	var inner := ms.osu_filename_at(i)
+	return "" if base == "" or inner == "" else StarService._trace_key(base, inner)
 
 
-## Modus-Sterne einer Diff; -1 = noch nicht berechnet (Mania/Rebound: Mania-Sterne).
+## Modus-Sterne einer Diff; -1 = noch nicht berechnet (Mania: Mania-Sterne).
 func _mode_stars_known(ms: MapSet, i: int) -> float:
 	var src := _star_src()
 	if src == "mania":
@@ -5060,8 +4666,7 @@ func _mode_stars_known(ms: MapSet, i: int) -> float:
 	var key := _mode_star_key(ms, i)
 	if key == "":
 		return -1.0
-	var cache := _trace_cache_get() if src == "trace" else _os_cache_get()
-	return float(cache.get(key, -1.0))
+	return float(_trace_cache_get().get(key, -1.0))
 
 
 ## Diff-Index -> bekannte Modus-Sterne der sichtbaren Diffs (Rest: MapSet nimmt
@@ -5112,8 +4717,7 @@ func _refresh_star_label() -> void:
 	if _star_label == null or _selected_set == null:
 		return
 	var src := _star_src()
-	var std := int(_selected_set.meta_at(_selected_diff).get("mode", 0)) != 3
-	if src == "mania" or not _orbit_diff_ok(_selected_set, _selected_diff) or (src == "trace" and std):
+	if src == "mania" or int(_selected_set.meta_at(_selected_diff).get("mode", 0)) != 3:
 		_star_label.text = _stars_text(_selected_set.stars_at(_selected_diff))
 		return
 	var st := _mode_stars_known(_selected_set, _selected_diff)
@@ -5172,147 +4776,8 @@ func _resort_keep() -> void:
 	_scroll.scroll_vertical = int(h2.position.y - off)
 
 
-func _orbit_key(ms: MapSet, ver: String) -> String:
-	return _mkey(ms, ver, _stars_mode())
-
-
-## Cache-Schluessel (orbit_stars.cfg) der Sterne von mode, gemerkt.
-func _mkey(ms: MapSet, ver: String, mode: String) -> String:
-	var k := mode + "|" + ms.osz_path + "|" + ver
-	if not _okey_cache.has(k):
-		_okey_cache[k] = orbit_stars_key(ms.osz_path, ver, mode)
-	return _okey_cache[k]
-
-
-func _orbit_diff_ok(ms: MapSet, i: int) -> bool:
-	var m := ms.meta_at(i)
-	return int(m.get("mode", 0)) != 3 or int(round(float(m.get("cs", 4.0)))) == 4
-
-
-## Orbit-Sterne einer Diff aus dem Cache (-1 = noch nicht berechnet).
-func _orbit_stars_known(ms: MapSet, i: int) -> float:
-	return float(_os_cache_get().get(_orbit_key(ms, ms.version_name_at(i)), -1.0))
-
-
-## Lauf-Historie in den Karriere-Zustand ziehen. Beim allerersten Mal zaehlt die
-## alte Historie nicht (Start auf Stufe 1,5), nur Laeufe ab jetzt.
-func _career_sync() -> void:
-	var recent := ScoreStore.recent_plays(30, ScoreStore.MODE_ORBIT)
-	recent.reverse()  # aelteste zuerst
-	if recent.is_empty():
-		return
-	var s: Dictionary = _career_state
-	if str(s.get("stamp", "")) == "":
-		s["stamp"] = str((recent[recent.size() - 1] as Dictionary).get("date", ""))
-		OrbitCareer.save_state(s)
-		return
-	var by_file := {}
-	for ms in _library.mapsets:
-		by_file[ms.osz_path.get_file()] = ms
-	var runs: Array = []
-	for e in recent:
-		if str(e.get("date", "")) <= str(s.stamp):
-			continue
-		var st := 0.0  # Map fehlt in der Bibliothek: Lauf zaehlt nicht
-		var ms: MapSet = by_file.get(str(e.get("osz_file", "")))
-		if ms != null:
-			var key := _orbit_key(ms, str(e.get("version", "")))
-			st = float(_os_cache_get().get(key, -1.0))
-			if st < 0.0 and not _bg_failed.has(key):
-				_bg_enqueue({"key": key, "osz": ms.osz_path, "ver": str(e.get("version", ""))}, true)
-				break  # Reihenfolge wahren: erst weiter, wenn die Sterne da sind
-			st = maxf(st, 0.0)
-		runs.append({"date": str(e.get("date", "")), "stars": st,
-			"accuracy": float(e.get("accuracy", 0.0)), "grade": str(e.get("grade", "")),
-			"failed": bool(e.get("failed", false))})
-	if runs.is_empty():
-		return
-	var n: Dictionary = OrbitCareer.sync_runs(s, runs)
-	_career_state = n
-	OrbitCareer.save_state(n)
-
-
-func _career_refresh() -> void:
-	if _career_panel == null or not _career_on():
-		return
-	_career_dirty = false
-	_career_sync()
-	var level := float(_career_state.get("level", OrbitCareer.START_LEVEL))
-	var idx := _scores_for_mode()
-	var cands: Array = []
-	var missing: Array = []
-	var cache := _os_cache_get()
-	for ms in _library.mapsets:
-		var info: Dictionary = idx.get(ms.osz_path.get_file(), {})
-		for i in ms.visible_diffs("orbit"):
-			if not _orbit_diff_ok(ms, i):
-				continue
-			var ver := ms.version_name_at(i)
-			var key := _orbit_key(ms, ver)
-			var st := float(cache.get(key, -1.0))
-			if st < 0.0:
-				if not _bg_failed.has(key):
-					missing.append({"key": key, "osz": ms.osz_path, "ver": ver, "osu": ms.stars_at(i)})
-				continue
-			cands.append({"ms": ms, "diff": i, "stars": st,
-				"played": int(info.get(ver, {}).get("plays", 0)) > 0})
-	var items: Array = []
-	var seen := {}
-	for c in OrbitCareer.suggest(cands, level, cands.size()):
-		if seen.has(c.ms):
-			continue
-		seen[c.ms] = true
-		items.append(c)
-		if items.size() >= 5:
-			break
-	_career_items = items
-	_bg_enqueue_list(missing, level)
-	_career_panel.set_data({
-		"level": level, "next_text": OrbitCareer.next_text(_career_state),
-		"good": int(_career_state.get("good", 0)), "need": OrbitCareer.GOOD_NEED,
-		"event": str(_career_state.get("event", "")), "items": items,
-		"pending": _bg_queue.size() + (1 if _bg_thread != null else 0),
-		"range_text": OrbitCareer.range_text(level),
-	})
-	_career_panel.set_selected(_selected_set, _selected_diff)
-
-
-## Panel erst nach Ruhe neu bauen (viele Ergebnisse kurz nacheinander).
-func _career_refresh_later() -> void:
-	if _career_dirty:
-		return
-	_career_dirty = true
-	await get_tree().create_timer(0.6).timeout
-	if is_inside_tree() and _career_dirty:
-		if _career_on():
-			_career_refresh()
-		else:
-			_career_dirty = false
-			_refresh_recommended()
-
-
-## Empfohlen-Marke der Karten (nur Orbit + Frei): Orbit-Sterne einer sichtbaren
-## Diff liegen im Fenster der Stufe.
-func _refresh_recommended() -> void:
-	var on := _play_mode == "orbit" and not _career_on()
-	var level := float(_career_state.get("level", OrbitCareer.START_LEVEL))
-	for card in _card_buttons:
-		if not is_instance_valid(card) or not card.has_meta("rec_lbl"):
-			continue
-		var lbl: Label = card.get_meta("rec_lbl")
-		var rec := false
-		if on:
-			var ms: MapSet = card.get_meta("ms")
-			for i in ms.visible_diffs("orbit"):
-				if _orbit_diff_ok(ms, i) and OrbitCareer.recommended(_orbit_stars_known(ms, i), level):
-					rec = true
-					break
-		lbl.visible = rec
-
-
-## Fehlende Sterne fuer die Bibliothek vormerken (Frei und Karriere).
+## Fehlende Modus-Sterne der Bibliothek vormerken.
 func _bg_scan() -> void:
-	var level := float(_career_state.get("level", OrbitCareer.START_LEVEL))
 	var missing: Array = []
 	if _star_src() == "mania":
 		return
@@ -5321,16 +4786,14 @@ func _bg_scan() -> void:
 			var item := _bg_item(ms, i)
 			if not item.is_empty():
 				missing.append(item)
-	_bg_enqueue_list(missing, level)
+	_bg_enqueue_list(missing)
 
 
 ## Auftrag fuer fehlende Modus-Sterne einer Diff ({} = vorhanden, unmoeglich
-## oder fehlgeschlagen). Nur 4K-Mania- und osu!standard-Diffs (Trace: nur 4K).
+## oder fehlgeschlagen). Nur Mania-Diffs.
 func _bg_item(ms: MapSet, i: int) -> Dictionary:
 	var src := _star_src()
-	if src == "mania" or not _orbit_diff_ok(ms, i) or _mode_stars_known(ms, i) >= 0.0:
-		return {}
-	if src == "trace" and int(ms.meta_at(i).get("mode", 0)) != 3:
+	if src == "mania" or int(ms.meta_at(i).get("mode", 0)) != 3 or _mode_stars_known(ms, i) >= 0.0:
 		return {}
 	var key := _mode_star_key(ms, i)
 	if key == "" or _bg_failed.has(key):
@@ -5347,14 +4810,14 @@ func _bg_front_set(ms: MapSet) -> void:
 		return
 	_front_token += 1
 	var tok := _front_token
-	await get_tree().create_timer(ORBIT_STARS_DELAY).timeout
+	await get_tree().create_timer(STARS_DELAY).timeout
 	if tok != _front_token or not is_inside_tree() or _selected_set != ms:
 		return
 	var order := _mode_order(ms)
 	order.reverse()  # push_front: am Ende steht die leichteste vorn
 	for i in order:
 		var item := _bg_item(ms, i)
-		if not item.is_empty() and item.key != _os_want:
+		if not item.is_empty():
 			_bg_enqueue(item, true)
 	_bg_pump()
 
@@ -5364,16 +4827,16 @@ func _bg_drop_other_modes() -> void:
 	var src := _star_src()
 	var keep: Array = []
 	for it in _bg_queue:
-		if str(it.get("mode", "orbit")) == src:
+		if str(it.get("mode", "")) == src:
 			keep.append(it)
 		else:
 			_bg_queued.erase(it.key)
 	_bg_queue = keep
 
 
-func _bg_enqueue_list(missing: Array, level: float) -> void:
-	missing.sort_custom(func(a, b):
-		return absf(float(a.osu) - level - 0.1) < absf(float(b.osu) - level - 0.1))
+## Leichte Maps zuerst (osu!-Sterne als Schaetzung).
+func _bg_enqueue_list(missing: Array) -> void:
+	missing.sort_custom(func(a, b): return float(a.osu) < float(b.osu))
 	for m in missing:
 		_bg_enqueue(m, false)
 	_bg_pump()
@@ -5403,9 +4866,7 @@ func _bg_pump() -> void:
 
 
 func _bg_work(item: Dictionary) -> void:
-	var mode := str(item.get("mode", "orbit"))
-	var st := StarService.trace_stars_for(item.osz, str(item.get("inner", ""))) if mode == "trace" \
-			else orbit_stars_compute(item.osz, item.ver, mode)
+	var st := StarService.trace_stars_for(item.osz, str(item.get("inner", "")))
 	_bg_finished.call_deferred(item, st)
 
 
@@ -5414,170 +4875,21 @@ func _bg_finished(item: Dictionary, st: float) -> void:
 		_bg_thread.wait_to_finish()
 		_bg_thread = null
 	_bg_queued.erase(item.key)
-	var mode := str(item.get("mode", "orbit"))
 	if st >= 0.0:
-		if mode == "trace":
-			_trace_cache_get()[item.key] = st  # StarService hat schon gespeichert
-		else:
-			_os_cache_get()[item.key] = st
-			orbit_stars_store(item.key, st)
+		_trace_cache_get()[item.key] = st  # StarService hat schon gespeichert
 	else:
 		_bg_failed[item.key] = true
 	# Browser schon verlassen (Szenenwechsel: aus dem Baum, noch nicht frei): Ergebnis
 	# ist gespeichert, sonst nichts mehr anstossen (get_tree() waere null).
 	if not is_inside_tree():
 		return
-	if st >= 0.0 and mode == _star_src():
-		_mode_stars_arrived(str(item.osz))
-	if _play_mode == "orbit":
-		_career_refresh_later()
-	if str(item.get("mode", "orbit")) == _stars_mode():
+	if str(item.get("mode", "")) == _star_src():
+		if st >= 0.0:
+			_mode_stars_arrived(str(item.osz))
 		_recs_refresh_later()
 	await get_tree().create_timer(BG_PAUSE).timeout
 	if is_inside_tree():
 		_bg_pump()
-
-
-## Orbit-Sterne: nur fuer die gewaehlte Diff, im Thread, Ergebnis je
-## Datei+Aenderungszeit+Version im Cache user://orbit_stars.cfg.
-const ORBIT_STARS_PATH := "user://orbit_stars.cfg"
-## Version hochzaehlen, sobald sich die Orbit-Sterne-Formel aendert: alte
-## Werte fallen aus dem Schluessel und werden neu berechnet.
-const ORBIT_STARS_VER := 2
-const ORBIT_STARS_DELAY := 0.25
-var _os_thread: Thread
-var _os_key := ""        # Key der laufenden Berechnung
-var _os_want := ""       # Key der aktuell gewaehlten Diff
-var _os_want_args := []
-var _os_token := 0
-
-
-## mode "orbit": bisheriger Schluessel; Rally/Dirigent haengen die Modus-ID vorn an.
-static func orbit_stars_key(osz: String, version: String, mode: String = "orbit") -> String:
-	var base := "v%d|%s|%d|%s" % [ORBIT_STARS_VER, osz.get_file(), FileAccess.get_modified_time(osz), version]
-	# Rally/Dirigent v2: echte Chart-Sterne statt Dichte-Schaetzung (alte Werte neu rechnen).
-	if mode == "rally" or mode == "dirigent":
-		return "%s2|%s" % [mode, base]
-	return base if mode == "orbit" else "%s|%s" % [mode, base]
-
-
-static func orbit_stars_cached(key: String, path: String = ORBIT_STARS_PATH) -> float:
-	var cfg := ConfigFile.new()
-	if cfg.load(path) != OK:
-		return -1.0
-	return float(cfg.get_value("stars", key, -1.0))
-
-
-static func orbit_stars_store(key: String, stars: float, path: String = ORBIT_STARS_PATH) -> void:
-	var cfg := ConfigFile.new()
-	cfg.load(path)
-	cfg.set_value("stars", key, stars)
-	cfg.save(path)
-
-
-## Alle Eintraege des Caches auf einmal (Schluessel -> Sterne), fuer Listen.
-static func orbit_stars_cache_all(path: String = ORBIT_STARS_PATH) -> Dictionary:
-	var cfg := ConfigFile.new()
-	var out := {}
-	if cfg.load(path) != OK or not cfg.has_section("stars"):
-		return out
-	for k in cfg.get_section_keys("stars"):
-		out[k] = float(cfg.get_value("stars", k, -1.0))
-	return out
-
-
-## Orbit-Sterne einer 4K- oder osu!standard-Diff berechnen (teuer: Import + Konvertierung).
-## mode "rally"/"dirigent": Sterne 0..15 aus dem Modus-Chart, wenn dessen Skript
-## static stars_of_beatmap(bm) kennt, sonst Dichte-Schaetzung (mode_stars_fallback).
-static func orbit_stars_compute(osz: String, version: String, mode: String = "orbit") -> float:
-	var imp := OszImporter.import(osz)
-	if not imp.ok:
-		return -1.0
-	for d in imp.difficulties:
-		var bm: Beatmap = d.beatmap
-		if (bm.is_mania() or bm.mode() == 0) and bm.version_name() == version:
-			if mode == "orbit":
-				return OrbitConverter.stars(OrbitConverter.convert(bm))
-			if mode == "trace":
-				# Trace-Sterne: TraceStars (Browser nutzt StarService.trace_stars_for).
-				if bm.is_mania() and bm.column_count() == 4:
-					return TraceStars.from_beatmap(bm)
-			var path := "res://scripts/%s/%s_chart.gd" % [mode, mode]
-			if ResourceLoader.exists(path):
-				var sc: GDScript = load(path)
-				if sc != null and sc.has_method("stars_of_beatmap"):
-					return float(sc.call("stars_of_beatmap", bm))
-			return mode_stars_fallback(bm)
-	return -1.0
-
-
-## Platzhalter-Sterne ohne Modus-Chart: Spitzen-Notendichte (5-s-Fenster) und
-## Durchschnitt, 0..15. Gilt nur, bis scripts/<modus>/<modus>_chart.gd echte liefert.
-static func mode_stars_fallback(bm: Beatmap) -> float:
-	var ts: Array[float] = []
-	for h in bm.hit_objects:
-		ts.append(h.time)
-	if ts.size() < 2:
-		return 0.0
-	ts.sort()
-	var peak := 0.0
-	var j := 0
-	for i in ts.size():
-		while ts[i] - ts[j] > 5000.0:
-			j += 1
-		peak = maxf(peak, float(i - j + 1) / 5.0)
-	var avg := float(ts.size()) / maxf((ts[-1] - ts[0]) / 1000.0, 1.0)
-	return clampf(0.55 * peak + 0.45 * avg * 1.4, 0.0, 15.0) * 0.8
-
-
-func _orbit_stars_request(osz: String, version: String) -> void:
-	var key := orbit_stars_key(osz, version, _stars_mode())
-	_os_want = key
-	_os_want_args = [osz, version, _stars_mode()]
-	var hit := orbit_stars_cached(key)
-	if hit >= 0.0:
-		_star_label.text = ScoreStore.mode_label(_stars_mode()) + " " + _stars_text(hit)
-		return
-	_star_label.text = ScoreStore.mode_label(_stars_mode()) + " ★ …"
-	_os_token += 1
-	var tok := _os_token
-	await get_tree().create_timer(ORBIT_STARS_DELAY).timeout  # Scrollen: erst nach Ruhe rechnen
-	if tok != _os_token or not is_inside_tree():
-		return
-	_orbit_stars_start()
-
-
-func _orbit_stars_start() -> void:
-	if _os_thread != null or _os_want == "":
-		return
-	_os_key = _os_want
-	_os_thread = Thread.new()
-	_os_thread.start(_orbit_stars_work.bind(_os_key, _os_want_args[0], _os_want_args[1], _os_want_args[2]))
-
-
-func _orbit_stars_work(key: String, osz: String, version: String, mode: String) -> void:
-	var st := orbit_stars_compute(osz, version, mode)
-	_orbit_stars_done.call_deferred(key, st)
-
-
-func _orbit_stars_done(key: String, st: float) -> void:
-	if _os_thread != null:
-		_os_thread.wait_to_finish()
-		_os_thread = null
-	if st >= 0.0:
-		orbit_stars_store(key, st)
-		_os_cache_get()[key] = st
-		if not is_inside_tree():
-			return  # Browser verlassen: gespeichert, keinen neuen Thread starten
-		if _selected_set != null and _mode_star_key(_selected_set, _selected_diff) == key:
-			_mode_stars_arrived(_selected_set.osz_path)
-	if not is_inside_tree():
-		return
-	if key == _os_want:
-		if st >= 0.0 and _play_mode != "mania":
-			_star_label.text = ScoreStore.mode_label(_stars_mode()) + " " + _stars_text(st)
-	elif _os_want != "":
-		_orbit_stars_start()
 
 
 ## Sterne fuer die Anzeige: "★ 7,27" (ein Stern, Dezimalkomma).
@@ -5765,11 +5077,10 @@ static func rec_compute(mode: String, level: String, cands: Array, runs: Array,
 static func rec_star_shift(mode: String, cands: Array) -> float:
 	if mode == "mania":
 		return 0.0
-	var want := 0 if mode == "orbit" else 3
 	var d: Array = []
 	for c in cands:
 		var b := float(c.get("base_stars", -1.0))
-		if b > 0.0 and float(c.get("stars", -1.0)) > 0.0 and int(c.get("osu_mode", 3)) == want:
+		if b > 0.0 and float(c.get("stars", -1.0)) > 0.0 and int(c.get("osu_mode", 3)) == 3:
 			d.append(b - float(c.stars))
 	return Recommender._median(d) if d.size() >= 3 else 0.0
 
@@ -6062,7 +5373,7 @@ func _build_recs() -> void:
 	_rec_hide_btn.pressed.connect(func(): _set_recs_hidden(true))
 	head.add_child(_rec_hide_btn)
 	var sh := Shader.new()
-	sh.code = OrbitCareerPanel._COVER_SHADER
+	sh.code = _COVER_SHADER
 	_rec_cover_mat = ShaderMaterial.new()
 	_rec_cover_mat.shader = sh
 	_rec_cover_mat.set_shader_parameter("rect_size", Vector2(REC_COVER, REC_COVER))
@@ -6105,14 +5416,13 @@ func _set_recs_hidden(on: bool) -> void:
 		_recs_refresh()
 
 
-## Sichtbarkeit: aus (Hide), eingeklappt (nur Kopf), offen. Nie im Karriere-Modus.
+## Sichtbarkeit: aus (Hide), eingeklappt (nur Kopf), offen.
 func _apply_recs_visibility() -> void:
 	if _rec_box == null:
 		return
 	var hidden := bool(_rec.hidden)
-	var career := _career_on()
 	# Sammlungs-Ansicht: keine Vorschlaege, dort zaehlt nur die eigene Liste.
-	var off := career or _collection_mode
+	var off := _collection_mode
 	_rec_box.visible = not hidden and not off
 	if _rec_chip != null:
 		_rec_chip.visible = hidden and not off  # nur zum Wieder-Einblenden
@@ -6140,7 +5450,7 @@ func _recs_refresh() -> void:
 	if _rec_box == null or DisplayServer.get_name() == "headless" or _rec_frozen:
 		return
 	_apply_recs_visibility()
-	if bool(_rec.hidden) or _career_on():
+	if bool(_rec.hidden):
 		return
 	if _rec_thread != null:
 		_rec_again = true
@@ -6186,7 +5496,7 @@ func _recs_job() -> Dictionary:
 		var rec_vm := "mania@4" if _vm() == "mania" else _vm()
 		for i in ms.visible_diffs(rec_vm):
 			var osu_mode := int(ms.meta_at(i).get("mode", 0))
-			if not Recommender.playable(mode, osu_mode) or not _orbit_diff_ok(ms, i):
+			if not Recommender.playable(mode, osu_mode) or ManiaKeys.keys_of_meta(ms.meta_at(i)) != 4:
 				continue
 			var ver := ms.version_name_at(i)
 			var st := _mode_stars_known(ms, i)  # dieselben Modus-Sterne wie der Browser
@@ -6441,11 +5751,10 @@ func _rec_online_update() -> void:
 	if page < 0:
 		return
 	_ensure_online()
-	var osu_mode := int(q.osu_mode)
 	var text := str(q.get("genre", ""))
 	if text == "":
-		text = "4k" if osu_mode == BeatmapMirror.MODE_MANIA else "a"
-	_online.quiet_search(key, text, osu_mode, page * BeatmapMirror.PAGE_SIZE)
+		text = "4k"
+	_online.quiet_search(key, text, page * BeatmapMirror.PAGE_SIZE)
 
 
 ## Harness-Laeufe (--shot-...) und --no-rec-online fragen den Mirror nie;
@@ -6496,7 +5805,7 @@ func _rec_online_card(o: Dictionary) -> Control:
 	btn.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
 	btn.tooltip_text = "%s - %s\n%s\n%s" % [str(o.artist), str(o.title), str(o.reason), tr("Click to listen")]
 	UiTheme._attach_sounds(btn)
-	OrbitCareerPanel._style_row(btn, false)
+	_style_row(btn, false)
 	btn.pressed.connect(_rec_online_preview.bind(o))
 	var hb := HBoxContainer.new()
 	hb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -6645,7 +5954,38 @@ func _arg_value(name: String) -> Variant:
 	return null
 
 
-## Karte wie die Orbit-Karriere "Up next": Cover, Titel, Diff, Sterne, Grund.
+const REC_COL_ROW := Color(0.08, 0.08, 0.11, 0.94)
+const REC_COL_ROW_SEL := Color(0.13, 0.13, 0.18, 0.98)
+## Cover mit runden Ecken (rect_size/radius setzt das Material).
+const _COVER_SHADER := "shader_type canvas_item;
+uniform vec2 rect_size = vec2(52.0, 52.0);
+uniform float radius = 9.0;
+void fragment() {
+	vec2 p = (UV - 0.5) * rect_size;
+	vec2 q = abs(p) - rect_size * 0.5 + vec2(radius);
+	float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+	COLOR = texture(TEXTURE, UV);
+	COLOR.a *= clamp(0.5 - d, 0.0, 1.0);
+}"
+
+
+## Vorschlags-Zeile: dunkle Flaeche, gewaehlt mit Akzent-Rahmen.
+static func _style_row(btn: Button, selected: bool) -> void:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = REC_COL_ROW_SEL if selected else REC_COL_ROW
+	sb.set_corner_radius_all(12)
+	sb.anti_aliasing = true
+	sb.set_border_width_all(2 if selected else 1)
+	sb.border_color = UiTheme.ACCENT if selected else Color(1, 1, 1, 0.07)
+	for st in ["normal", "hover", "pressed", "focus"]:
+		var box := sb
+		if st == "hover" and not selected:
+			box = sb.duplicate()
+			box.border_color = Color(1, 1, 1, 0.22)
+		btn.add_theme_stylebox_override(st, box)
+
+
+## Vorschlags-Karte: Cover, Titel, Diff, Sterne, Grund.
 ## wide = volle Zeile (hohe Fenster), sonst Kachel (drei nebeneinander).
 func _rec_card(it: Dictionary, wide: bool) -> Control:
 	var ms: MapSet = it.ms
@@ -6660,7 +6000,7 @@ func _rec_card(it: Dictionary, wide: bool) -> Control:
 	btn.tooltip_text = "%s - %s [%s]\n%s" % [ms.artist, ms.title, ms.version_name_at(diff).strip_edges(),
 		_rec_reason(it)]
 	UiTheme._attach_sounds(btn)
-	OrbitCareerPanel._style_row(btn, false)
+	_style_row(btn, false)
 	btn.pressed.connect(_on_rec_picked.bind(ms, diff))
 	var hb := HBoxContainer.new()
 	hb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -6778,5 +6118,5 @@ func _on_rec_picked(ms: MapSet, diff: int) -> void:
 func _recs_mark_selected() -> void:
 	for r in _rec_rows:
 		if is_instance_valid(r.btn):
-			OrbitCareerPanel._style_row(r.btn as Button,
+			_style_row(r.btn as Button,
 				r.ms == _selected_set and int(r.diff) == _selected_diff)

@@ -2,7 +2,7 @@
 # Live-QA: echte Spielszenen mit echten Eingaben (tests/live_qa.gd), ein Godot-Prozess
 # je Zeile, nacheinander. Eigenes APPDATA: Nutzer-Einstellungen/Scores bleiben unberuehrt.
 #   tests/live_qa.sh                 alle Modi, alle Faelle
-#   tests/live_qa.sh rebound flow    ein Modus, eine Fallgruppe (flow|mods|fail)
+#   tests/live_qa.sh trace flow      ein Modus, eine Fallgruppe (flow|mods|fail)
 #   OUT=<ordner> GODOT=<exe> MAPS_SRC=<ordner> tests/live_qa.sh
 set -u
 cd "$(dirname "$0")/.."
@@ -54,22 +54,9 @@ run mania2d mods "mod:,mod:NF,mod:SV,mod:HD,mod:FI" --2d
 run mania2d fail "fail,nfidle,mod:CS" --2d
 run mania3d flow "flow,retry" --3d
 run mania3d mods "mod:,mod:NF,mod:SV,mod:CS,fail" --3d
-run rebound flow "flow,retry"
-run rebound mods "mod:,mod:NF,mod:SV,fail,nfidle"
 run trace flow "flow,retry"
 run trace mods "mod:,mod:NF,mod:MR,mod:HD,mod:SS"
 run trace fail "fail,nfidle"
-run orbit flow "flow,retry" $BOT
-run orbit mods "mod:,mod:NF,mod:HD,mod:FI,mod:PR" $BOT --auto-miss=6
-run orbit fail "fail,nfidle"
-run rally flow "flow,retry" $BOT
-run rally mods "mod:,mod:NF" $BOT --auto-miss=6
-run rally fail "fail,nfidle"
-# Dirigent zaehlt vor: Fixture 6 s spaeter, damit der Intro-Skip ausloest.
-run dirigent flow "flow" $BOT --qa-shift=6000
-run dirigent retry "retry" $BOT --qa-shift=6000
-run dirigent mods "mod:,mod:NF" $BOT --auto-miss=6 --qa-shift=6000
-run dirigent fail "fail,nfidle" --qa-shift=6000
 
 echo "LIVE-QA $([ $rc -eq 0 ] && echo OK || echo FAIL) (logs: $OUT)"
 exit $rc

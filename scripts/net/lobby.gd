@@ -63,8 +63,8 @@ var _fetch_req: HTTPRequest
 ## peer_id -> {name, ready, score, combo, acc, final}
 var players: Dictionary = {}
 var crown_id := 1
-## Spielmodus des Raums: "mania" (4K, Standard/alte Clients), "orbit", "rally", "dirigent",
-## "trace" oder "rebound" (Trace/Rebound: Mania-4K-Wertung auf Mania-Maps).
+## Spielmodus des Raums: "mania" (Standard/alte Clients) oder "trace" (Mania-4K-Wertung
+## auf Mania-Maps).
 var play_mode := "mania"
 ## {set_id, file, version, title, artist, stars}
 var sel_map: Dictionary = {}
@@ -142,7 +142,7 @@ func _unique_name(base: String, id: int) -> String:
 
 
 ## Bekannte Darstellungen je Spieler. "" = unbekannt (aelterer Client).
-const VIEWS := ["3D", "2D", "Orbit", "Rally", "Dirigent", "Trace", "Rebound"]
+const VIEWS := ["3D", "2D", "Trace"]
 
 
 func _new_player(pname: String) -> Dictionary:
@@ -157,7 +157,7 @@ static func norm_view(v) -> String:
 	return ""
 
 
-## Darstellung dieses Clients (Orbit kommt, sobald ein Orbit-Schalter existiert).
+## Darstellung dieses Clients.
 func local_view() -> String:
 	if play_mode != "mania":
 		return play_name(play_mode)
@@ -165,12 +165,18 @@ func local_view() -> String:
 
 
 ## Raum-Modi (Reihenfolge der Auswahl in der Lobby).
-const PLAY_MODES := ["mania", "orbit", "rally", "dirigent", "trace", "rebound"]
+const PLAY_MODES := ["mania", "trace"]
 
 
 ## Nur bekannte Modi gelten; fehlend oder unbekannt = Mania (alte Clients).
 static func norm_play(v) -> String:
 	return v if typeof(v) == TYPE_STRING and PLAY_MODES.has(v) else "mania"
+
+
+## Raumliste: false fuer Raeume mit fremdem oder entferntem Modus (bis v1.43 z. B.
+## "orbit"); die werden still uebersprungen. Fehlender Modus = Mania (alte Clients).
+static func known_play(v) -> bool:
+	return v == null or (typeof(v) == TYPE_STRING and (v == "" or PLAY_MODES.has(v)))
 
 
 static func play_name(m: String) -> String:
@@ -591,7 +597,7 @@ func _process(delta: float) -> void:
 			var pkt := _listen.get_packet()
 			var ip := _listen.get_packet_ip()
 			var data: Variant = JSON.parse_string(pkt.get_string_from_utf8())
-			if data is Dictionary and int(data.get("tethra", 0)) == 1:
+			if data is Dictionary and int(data.get("tethra", 0)) == 1 and known_play(data.get("mode")):
 				lan_rooms[ip] = { "name": str(data.get("name", tr("Raum"))),
 					"players": int(data.get("players", 1)),
 					"mode": norm_play(data.get("mode", "mania")),
@@ -662,7 +668,7 @@ func fetch_online_rooms() -> void:
 			if not (ev is Dictionary) or str(ev.get("event", "")) != "message":
 				continue
 			var d: Variant = JSON.parse_string(str(ev.get("message", "")))
-			if d is Dictionary and str(d.get("c", "")) != "":
+			if d is Dictionary and str(d.get("c", "")) != "" and known_play(d.get("m")):
 				var t := float(ev.get("time", 0))
 				if t >= float(newest.get(str(d.c), 0.0)):
 					newest[str(d.c)] = t
@@ -709,7 +715,7 @@ static func parse_relay_rooms(txt: String) -> Dictionary:
 		return out
 	var n := 0
 	for r in arr:
-		if not (r is Dictionary):
+		if not (r is Dictionary) or not known_play(r.get("mode")):
 			continue
 		n += 1
 		var code := str(r.get("code", ""))
@@ -1162,7 +1168,7 @@ func cl_score(score: int, combo: int, acc: float, miss: int = -1) -> void:
 		scores_changed.emit()
 
 
-## ManiaCore der laufenden Spielszene (Trace/Rebound/Mania haben "core"), sonst null.
+## ManiaCore der laufenden Spielszene (Trace/Mania haben "core"), sonst null.
 func scene_core() -> ManiaCore:
 	var sc := get_tree().current_scene if is_inside_tree() else null
 	if sc == null or not ("core" in sc):
@@ -1736,7 +1742,7 @@ static func type_name(t: String) -> String:
 
 ## Warum gerade nicht gestartet werden kann ("" = alles in Ordnung).
 func mode_blocker() -> String:
-	# Trace/Rebound/Mania spielen nur Mania-4K-Maps ("map_mode" fehlt bei alten Clients).
+	# Trace und Mania spielen nur Mania-Maps ("map_mode" fehlt bei alten Clients).
 	var mmode = sel_map.get("map_mode", null)
 	if (mmode is int or mmode is float) and not Tournament.map_mode_ok(play_mode, int(mmode)):
 		return tr("Map passt nicht zum Modus %s.") % play_name(play_mode)

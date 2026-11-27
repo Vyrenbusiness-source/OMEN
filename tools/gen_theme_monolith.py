@@ -298,7 +298,7 @@ def dust_layer(W, H, seed, col=None, sd=29, mult=1.0):
 
 
 # ---------------------------------------------------------------------------
-# Nahe Ebene: grosse schwarze Prismen (RGBA-Panorama), Parallax-Orbit per beat_step
+# Nahe Ebene: grosse schwarze Prismen (RGBA-Panorama), Parallax-Umlauf per beat_step
 # ---------------------------------------------------------------------------
 def prisms_layer(W, H, seed, cfg=None):
     cfg = {**dict(col=COLD, L=L_SCREEN, jit=0.0, n=26, sd=53), **(cfg or {})}

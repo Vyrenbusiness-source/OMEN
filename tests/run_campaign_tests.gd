@@ -15,6 +15,8 @@ func _ok(cond: bool, what: String) -> void:
 
 
 func _initialize() -> void:
+	# Erwartete Texte sind deutsch: nicht von der gespeicherten Sprache des Rechners abhaengen.
+	TranslationServer.set_locale("de")
 	_test_data()
 	_test_goals()
 	_test_stars()
@@ -131,17 +133,12 @@ func _test_start_mods() -> void:
 	DirAccess.make_dir_recursive_absolute("user://test_tmp")
 	var path := "user://test_tmp/campaign_browser_%d.cfg" % OS.get_process_id()
 	var cfg := ConfigFile.new()
-	cfg.set_value("browser", "orbit_mods", {"HD": true, "FI": false, "PR": true})
 	cfg.set_value("browser", "trace_mods", {"MR": true, "HD": false, "SS": false})
 	cfg.save(path)
 	var mania: Dictionary = c.call("player_mods", "mania", true, path)
 	_ok(mania == {"NF": false, "SV": true}, "Mania: SV des Spielers gilt")
 	_ok(c.call("player_mods", "mania", false, path) == {"NF": false, "SV": false}, "Mania ohne SV")
-	_ok(c.call("player_mods", "orbit", true, path) == {"NF": false, "HD": true, "FI": false, "PR": true}, "Orbit: HD/FI/PR des Spielers gelten")
 	_ok(c.call("player_mods", "trace", true, path) == {"NF": false, "MR": true, "HD": false, "SS": false}, "Trace: MR/HD/SS des Spielers gelten")
-	for m: String in ["rally", "dirigent", "rebound"]:
-		_ok(c.call("player_mods", m, true, path) == {"NF": false}, m + ": keine eigenen Mods")
-	_ok(c.call("player_mods", "orbit", false, "user://test_tmp/gibt_es_nicht.cfg") == {"NF": false, "HD": false, "FI": false, "PR": false}, "ohne Browser-Stand: Orbit-Mods aus")
 	var plain := {"mode": "mania", "mods": []}
 	var sv := {"mode": "mania", "mods": ["SV"]}
 	_ok(c.call("start_mods", plain, {"NF": true, "SV": true}) == {"NF": false, "SV": true}, "No Fail gilt in der Kampagne nie")
@@ -190,13 +187,13 @@ func _test_data() -> void:
 	for m in ScoreStore.MODES:
 		_ok(all.campaigns.has(m), "Kampagne fuer %s vorhanden (oder bald)" % m)
 	_ok(Campaign.chapters(Campaign.for_mode(all, "nope")).is_empty(), "unbekannter Modus = keine Kapitel")
-	_ok(Campaign.mode_of_stage(all, "orbit-c01s2") == "orbit" and Campaign.mode_of_stage(all, "orbit-c99s1") == "", "mode_of_stage")
+	_ok(Campaign.mode_of_stage(all, "trace-c01s2") == "trace" and Campaign.mode_of_stage(all, "trace-c99s1") == "", "mode_of_stage")
 	# Fortschritt je Modus getrennt.
 	var sep := Campaign.new_state()
 	Campaign.apply_run(sep, Campaign.stage_by_id(d, "mania-c01s1"), _run(0.99, "SS", 0))
-	var orbit := Campaign.for_mode(all, "orbit")
-	_ok(Campaign.total_stars(d, sep) == 3 and Campaign.total_stars(orbit, sep) == 0, "Sterne je Modus getrennt")
-	_ok(Campaign.stage_open(d, sep, "mania-c01s2") and not Campaign.stage_open(orbit, sep, "orbit-c01s2"), "Freischaltung je Modus getrennt")
+	var trace_c := Campaign.for_mode(all, "trace")
+	_ok(Campaign.total_stars(d, sep) == 3 and Campaign.total_stars(trace_c, sep) == 0, "Sterne je Modus getrennt")
+	_ok(Campaign.stage_open(d, sep, "mania-c01s2") and not Campaign.stage_open(trace_c, sep, "trace-c01s2"), "Freischaltung je Modus getrennt")
 	_ok(Campaign.total_stars_all(all, sep) == 3 and Campaign.max_stars_all(all) >= 234 + 18, "Summe ueber alle Modi")
 	var worlds := {}
 	for c: Dictionary in chs:
@@ -364,7 +361,7 @@ func _test_maps() -> void:
 func _test_validate_errors() -> void:
 	_ok(Campaign.validate_one(_mini()).is_empty(), "Mini-Kampagne gueltig")
 	var wrong: Dictionary = Campaign.load_data().duplicate(true)
-	wrong.campaigns.orbit.chapters[0].stages[0]["mode"] = "mania"
+	wrong.campaigns.trace.chapters[0].stages[0]["mode"] = "mania"
 	_ok(not Campaign.validate(wrong).is_empty(), "Stufe im falschen Modus geprueft")
 	_ok(not Campaign.validate({}).is_empty(), "leere Daten ungueltig")
 	var d := _mini()

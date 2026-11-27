@@ -1,7 +1,7 @@
 class_name MapBackdrop
 extends ColorRect
 
-## Map-Bild als Vollbild-Hintergrund ("cover") fuer Orbit, Rally, Dirigent, Rebound, Trace
+## Map-Bild als Vollbild-Hintergrund ("cover") fuer Trace
 ## und das Hauptmenue (Mania bleibt bei shaders/bg_blur.gdshader): weich nach
 ## Settings.modes_bg_blur (0 = scharf), abgedunkelt nach Deckkraft (0 = kein Bild, dann
 ## bleibt nur der Graphit-Grund).

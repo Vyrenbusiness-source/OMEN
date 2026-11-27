@@ -1,7 +1,7 @@
 # Song recommendations (Recommender)
 
 `scripts/library/recommender.gd` (`class_name Recommender`) suggests songs for
-all six modes: mania, orbit, rally, dirigent, trace, rebound. Pure logic,
+both modes: mania and trace. Pure logic,
 static and deterministic. UI: the "For you" block in the song browser
 (`scripts/song_select.gd`), level chips Easy / Challenge / Push per mode, can be hidden. Optional.
 The block shows the player's style profile, a short reason per suggestion, pages
@@ -79,7 +79,7 @@ match of 0.45, what fits: "fits: 180 BPM, Jumpstream, like Night Drive" (de: "pa
 
 Maps that are not in the library, as their own group "Online" under the local ones.
 
-- Query (`online_query`): 4K for all modes, osu!standard for Orbit; star range of the
+- Query (`online_query`): osu!mania for both modes; star range of the
   level; the favourite genre as search text. The mirror only knows osu! stars, so
   other modes shift the range by the median difference between osu! stars and mode
   stars of the player's own maps.
@@ -104,8 +104,8 @@ Candidate: `{set, diff, stars, osu_mode (3 = 4K, 0 = standard), max_pp?, last_pl
 best_grade?, artist?, title?, mapper?, genre?, language?, tags?, bpm?, length?, style?, sv?}`.
 Result: `[{set, diff, stars, expected_acc, expected_perf, reason, style_reason}]`, best first.
 
-Filters: not played in the last 24 h, no SS, playable diffs only (trace/rebound/mania:
-4K; orbit/rally/dirigent: standard and 4K), unknown stars skipped.
+Filters: not played in the last 24 h, no SS, playable diffs only (mania: 4K to 7K;
+trace: 4K), unknown stars skipped.
 
 ## Limits
 
@@ -124,7 +124,7 @@ with reasons like "+7 pp, would be top 7". A 4.7-star map is never suggested.
 
 ## Tests
 
-`tests/run_recommender_tests.gd` (synthetic profiles for all six modes: beginner, mid, pro, under 5 runs, only fails, 1000 runs; an anonymized real profile; Push; style; filters; determinism;
+`tests/run_recommender_tests.gd` (synthetic profiles for both modes: beginner, mid, pro, under 5 runs, only fails, 1000 runs; an anonymized real profile; Push; style; filters; determinism;
 style profile, reasons, paging, novelty, online candidates and cache with fake data, no network):
 
     Godot_v4.7-stable_win64_console.exe --headless --audio-driver Dummy --path . --script res://tests/run_recommender_tests.gd

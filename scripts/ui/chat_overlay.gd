@@ -95,7 +95,7 @@ func _gs() -> Node:
 
 ## true = Szenenpfad gehoert zum Gameplay (Spiel laeuft).
 static func _gameplay_scene(scene_path: String) -> bool:
-	return scene_path.ends_with("orbit.tscn") or scene_path.ends_with("mania_3d.tscn") 		or scene_path.ends_with("gameplay_3d.tscn")
+	return scene_path.ends_with("mania_3d.tscn") or scene_path.ends_with("trace.tscn") 		or scene_path.ends_with("gameplay_3d.tscn")
 
 
 func _mirror() -> BeatmapMirror:
@@ -1113,16 +1113,14 @@ func start_replay(info: Dictionary, data: Dictionary) -> bool:
 	if sel.is_empty():
 		return false
 	var gs := _gs()
-	var orbit := str(info.get("mode", "")).begins_with("orbit")
-	var rmode := ReplayStore.MODE_ORBIT_BEST if orbit else "mania"
-	gs.mods = OrbitCore.replay_mods(data) if orbit else gs.call("_replay_mods", data)
+	gs.mods = gs.call("_replay_mods", data)
 	gs.is_replay = true
 	gs.replay_events = data.events
-	gs.replay_mode = rmode
+	gs.replay_mode = "mania"
 	gs.replay_end_ms = float(data.get("meta", {}).get("end_ms", -1.0))
 	stop_preview()
 	close()
-	get_tree().change_scene_to_file("res://scenes/orbit.tscn" if orbit else "res://scenes/mania_3d.tscn")
+	get_tree().change_scene_to_file("res://scenes/mania_3d.tscn")
 	return true
 
 

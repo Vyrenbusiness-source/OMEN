@@ -86,8 +86,7 @@ func _init() -> void:
 	_panel.add_child(vb)
 	_vb = vb
 
-	# "Pause" ist in beiden Sprachen dasselbe Wort (der Schluessel "Pause" gehoert
-	# im Dirigenten zur Notenpause).
+	# "Pause" ist in beiden Sprachen dasselbe Wort.
 	_title = Label.new()
 	_title.text = "Pause"
 	_title.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED

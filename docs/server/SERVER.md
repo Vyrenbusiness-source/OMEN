@@ -8,7 +8,7 @@ Rohdatei zum automatischen Abrufen:
 `https://raw.githubusercontent.com/Vyrenbusiness-source/OMEN/main/docs/server/SERVER.md`
 Änderungsverlauf: `git log -p -- docs/server/SERVER.md` bzw. GitHub "History" dieser Datei.
 
-Stand: Client v1.43.1 · `min_version` = **1.30.0**
+Stand: Client v1.44.0 · `min_version` = **1.30.0**
 
 ---
 
@@ -25,6 +25,27 @@ Stand: Client v1.43.1 · `min_version` = **1.30.0**
 3. **Neue Modi/Mod-Kürzel generisch annehmen**: Der Client schickt neue Spielarten als neuen `mode`-Wert
    oder als `board`. Wenn der Server unbekannte `mode`/`board`-Werte einfach als eigene Rangliste speichert
    (statt mit 400 abzulehnen), funktioniert jede neue Variante ohne Server-Änderung.
+
+---
+
+## v1.44.0: Orbit, Rally, Dirigent und Rebound entfernt
+
+Ab Client v1.44.0 gibt es nur noch Mania und Trace. Was der Server tun soll:
+
+- **Unverändert:** `mania`, `mania5k`, `mania6k`, `mania7k` (samt Board `mania_mn`) und `trace`. Felder,
+  Wertung und Ranglisten bleiben wie in Abschnitt 2.
+- **Nicht mehr gesendet:** Der Client schickt keine Scores mit `mode` = `orbit`, `rally`, `dirigent` oder
+  `rebound` mehr (`POST /score`, Backfill alter Scores eingeschlossen).
+- **Nicht mehr abgefragt:** `/leaderboard`, `/players`, `/top-plays`, `/recent-plays`, `/game/rankings` und
+  Profil-/Panel-Abfragen kommen nur noch mit `mode` = Mania-Varianten oder `trace`.
+- **Raumarten weg:** Räume im Modus `orbit`, `rally`, `dirigent` oder `rebound` legt der Client nicht mehr an.
+  Taucht ein solcher Raum (alter Client) in `GET /rooms` auf, überspringt ihn der neue Client still. Der Relay
+  muss dafür nichts ändern.
+- **Archivieren:** Ranglisten, Profilwerte (z. B. Orbit-Wertung) und Replays dieser vier Modi können
+  archiviert werden (nur noch lesen, nicht mehr auf Webseite/Panel zeigen). Löschen ist nicht nötig.
+  Bis dahin dürfen Scores älterer Clients (< 1.44.0) für diese Modi weiter angenommen werden.
+- **Webseite/Panel/Chat-Bot:** Modus-Auswahl auf Mania (4K–7K) und Trace kürzen; keine Map-Vorschläge oder
+  Score-Karten mehr für die vier Modi. Chat-Karten mit unbekanntem `mode` überspringt der Client still.
 
 ---
 
@@ -50,7 +71,7 @@ abschalten, später per 301 auf `/omen/…`.
 Paket fürs Relay: `OMEN.pck` (am Release hängt zusätzlich eine gleiche `TETHRA.pck`).
 GitHub: `Vyrenbusiness-source/OMEN`. Modus-Icons:
 `https://raw.githubusercontent.com/Vyrenbusiness-source/OMEN/main/assets_game/icons/modes/<mode>.svg`
-(`mania, orbit, rally, dirigent, trace, rebound`).
+(`mania, trace`).
 
 ---
 
@@ -60,19 +81,15 @@ GitHub: `Vyrenbusiness-source/OMEN`. Modus-Icons:
 |---|---|---|
 | `mania` | osu!mania 4K | ScoreV1, max 1.000.000 × Mod-Faktor, pp (rosu) |
 | `mania5k` `mania6k` `mania7k` | Mania mit 5–7 Tasten, dazu `"keys": 5..7` | wie Mania, pp mit echter Spaltenzahl; **eigene Rangliste je Tastenzahl**; kein 4K-Check |
-| `orbit` | Orbit (Regeln v5) | keine pp; Punkte = 4 × Sterne² × Acc⁴, gewichtet 0,95^Platz |
-| `rally` | Rally (Regeln v4) | wie Orbit |
-| `dirigent` | Dirigent (Regeln v4), dazu `beats_hit`, `beats_total` | wie Orbit |
-| `trace` | Trace (eigene Sterne) | wie Orbit |
-| `rebound` | Rebound (Regeln v3) | wie Orbit |
+| `trace` | Trace (eigene Sterne) | keine pp; Punkte = 4 × Sterne² × Acc⁴, gewichtet 0,95^Platz |
 
 Pflichtfelder wie bisher (`beatmap_md5`, `beatmap_id`, `beatmapset_id`, `difficulty`, `score`, `mods`,
 `mod_mult`, `accuracy`, `grade`, `max_combo`, `count_*`, `stars`, `client_version`), optional
 `replay_content` (Base64 gzip-JSON, ≤ 2 MB).
 
 **Mods** (Feld `mods`) und Faktoren:
-- `SV` ×1,1 (nur Mania), `NF` ×0,5, Orbit `HD` `FI` ×1,06, `PR` ×1,12, Trace `MR` ×1,0 `HD` ×1,06 `SS` ×1,08.
-- `SD` (Sudden Death), `PF` (Perfect): Mania/Trace/Rebound, Faktor 1,0, normal ranked.
+- `SV` ×1,1 (nur Mania), `NF` ×0,5, Trace `MR` ×1,0 `HD` ×1,06 `SS` ×1,08.
+- `SD` (Sudden Death), `PF` (Perfect): Mania/Trace, Faktor 1,0, normal ranked.
 - `MN` (Minen, Mania): kommt mit `"board": "mania_mn"`, `"ranked": false`, `"pp": 0`, `"mines"`, `"mine_hits"`.
   **Eigene Rangliste** `board=mania_mn`, nicht in die normale Mania-Liste.
 
