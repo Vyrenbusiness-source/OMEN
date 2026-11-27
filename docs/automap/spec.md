@@ -117,7 +117,7 @@ Noten liegen immer exakt auf dem Gitter (`AmGrid.snap`), `t_ms` enthält bereits
 ## Blockiert (Aufrufer startet den Thread). progress: Callable(stage: String, frac: float), optional.
 static func generate(audio_path: String, maps_dir: String, opts: Dictionary = {}) -> Dictionary
 # opts: { "profiles": Array (Standard alle fünf), "tempo_factor": float (1.0), "offset_ms": float (0.0),
-#         "with_orbit": bool (true), "progress": Callable }
+#         "progress": Callable }
 # -> { ok, error, osz_path, bpm, offset_ms, confidence, diffs: [ {name, notes, stars} ], alternatives }
 static func write_osz(audio_path: String, maps_dir: String, meta: Dictionary, grid: Dictionary,
 		features: Dictionary, charts: Array) -> Dictionary     # {ok, error, osz_path}
@@ -126,7 +126,6 @@ static func write_osz(audio_path: String, maps_dir: String, meta: Dictionary, gr
 .osz-Inhalt: Audio unverändert als `audio.<ext>`; je Profil eine `.osu` (Mode 3, CircleSize 4,
 Version = Profilname, Creator `OMEN Auto`, ein roter Timing-Point je Gitter-Segment mit Meter,
 grüne Linien nur für Kiai, `PreviewTime` am Beginn des stärksten Refrains, OD/HP je Profil);
-bei `with_orbit` zusätzlich die bisherigen Orbit-Diffs (osu!standard) auf dem NEUEN Gitter.
 Das Set ist `unranked` (kein Online-Score), wie bisher bei eigener Musik.
 
 **Bild**: Das im Song eingebettete Cover (Album-Art im mp3/ogg-Tag, per ffmpeg herausgelöst) wird
@@ -189,5 +188,5 @@ das schwerere Profil keine hat, außer vereinfachte Holds).
   Schnittstelle nicht reicht, im Bericht sagen und abwärtskompatibel ergänzen (neues Feld).
 - Kein Python/Node im ausgelieferten Weg. Auswertungs-Skripte laufen als Godot-Skript
   (`--headless --script`), ein Prozess für viele Maps (der PC verliert RAM je Prozessstart).
-- Der bisherige `scripts/library/audio_mapper.gd` (Orbit) bleibt lauffähig, bis die Pipeline ihn ersetzt.
+- Der bisherige `scripts/library/audio_mapper.gd` bleibt lauffähig, bis die Pipeline ihn ersetzt.
 - Name des Spiels in neuen Texten: OMEN.

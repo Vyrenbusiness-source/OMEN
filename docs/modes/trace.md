@@ -7,8 +7,7 @@ Nur osu!mania-4K-Maps (Notenfolge, Zeiten und Holds unveraendert, exakt im Takt)
 - **Wertung = Mania 4K:** `ManiaCore` unveraendert (OD-Fenster, MAX/300/200/100/50/Miss,
   ScoreV1, Holds wie osu!mania stable, Mods wie Mania). Spalte 0-3 = **eigene Trace-Tasten**
   (`Settings.trace_keys`, Standard Pfeiltasten LINKS RUNTER HOCH RECHTS, Tasten-Seite der
-  Einstellungen, gleiche Konflikt-Pruefung wie andere Modi). Rebound nutzt weiter die
-  Mania-Tasten. Sterne = Mania-Sterne der Map, keine pp.
+  Einstellungen, gleiche Konflikt-Pruefung wie Mania). Sterne = Mania-Sterne der Map, keine pp.
 - **Anti-Mash (Regeln 2, `scripts/trace/trace_rules.gd`):** duenne Schicht vor ManiaCore,
   deterministisch und replay-faehig. Druck in einer Spalte ohne ungewertete Note im
   Miss-Fenster, waehrend eine andere Spalte eine ungewertete Note im 50er-Fenster hat =

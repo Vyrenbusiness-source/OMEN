@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OMEN gameplay videos: free rhythm game for Windows</title>
-<meta name="description" content="Watch OMEN gameplay with sound: the trailer and all six modes of the free rhythm game for Windows (Mania 4K, Orbit, Rally, Dirigent, Trace, Rebound) and the SV mod.">
+<meta name="description" content="Watch OMEN gameplay with sound: the trailer, Mania and Trace of the free rhythm game for Windows and the SV mod.">
 <link rel="canonical" href="https://vyrenbusiness-source.github.io/OMEN/watch.html">
 <link rel="icon" href="brand/icon_klein.svg" type="image/svg+xml">
 <meta name="theme-color" content="#121314">
 <meta property="og:type" content="video.other">
 <meta property="og:site_name" content="OMEN">
 <meta property="og:title" content="OMEN gameplay videos">
-<meta property="og:description" content="Trailer and gameplay of all six modes of OMEN, a free rhythm game for Windows.">
+<meta property="og:description" content="Trailer and gameplay of Mania and Trace in OMEN, a free rhythm game for Windows.">
 <meta property="og:url" content="https://vyrenbusiness-source.github.io/OMEN/watch.html">
 <meta property="og:image" content="https://vyrenbusiness-source.github.io/OMEN/media/og_image.png">
 <meta name="twitter:card" content="summary_large_image">
@@ -33,19 +33,15 @@
   <nav aria-label="Videos">
     <a href="?v=trailer">Trailer</a>
     <a href="?v=mania">Mania</a>
-    <a href="?v=orbit">Orbit</a>
-    <a href="?v=rally">Rally</a>
-    <a href="?v=dirigent">Dirigent</a>
     <a href="?v=trace">Trace</a>
-    <a href="?v=rebound">Rebound</a>
     <a href="?v=sv_mod">SV mod</a>
   </nav>
   <div><a href="./">Download OMEN, free for Windows</a> · <a href="https://github.com/Vyrenbusiness-source/OMEN">OMEN on GitHub</a> · <a id="dl" href="media/trailer.mp4">Download video</a></div>
 </main>
 <script>
   // ?v=<name> plays media/<name>.mp4; only known names are accepted.
-  var names = ["trailer", "mania", "orbit", "rally", "dirigent", "trace", "rebound", "sv_mod"];
-  var labels = { trailer: "trailer", mania: "Mania gameplay", orbit: "Orbit gameplay", rally: "Rally gameplay", dirigent: "Dirigent gameplay", trace: "Trace gameplay", rebound: "Rebound gameplay", sv_mod: "SV mod" };
+  var names = ["trailer", "mania", "trace", "sv_mod"];
+  var labels = { trailer: "trailer", mania: "Mania gameplay", trace: "Trace gameplay", sv_mod: "SV mod" };
   var name = new URLSearchParams(location.search).get("v");
   if (names.indexOf(name) < 0) name = "trailer";
   var src = "media/" + name + ".mp4";
