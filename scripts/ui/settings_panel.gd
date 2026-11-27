@@ -2,7 +2,7 @@ class_name SettingsPanel
 extends Control
 
 ## Einstellungen im Stil von Song-Browser und Lobby (UiTheme: Graphit + Bernstein).
-## Links eine Seitenleiste: Suche, aktiver Modus (Mania 3D / Mania 2D / Orbit,
+## Links eine Seitenleiste: Suche, aktiver Modus (Mania 3D / Mania 2D,
 ## umschaltbar), darunter nur die Kategorien dieses Modus und die allgemeinen
 ## Kategorien (Audio, Grafik, Steuerung, Profil & Sprache). Rechts die Seite:
 ## ruhige Gruppen-Karten mit gleich hohen Zeilen (Beschriftung links, Bedienung
@@ -14,8 +14,7 @@ signal closed
 
 const MODE_3D := 0
 const MODE_2D := 1
-const MODE_ORBIT := 2
-const MODE_NAMES := ["Mania 3D", "Mania 2D", "Orbit"]
+const MODE_NAMES := ["Mania 3D", "Mania 2D"]
 
 const SIDE_W := 236.0
 const ROW_H := 42.0
@@ -39,20 +38,15 @@ const PAGE_DEFS := {
 	"field3d": ["Spielfeld & Welt", "Gilt für Mania 3D", [MODE_3D], "world"],
 	"field2d": ["Spielfeld", "Gilt für Mania 2D", [MODE_2D], "2d"],
 	"look2d": ["Skin & Bild", "Gilt für Mania 2D", [MODE_2D], "2d"],
-	"orbit": ["Orbit", "Gilt für Orbit", [MODE_ORBIT], "orbit"],
 	"notes": ["Notenfarben", "Gilt für Mania 3D und 2D", [MODE_3D, MODE_2D], ""],
 	"audio": ["Audio", "Gilt für alle Modi", [], ""],
 	"gfx": ["Grafik", "Gilt für alle Modi", [], ""],
 	"keys": ["Steuerung", "Gilt für alle Modi", [], ""],
 	"profile": ["Profil & Sprache", "Gilt für alle Modi", [], ""],
 }
-const PAGE_ORDER := ["field3d", "field2d", "look2d", "orbit", "notes", "audio", "gfx", "keys", "profile"]
-const CAP_ORBIT := 20
-const CAP_RALLY := 30   ## 30..32 = Rally-Tasten (3 Zonen)
-const CAP_RALLY4 := 40  ## 40..43 = Rally-Tasten (4 Zonen)
-const CAP_DIRIGENT := 50   ## 50/51 = Dirigent A/B
+const PAGE_ORDER := ["field3d", "field2d", "look2d", "notes", "audio", "gfx", "keys", "profile"]
 const CAP_TRACE := 60   ## 60..63 = Trace-Tasten (links, runter, hoch, rechts)
-const CAP_LANES := 3    ## 3..6 = Mania-Spuren 1-4 (auch Trace, Rebound)
+const CAP_LANES := 3    ## 3..6 = Mania-Spuren 1-4
 ## Mania 5K/6K/7K: 70.., 80.., 90.. (eigene Belegung je Tastenzahl, Settings.key_lanes_k)
 const CAP_K5 := 70
 const CAP_K6 := 80
@@ -81,11 +75,6 @@ var _pv_col: VBoxContainer
 var _pv_2d: Control
 var _pv_world: Control
 var _pv_world_holder: Control
-var _pv_orbit: Control
-var _pv_orbit_holder: Control
-## Neue Vorschau (scripts/orbit/orbit_preview.gd) falls vorhanden, sonst Standbild.
-var _orbit_preview: Control
-var _orbit_pv_size := OrbitStill.SIZE_PX
 
 var _nc: NoteColorPicker
 var _world_preview: WorldPreview
@@ -98,12 +87,8 @@ var _skinvals_btn: CheckButton
 var _cover_rows: Array[Control] = []
 var _safe_hint: Label
 
-var _capturing := 0   # 0 = keine Aufnahme, sonst CAP_*-Code (3..6 Spuren, 20/21 Orbit, 30.. Rally, 50/51 Dirigent)
+var _capturing := 0   # 0 = keine Aufnahme, sonst CAP_*-Code (3..6 Spuren, 60.. Trace, 70.. 5K-7K)
 var _lane_btns: Array[Button] = []
-var _rally_btns: Array[Button] = []
-var _orbit_btns: Array[Button] = []   ## je zwei (innen, aussen) pro Ort, in dieser Reihenfolge
-var _rally4_btns: Array[Button] = []
-var _dirigent_btns: Array[Button] = []
 var _cap_btns := {}            ## Aufnahme-Code -> Array[Button] (alle Orte)
 var _conflict := {}            ## Basis-Code einer Belegung -> Array rote Hinweis-Labels
 
@@ -135,17 +120,8 @@ func _exit_tree() -> void:
 		_defaults = null
 
 
-## Aktiver Modus: Orbit, wenn der Song-Browser (oder die Szene) auf Orbit steht,
-## sonst Mania 2D/3D nach Settings.playfield_2d.
+## Aktiver Modus: Mania 2D/3D nach Settings.playfield_2d.
 func _initial_mode() -> int:
-	var host := get_parent()
-	if host != null and "_play_mode" in host and String(host.get("_play_mode")) == "orbit":
-		return MODE_ORBIT
-	var scene := get_tree().current_scene if is_inside_tree() else null
-	if scene != null and scene.scene_file_path.contains("orbit"):
-		return MODE_ORBIT
-	if OS.get_cmdline_args().has("--orbit"):
-		return MODE_ORBIT
 	return MODE_2D if Settings.playfield_2d else MODE_3D
 
 
@@ -200,8 +176,6 @@ func _layout() -> void:
 		var s := 0.75 if vp.x < 1500.0 else 1.0
 		_world_preview.scale = Vector2(s, s)
 		_pv_world_holder.custom_minimum_size = WorldPreview.SIZE_PX * s
-		_orbit_preview.scale = Vector2(s, s)
-		_pv_orbit_holder.custom_minimum_size = _orbit_pv_size * s
 	if _preview_2d != null and _preview_2d.has_method("set_box"):
 		# Groesser als im Farb-Picker; Bildhoehe waechst mit, das Feld passt in die Breite.
 		# Hoehe fuellt die Vorschau-Spalte (kein Leerraum unter dem Bild).
@@ -304,7 +278,7 @@ func _build_sidebar(parent: Control) -> void:
 	var seg := HBoxContainer.new()
 	seg.add_theme_constant_override("separation", 0)
 	col.add_child(seg)
-	for m in 3:
+	for m in MODE_NAMES.size():
 		var b := Button.new()
 		b.text = MODE_NAMES[m]
 		b.toggle_mode = true
@@ -314,7 +288,7 @@ func _build_sidebar(parent: Control) -> void:
 		b.clip_text = true
 		b.add_theme_font_size_override("font_size", 13)
 		b.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
-		b.tooltip_text = ["Mania mit 3D-Welt", "Klassische senkrechte Spuren", "Zwei Spuren auf wechselnden Bahnen"][m]
+		b.tooltip_text = ["Mania mit 3D-Welt", "Klassische senkrechte Spuren"][m]
 		b.pressed.connect(_set_mode.bind(m))
 		UiTheme._attach_sounds(b)
 		seg.add_child(b)
@@ -502,7 +476,6 @@ func _build_pages() -> void:
 	_page_field3d(_new_page("field3d"))
 	_page_field2d(_new_page("field2d"))
 	_page_look2d(_new_page("look2d"))
-	_page_orbit(_new_page("orbit"))
 	_page_notes(_new_page("notes"))
 	_page_audio(_new_page("audio"))
 	_page_gfx(_new_page("gfx"))
@@ -661,75 +634,6 @@ func _page_look2d(pg: VBoxContainer) -> void:
 	_own_switch(g3, "Trefferlinie", "hit_line_2d", "Linie an der Trefferposition")
 
 
-func _page_orbit(pg: VBoxContainer) -> void:
-	var g := _group(pg, "Tasten")
-	_orbit_key_row(g)
-	_conflict_label(g, CAP_ORBIT)
-	_hint_label(g, "Akzent = beide Tasten zugleich. Maus links = A, Maus rechts = B gelten immer zusätzlich.")
-	g = _group(pg, "Lesen")
-	var laps := OptionButton.new()
-	laps.add_item("Auto (aus AR)", 0)
-	laps.add_item("1 Runde", 1)
-	laps.add_item("2 Runden", 2)
-	laps.add_item("3 Runden", 3)
-	laps.add_item("4 Runden", 4)
-	_choice_ob(g, "Vorlauf", laps,
-		func(s): return s.orbit_laps,
-		func(i): Settings.orbit_laps = i,
-		"Runden des Satelliten bis zum Treffer. Auto: AR bis 5 drei, bis 8 zwei, ab 9 eine")
-	var kh := OptionButton.new()
-	kh.add_item("Auto", 0)
-	kh.add_item("An", 1)
-	kh.add_item("Aus", 2)
-	_choice_ob(g, "Tasten in Zielen", kh,
-		func(s): return s.orbit_key_hint,
-		func(i): Settings.orbit_key_hint = i,
-		"Taste im nächsten Ziel. Auto: bei leichten Maps und im Tutorial")
-	g = _group(pg, "Darstellung")
-	_slider(g, "Zielgröße", 90.0, 120.0, 5.0,
-		func(s): return s.orbit_target_size,
-		func(v): Settings.orbit_target_size = int(v),
-		func(v): return "%d %%" % int(v),
-		"Nur die Anzeige: der Trefferradius folgt der Map (CS)")
-	_slider(g, "Cursor-Größe", 50.0, 150.0, 10.0,
-		func(s): return s.orbit_cursor_size,
-		func(v): Settings.orbit_cursor_size = int(v),
-		func(v): return "%d %%" % int(v))
-	var om := OptionButton.new()
-	om.add_item("Aus", 0)
-	om.add_item("Dezent", 1)
-	om.add_item("Voll", 2)
-	_choice_ob(g, "Musik-Reaktion", om,
-		func(s): return s.orbit_music,
-		func(i): Settings.orbit_music = i,
-		"Orbit-Ringe pulsieren auf dem Beat, im Refrain etwas heller")
-	var obg := OptionButton.new()
-	obg.add_item("Welt", Settings.ORBIT_BG_WORLD)
-	obg.add_item("Map-Bild", Settings.ORBIT_BG_MAP)
-	obg.add_item("Aus", Settings.ORBIT_BG_OFF)
-	if not WorldBackdrop.has_world_pack():
-		# Ohne Welten-Paket zeigt "Welt" das Map-Bild.
-		obg.set_item_text(0, tr("Welt") + " (" + tr("Map-Bild") + ")")
-	_choice_ob(g, "Hintergrund", obg,
-		func(s): return s.orbit_background,
-		func(i): Settings.orbit_background = i,
-		"Welt: die 3D-Welt, ruhig und abgedunkelt")
-	_world_row(g)
-
-	# Map-Bild hinter Orbit (Hintergrund "Map-Bild"), Rally und Dirigent.
-	var gm := _group(pg, "Map-Bild in Orbit, Rally, Dirigent")
-	_slider(gm, "Map-Bild", 0.0, 100.0, 5.0,
-		func(s): return s.modes_bg_dim * 100.0,
-		func(v): Settings.modes_bg_dim = Settings.clamp_bg_dim(v / 100.0),
-		func(v): return _fmt_bg(Settings.clamp_bg_dim(v / 100.0)),
-		"Deckkraft des Map-Bilds, 0 % = aus")
-	_slider(gm, "Hintergrund-Unschärfe", 0.0, 100.0, 5.0,
-		func(s): return float(s.modes_bg_blur),
-		func(v): Settings.modes_bg_blur = clampi(int(round(v)), 0, 100),
-		func(v): return _fmt_pct0(v / 100.0) if v > 0.5 else tr("Aus"),
-		"Wie weich das Map-Bild ist, 0 % = scharf")
-
-
 func _page_notes(pg: VBoxContainer) -> void:
 	var g := _group(pg, "Notenfarben", false)
 	_nc = NoteColorPicker.new()
@@ -863,7 +767,7 @@ func _page_keys(pg: VBoxContainer) -> void:
 		_refresh_labels())
 	_conflict_label(g, CAP_LANES)
 	_hint_label(g, "Anklicken, dann Taste drücken (Esc bricht ab)")
-	_hint_label(g, "Rebound uses these keys too. Trace has its own keys below.")
+	_hint_label(g, "Trace has its own keys below.")
 	# Mania 5K-7K (echte Maps mit mehr Spalten): je Tastenzahl eigene Belegung.
 	for n in [5, 6, 7]:
 		var krow := HBoxContainer.new()
@@ -879,57 +783,7 @@ func _page_keys(pg: VBoxContainer) -> void:
 			Settings.key_lanes_k[nk] = ManiaKeys.default_keys(nk)
 			_refresh_labels())
 		_conflict_label(g, _cap_k_base(n))
-	g = _group(pg, "Rally")
-	_choice(g, "Rally: Zonen", ["3 Zonen", "4 Zonen"],
-		func(s): return 1 if s.rally_zones == 4 else 0,
-		func(i): Settings.rally_zones = 4 if i == 1 else 3,
-		"3 zones: left, middle, right. 4 zones: zone 1–4. Each zone count has its own keys.")
-	var rally_row := HBoxContainer.new()
-	rally_row.add_theme_constant_override("separation", 6)
-	for i in 3:
-		var rb := _key_button(CAP_RALLY + i)
-		rally_row.add_child(rb)
-		_rally_btns.append(rb)
-	var rr := _row(g, "Rally-Tasten (3 Zonen)", rally_row, "Left, middle, right. Click, then press a key (Esc cancels).")
-	rr.set_meta("reset", func():
-		Settings.rally_keys_3 = _defaults.rally_keys_3.duplicate()
-		_refresh_labels())
-	_conflict_label(g, CAP_RALLY)
-	var rally4_row := HBoxContainer.new()
-	rally4_row.add_theme_constant_override("separation", 6)
-	for i in 4:
-		var rb4 := _key_button(CAP_RALLY4 + i)
-		rally4_row.add_child(rb4)
-		_rally4_btns.append(rb4)
-	var rr4 := _row(g, "Rally keys (4 zones)", rally4_row, "Zone 1–4 from left to right. Click, then press a key (Esc cancels).")
-	rr4.set_meta("reset", func():
-		Settings.rally_keys_4 = _defaults.rally_keys_4.duplicate()
-		_refresh_labels())
-	_conflict_label(g, CAP_RALLY4)
-	_slider(g, "Rally: Flugzeit", Settings.RALLY_FLIGHT_MIN, Settings.RALLY_FLIGHT_MAX, 50.0,
-		func(s): return s.rally_flight_ms,
-		func(v): Settings.rally_flight_ms = clampi(int(v), Settings.RALLY_FLIGHT_MIN, Settings.RALLY_FLIGHT_MAX),
-		func(v): return "%d ms" % int(v),
-		"Rally: Zeit vom Gegnerschlag bis zur Schlägerlinie. Länger = mehr Bälle gleichzeitig lesbar")
-	g = _group(pg, "Orbit")
-	_orbit_key_row(g)
-	_conflict_label(g, CAP_ORBIT)
-	_hint_label(g, "Akzent = beide Tasten zugleich. Maus links = A, Maus rechts = B gelten immer zusätzlich.")
-	g = _group(pg, "Dirigent")
-	var dir_row := HBoxContainer.new()
-	dir_row.add_theme_constant_override("separation", 6)
-	for k in 2:
-		var db := _key_button(CAP_DIRIGENT + k)
-		dir_row.add_child(db)
-		_dirigent_btns.append(db)
-	var dr := _row(g, "Dirigent keys: A | B", dir_row, "Left: key A (circle), right: key B (diamond). Click, then press a key (Esc cancels).")
-	dr.set_meta("reset", func():
-		Settings.dirigent_key_a = _defaults.dirigent_key_a
-		Settings.dirigent_key_b = _defaults.dirigent_key_b
-		_refresh_labels())
-	_conflict_label(g, CAP_DIRIGENT)
-	_hint_label(g, "Both parts = both keys together. Left click = A, right click = B always work too.")
-	g = _group(pg, "Trace / Rebound")
+	g = _group(pg, "Trace")
 	var trace_row := HBoxContainer.new()
 	trace_row.add_theme_constant_override("separation", 6)
 	for i in 4:
@@ -944,12 +798,17 @@ func _page_keys(pg: VBoxContainer) -> void:
 		func(v): Settings.trace_speed = clampi(int(v), 300, 900),
 		func(v): return "%d" % int(v),
 		"How fast the thread moves (looks only, timing stays the same)")
-	_slider(g, "Rebound drop time", 600.0, 1600.0, 50.0,
-		func(s): return s.rebound_drop_ms,
-		func(v): Settings.rebound_drop_ms = clampi(int(v), 600, 1600),
-		func(v): return "%d ms" % int(v),
-		"Rebound: time a ball falls to the paddle line. Longer = easier to read")
-	_hint_label(g, "Rebound keys: the Mania keys 1–4 above.")
+	# Map-Bild hinter Trace.
+	_slider(g, "Map-Bild", 0.0, 100.0, 5.0,
+		func(s): return s.modes_bg_dim * 100.0,
+		func(v): Settings.modes_bg_dim = Settings.clamp_bg_dim(v / 100.0),
+		func(v): return _fmt_bg(Settings.clamp_bg_dim(v / 100.0)),
+		"Deckkraft des Map-Bilds, 0 % = aus")
+	_slider(g, "Hintergrund-Unschärfe", 0.0, 100.0, 5.0,
+		func(s): return float(s.modes_bg_blur),
+		func(v): Settings.modes_bg_blur = clampi(int(round(v)), 0, 100),
+		func(v): return _fmt_pct0(v / 100.0) if v > 0.5 else tr("Aus"),
+		"Wie weich das Map-Bild ist, 0 % = scharf")
 	# Feste Kuerzel zum Nachschlagen (nicht belegbar).
 	g = _group(pg, "Tastenkürzel", false)
 	for k in [["Scroll Speed ändern", "F3 / F4"], ["Vollbild umschalten", "F11"],
@@ -987,20 +846,6 @@ func _keycap(t: String) -> Control:
 	l.add_theme_color_override("font_color", UiTheme.TEXT)
 	pc.add_child(l)
 	return pc
-
-
-func _orbit_key_row(g: VBoxContainer) -> void:
-	var box := HBoxContainer.new()
-	box.add_theme_constant_override("separation", 6)
-	for ring in 2:
-		var b := _key_button(CAP_ORBIT + ring)
-		box.add_child(b)
-		_orbit_btns.append(b)
-	var r := _row(g, "Orbit-Tasten: A | B", box, "Links: Taste A (kühle Scheibe), rechts: Taste B (warmes Quadrat). Anklicken, dann Taste drücken (Esc bricht ab)")
-	r.set_meta("reset", func():
-		Settings.orbit_key_inner = _defaults.orbit_key_inner
-		Settings.orbit_key_outer = _defaults.orbit_key_outer
-		_refresh_labels())
 
 
 func _key_button(which: int) -> Button:
@@ -1118,7 +963,7 @@ func _build_previews() -> void:
 		_preview_bg_label = _pv_caption("")
 		_pv_2d.add_child(_preview_bg_label)
 		_refresh_bg_preview()
-	# Welt: eine Vorschau fuer Mania 3D und Orbit.
+	# Welt: Vorschau fuer Mania 3D.
 	_pv_world = VBoxContainer.new()
 	_pv_world.add_theme_constant_override("separation", 8)
 	_pv_col.add_child(_pv_world)
@@ -1129,40 +974,6 @@ func _build_previews() -> void:
 	_pv_world_holder.add_child(_world_preview)
 	_pv_world.add_child(_framed(_pv_world_holder))
 	_world_preview.show_world(Settings.world_theme_name())
-	# Orbit: echte Satelliten-Vorschau (Teil 3), ohne sie ein Standbild aus den Einstellungen.
-	_pv_orbit = VBoxContainer.new()
-	_pv_col.add_child(_pv_orbit)
-	_orbit_preview = _make_orbit_preview()
-	_orbit_pv_size = _orbit_preview.custom_minimum_size
-	if _orbit_pv_size.x < 1.0:
-		_orbit_pv_size = OrbitStill.SIZE_PX
-	_pv_orbit_holder = Control.new()
-	_pv_orbit_holder.custom_minimum_size = _orbit_pv_size
-	_pv_orbit_holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_pv_orbit_holder.add_child(_orbit_preview)
-	_pv_orbit.add_child(_framed(_pv_orbit_holder))
-
-
-const ORBIT_PREVIEW_PATH := "res://scripts/orbit/orbit_preview.gd"
-
-
-## Per Pfad geladen: die Vorschau entsteht in einer anderen Teil-Aufgabe, das
-## Panel darf ohne sie nicht brechen.
-func _make_orbit_preview() -> Control:
-	if ResourceLoader.exists(ORBIT_PREVIEW_PATH):
-		var sc := load(ORBIT_PREVIEW_PATH) as Script
-		if sc != null and sc.can_instantiate():
-			var pv = sc.new()
-			if pv is Control:
-				var c := pv as Control
-				if c.custom_minimum_size.x < 1.0:
-					var consts := sc.get_script_constant_map()
-					if consts.get("SIZE_PX") is Vector2:
-						c.custom_minimum_size = consts["SIZE_PX"]
-				return c
-			if pv is Node:
-				(pv as Node).free()
-	return OrbitStill.new()
 
 
 func _pv_caption(t: String) -> Label:
@@ -1692,7 +1503,6 @@ func _show_page(id: String) -> void:
 	(_pv_col.get_meta("wrap") as Control).visible = pv != ""
 	_pv_2d.visible = pv == "2d"
 	_pv_world.visible = pv == "world"
-	_pv_orbit.visible = pv == "orbit"
 	_arrange(id)
 	_scroll.scroll_vertical = 0
 	_sync_page(id)
@@ -1835,10 +1645,6 @@ func _refresh_labels() -> void:
 		for btn in _cap_btns[which]:
 			if is_instance_valid(btn):
 				(btn as Button).text = txt
-	for k in _orbit_btns.size():
-		_orbit_btns[k].tooltip_text = tr("Maus rechts") if k % 2 == 1 else tr("Maus links")
-	for k in _dirigent_btns.size():
-		_dirigent_btns[k].tooltip_text = tr("Maus rechts") if k == 1 else tr("Maus links")
 
 
 ## Aufnahme-Basis der Mania-Belegung mit n Tasten (5-7).
@@ -1865,21 +1671,11 @@ static func _cap_base(which: int) -> int:
 		return CAP_K5
 	if which >= CAP_TRACE:
 		return CAP_TRACE
-	if which >= CAP_DIRIGENT:
-		return CAP_DIRIGENT
-	if which >= CAP_RALLY4:
-		return CAP_RALLY4
-	if which >= CAP_RALLY:
-		return CAP_RALLY
-	if which >= CAP_ORBIT:
-		return CAP_ORBIT
 	return CAP_LANES
 
 
 static func _cap_count(base: int) -> int:
 	match base:
-		CAP_RALLY: return 3
-		CAP_ORBIT, CAP_DIRIGENT: return 2
 		CAP_K5, CAP_K6, CAP_K7: return _cap_k_of(base)
 	return 4
 
@@ -1889,30 +1685,14 @@ func _cap_get(which: int) -> int:
 	match _cap_base(which):
 		CAP_K5, CAP_K6, CAP_K7: return Settings.mania_keys(_cap_k_of(_cap_base(which)))[i]
 		CAP_TRACE: return Settings.trace_keys[i]
-		CAP_DIRIGENT: return Settings.dirigent_key_a if i == 0 else Settings.dirigent_key_b
-		CAP_RALLY4: return Settings.rally_keys_4[i]
-		CAP_RALLY: return Settings.rally_keys_3[i]
-		CAP_ORBIT: return Settings.orbit_key_inner if i == 0 else Settings.orbit_key_outer
 	return Settings.key_lanes[i]
 
 
 func _cap_set(which: int, code: int) -> void:
 	var i := which - _cap_base(which)
 	match _cap_base(which):
-		CAP_DIRIGENT:
-			if i == 0:
-				Settings.dirigent_key_a = code
-			else:
-				Settings.dirigent_key_b = code
 		CAP_K5, CAP_K6, CAP_K7: Settings.mania_keys(_cap_k_of(_cap_base(which)))[i] = code
 		CAP_TRACE: Settings.trace_keys[i] = code
-		CAP_RALLY4: Settings.rally_keys_4[i] = code
-		CAP_RALLY: Settings.rally_keys_3[i] = code
-		CAP_ORBIT:
-			if i == 0:
-				Settings.orbit_key_inner = code
-			else:
-				Settings.orbit_key_outer = code
 		_: Settings.key_lanes[i] = code
 
 
@@ -1921,10 +1701,7 @@ func _cap_name(which: int) -> String:
 	var base := _cap_base(which)
 	var i := which - base
 	match base:
-		CAP_ORBIT, CAP_DIRIGENT: return tr("key A") if i == 0 else tr("key B")
 		CAP_TRACE: return tr(["left", "down", "up", "right"][i])
-		CAP_RALLY: return tr(["left", "middle", "right"][i])
-		CAP_RALLY4: return tr("zone %d") % (i + 1)
 	return tr("key %d") % (i + 1)
 
 
@@ -2018,7 +1795,7 @@ static func _fmt_pct0(v: float) -> String:
 # ================================================================== Harness
 
 ## --shot-settings (SETTINGS_SHOT_DIR): jede Seite je Modus, oben und unten gescrollt,
-## de und en, 1280x720 und 1920x1080. Speichert nichts. --shot-orbit: nur Orbit-Seite.
+## de und en, 1280x720 und 1920x1080. Speichert nichts.
 func _shot_pages() -> void:
 	var dir := OS.get_environment("SETTINGS_SHOT_DIR")
 	if dir == "":
@@ -2026,29 +1803,6 @@ func _shot_pages() -> void:
 	DirAccess.make_dir_recursive_absolute(dir)
 	_shot_translations()
 	await get_tree().create_timer(1.2).timeout
-	if OS.get_cmdline_args().has("--shot-orbit"):
-		# Messung: Bilder/s auf einer Seite ohne Vorschau, dann auf der Orbit-Seite.
-		_set_mode(MODE_ORBIT)
-		_show_page("audio")
-		await get_tree().create_timer(1.0).timeout
-		print("FPS audio ", Engine.get_frames_per_second())
-		_show_page("orbit")
-		await get_tree().create_timer(1.5).timeout
-		print("FPS orbit ", Engine.get_frames_per_second())
-		for lang in ["de", "en"]:
-			TranslationServer.set_locale(lang)
-			_rebuild()
-			_set_mode(MODE_ORBIT)
-			_show_page("orbit")
-			if lang == "en":
-				# Live: andere Einstellungen muessen sofort in der Vorschau wirken.
-				Settings.orbit_guides = false
-				Settings.orbit_background = Settings.ORBIT_BG_MAP
-				Settings.scroll_speed = 20
-			await get_tree().create_timer(2.2).timeout
-			await _shot_save(dir, "settings_orbit_%s.png" % lang)
-		get_tree().quit(0)
-		return
 	var sizes := [Vector2i(1280, 720), Vector2i(1920, 1080)]
 	for sz in sizes:
 		get_window().size = sz
@@ -2059,7 +1813,7 @@ func _shot_pages() -> void:
 			_rebuild()
 			await get_tree().create_timer(0.5).timeout
 			var tag := "%dx%d_%s" % [real.x, real.y, lang]
-			for m in 3:
+			for m in MODE_NAMES.size():
 				_set_mode(m)
 				for id in _mode_pages():
 					await _shot_page(dir, tag, MODE_NAMES[m].replace(" ", "").to_lower(), id)
@@ -2077,7 +1831,7 @@ func _shot_pages() -> void:
 
 func _shot_page(dir: String, tag: String, mode: String, id: String) -> void:
 	_show_page(id)
-	await get_tree().create_timer(0.45 if id == "field3d" or id == "orbit" else 0.25).timeout
+	await get_tree().create_timer(0.45 if id == "field3d" else 0.25).timeout
 	await _shot_save(dir, "settings_%s_%s_%s_top.png" % [tag, mode, id])
 	var sb := _scroll.get_v_scroll_bar()
 	if sb.max_value - sb.page > 4.0:
@@ -2121,99 +1875,8 @@ func _rebuild() -> void:
 	_nav_btns.clear()
 	_mode_btns.clear()
 	_lane_btns.clear()
-	_rally_btns.clear()
-	_orbit_btns.clear()
-	_rally4_btns.clear()
-	_dirigent_btns.clear()
 	_cap_btns.clear()
 	_conflict.clear()
 	_cover_rows.clear()
 	_cur = ""
 	_build()
-
-
-## Standbild der Orbit-Einstellungen (wenn es keine Live-Vorschau gibt): drei
-## Ziele (A, B, Akzent) mit Satellit, Pips, Verbindungslinie und Cursor. Folgt
-## Zielgroesse, Cursor-Groesse, Tasten in Zielen und Vorlauf (Pips).
-class OrbitStill extends Control:
-	const SIZE_PX := Vector2(384, 216)
-	# Farben wie OrbitView (A_COL, B_COL, PLATE_COL); eigene Kopie, damit das Panel
-	# nicht am Spielfeld-Skript haengt.
-	const A_COL := Color(0.38, 0.74, 1.0)
-	const B_COL := Color(1.0, 0.60, 0.30)
-	const PLATE_COL := Color(0.012, 0.016, 0.028)
-	var _sig := ""
-
-	func _ready() -> void:
-		custom_minimum_size = SIZE_PX
-		size = SIZE_PX
-		mouse_filter = Control.MOUSE_FILTER_IGNORE
-
-	func _process(_d: float) -> void:
-		if not is_visible_in_tree():
-			return
-		var sig := "%d|%d|%d|%d|%d|%d" % [Settings.orbit_target_size, Settings.orbit_cursor_size,
-			Settings.orbit_key_hint, Settings.orbit_laps, Settings.orbit_key_inner, Settings.orbit_key_outer]
-		if sig != _sig:
-			_sig = sig
-			queue_redraw()
-
-	func _draw() -> void:
-		var sz := SIZE_PX
-		draw_rect(Rect2(Vector2.ZERO, sz), PLATE_COL)
-		var fh := sz.y * 0.8
-		var field := Rect2((sz.x - fh * 4.0 / 3.0) * 0.5, sz.y * 0.1, fh * 4.0 / 3.0, fh)
-		draw_rect(field, Color(1, 1, 1, 0.025))
-		var r := fh * 0.065 * float(Settings.orbit_target_size) / 100.0
-		var p_next := field.position + field.size * Vector2(0.28, 0.58)
-		var p_b := field.position + field.size * Vector2(0.60, 0.32)
-		var p_acc := field.position + field.size * Vector2(0.82, 0.68)
-		draw_line(p_next, p_b, Color(1, 1, 1, 0.14), 1.0, true)
-		draw_line(p_b, p_acc, Color(1, 1, 1, 0.07), 1.0, true)
-		var laps := Settings.orbit_laps if Settings.orbit_laps >= 1 else 2
-		# Spaeter kommende Ziele blass (55 %), das naechste voll.
-		_target(p_acc, r, 2, 0.55, laps, 0.70, false)
-		_target(p_b, r, 1, 0.55, laps, 0.35, false)
-		_target(p_next, r, 0, 1.0, 1, 0.08, Settings.orbit_key_hint != 2)
-		var c := p_next + Vector2(r * 0.35, r * 0.25)
-		var cr := 5.0 * float(Settings.orbit_cursor_size) / 100.0
-		draw_circle(c, cr + 1.5, Color(0, 0, 0, 0.6), true, -1.0, true)
-		draw_circle(c, cr, Color(1, 1, 1, 0.95), true, -1.0, true)
-
-	func _target(p: Vector2, r: float, key: int, a: float, pips: int, frac: float, label: bool) -> void:
-		var ca := A_COL
-		var cb := B_COL
-		var orbit := r * 1.6
-		draw_arc(p, orbit, 0.0, TAU, 48, Color(1, 1, 1, 0.16 * a), 1.0, true)
-		draw_line(p + Vector2(0, -orbit - 4.0), p + Vector2(0, -orbit + 4.0), Color(1, 1, 1, 0.7 * a), 1.5)
-		if key == 1:
-			var sb := StyleBoxFlat.new()
-			sb.bg_color = Color(cb, a)
-			sb.set_corner_radius_all(int(r * 0.34 * 1.72))
-			sb.border_color = Color(cb.lightened(0.45), a)
-			sb.set_border_width_all(2)
-			sb.anti_aliasing = true
-			draw_style_box(sb, Rect2(p - Vector2(r, r) * 0.86, Vector2(r, r) * 1.72))
-		elif key == 2:
-			draw_circle(p, r, Color(ca, a), true, -1.0, true)
-			var half := PackedVector2Array()
-			for i in 25:
-				half.append(p + Vector2.from_angle(-PI * 0.5 + PI * float(i) / 24.0) * r)
-			draw_colored_polygon(half, Color(cb, a))
-			draw_arc(p, r, 0.0, TAU, 48, Color(1, 1, 1, a), 2.5, true)
-		else:
-			draw_circle(p, r, Color(ca, a), true, -1.0, true)
-			draw_arc(p, r, 0.0, TAU, 48, Color(ca.lightened(0.45), a), 2.0, true)
-		# Satellit: 0 = oben, laeuft im Uhrzeigersinn auf die Marke zu.
-		var ang := -PI * 0.5 + TAU * (1.0 - frac)
-		draw_circle(p + Vector2.from_angle(ang) * orbit, 3.0, Color(1, 1, 1, a), true, -1.0, true)
-		for i in pips:
-			var x := (float(i) - float(pips - 1) * 0.5) * 7.0
-			draw_circle(p + Vector2(x, orbit + 7.0), 2.0, Color(1, 1, 1, 0.75 * a), true, -1.0, true)
-		if label:
-			var f := UiTheme.heading_font(0)
-			var t := UiTheme.key_short(Settings.orbit_key_outer if key == 1 else Settings.orbit_key_inner)
-			var fs := maxi(int(r * 0.8), 8)
-			var w := f.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-			draw_string(f, p + Vector2(-w * 0.5, float(fs) * 0.36), t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs,
-				Color(0.04, 0.05, 0.08, 0.9))
