@@ -197,7 +197,7 @@ func _test_mirror() -> void:
 	var da := BeatmapMirror.mania_difficulty(item, 0)
 	_check(int(da.count) == 3 and da["keys"] == [4, 7], "alle: 4K+7K, kein 9K")
 	_check(BeatmapMirror.mania4k_difficulty(item).hash() == d4.hash(), "mania4k_difficulty unveraendert")
-	_check(BeatmapMirror.parse_item(item, BeatmapMirror.MODE_MANIA, 6).is_empty(), "6K-Suche: Set ohne 6K faellt raus")
+	_check(BeatmapMirror.parse_item(item, 6).is_empty(), "6K-Suche: Set ohne 6K faellt raus")
 	_check(OnlineBrowser.keys_text({"keys": [4, 7]}) == "4K 7K" and OnlineBrowser.keys_text({"keys": [4]}) == "",
 		"Karten-Marke")
 

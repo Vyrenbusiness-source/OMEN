@@ -27,7 +27,6 @@ Alte Scores hochladen,Alte Scores hochladen,Upload old scores
 "Hochgeladen: %d, übersprungen: %d","Hochgeladen: %d, übersprungen: %d","Uploaded: %d, skipped: %d"
 Upload abgebrochen (%d / %d).,Upload abgebrochen (%d / %d).,Upload cancelled (%d / %d).
 "Upload unterbrochen, Server nicht erreichbar.","Upload unterbrochen, Server nicht erreichbar.","Upload interrupted, server unreachable."
-Es werden nur deine Mania-Bestwerte hochgeladen. Orbit-Bestwerte nicht: sie stammen aus den alten Orbit-Regeln.,Es werden nur deine Mania-Bestwerte hochgeladen. Orbit-Bestwerte nicht: sie stammen aus den alten Orbit-Regeln.,Only your Mania best scores are uploaded. Orbit best scores are not: they come from the old Orbit rules.
 Anmelden fehlgeschlagen.,Anmelden fehlgeschlagen.,Login failed.
 Bitte Benutzername und Passwort eingeben.,Bitte Benutzername und Passwort eingeben.,Please enter username and password.
 Server nicht erreichbar. Prüfe die Internetverbindung oder versuch es später.,Server nicht erreichbar. Prüfe die Internetverbindung oder versuch es später.,Server unreachable. Check your internet connection or try again later.
@@ -42,3 +41,4 @@ Angemeldet als %s.,Angemeldet als %s.,Signed in as %s.
 Deine alten Bestwerte werden hochgeladen.,Deine alten Bestwerte werden hochgeladen.,Your old best scores are being uploaded.
 "Konto im Browser anlegen, E-Mail bestätigen, dann hier anmelden.","Konto im Browser anlegen, E-Mail bestätigen, dann hier anmelden.","Create the account in your browser, confirm the email, then sign in here."
 "Profilbild von butzebot.com, dort änderbar","Profilbild von butzebot.com, dort änderbar","Profile picture from butzebot.com, change it there"
+Es werden nur deine Mania-Bestwerte hochgeladen.,Es werden nur deine Mania-Bestwerte hochgeladen.,Only your Mania bests are uploaded.
