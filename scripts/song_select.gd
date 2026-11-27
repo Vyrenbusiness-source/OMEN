@@ -15,6 +15,7 @@ const COL_TEXT := UiTheme.TEXT
 const COL_DIM := UiTheme.DIM
 # Raster: 24 px Aussenrand, rechte Spalte (Toolbar, Filter, Liste) gleich breit.
 const M := 24
+const INFO_X := 48   # linker Rand der Info-Spalte (ohne Kasten)
 const INFO_W := 400
 const RIGHT_W := 720
 const HEAD_Y := 24
@@ -71,7 +72,7 @@ var _od_val: Label
 var _hp_val: Label
 var _mods_btn: Button
 var _more_btn: MenuButton
-var _mods_fold: HFlowContainer
+var _mods_fold: GridContainer
 var _progress_bg: Control
 var _progress_fill: ColorRect
 var _preview_len := 0.0
@@ -798,6 +799,21 @@ func _build_ui() -> void:
 	overlay.color = Color(UiTheme.BG.r, UiTheme.BG.g, UiTheme.BG.b, 0.38)
 	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(overlay)
+	# Drei ruhige Verlaeufe statt Panels: links (Info), rechts (Liste), oben (Kopf).
+	var bg0 := Color(UiTheme.BG, 0.0)
+	var gl := _grad_rect(Color(UiTheme.BG, 0.80), bg0, false)
+	gl.anchor_bottom = 1.0
+	gl.anchor_right = 0.40
+	add_child(gl)
+	var gr := _grad_rect(bg0, Color(UiTheme.BG, 0.70), false)
+	gr.anchor_left = 0.58
+	gr.anchor_right = 1.0
+	gr.anchor_bottom = 1.0
+	add_child(gr)
+	var gt := _grad_rect(Color(UiTheme.BG, 0.45), bg0, true)
+	gt.anchor_right = 1.0
+	gt.offset_bottom = 96
+	add_child(gt)
 
 	_init_card_styles()
 	_build_header()
@@ -1098,21 +1114,41 @@ func _square_margins(b: Button) -> void:
 			sb.content_margin_right = 0
 
 
-## Ein Stil fuer aktiv (Akzent-Toenung, Akzentschrift), einer fuer inaktiv (Ghost).
-func _toggle_box(active: bool, radius: int, hover: bool = false) -> StyleBoxFlat:
+# ---------------------------------------------------------------------------
+# Sprache "Plakat statt Formular": keine Kaesten, keine Pillen. Ordnung kommt
+# aus Schriftgroesse, Linien und Abstand. Alle Knoepfe der Songauswahl laufen
+# ueber diese Helfer (Text-Reiter, Textknopf, Linie, Zeile).
+# ---------------------------------------------------------------------------
+
+const TAB_LINE := 2          # Unterstrich des aktiven Reiters
+const ROW_LINE := Color(0.925, 0.902, 0.855, 0.12)  # = UiTheme.LINE
+const HOVER_LIFT := 0.06     # Hover: Flaeche 6 % heller
+
+
+## Text-Reiter: transparent, aktiv = 2 px Bernstein-Unterstrich. Kein Rahmen,
+## keine Flaeche, keine Rundung. radius bleibt fuer alte Aufrufer, wirkt nicht.
+func _toggle_box(active: bool, _radius: int = 0, _hover: bool = false) -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()
-	sb.set_corner_radius_all(mini(radius, UiTheme.R_MAX))
-	sb.set_border_width_all(1)
-	sb.content_margin_left = 14
-	sb.content_margin_right = 14
+	sb.bg_color = Color(0, 0, 0, 0)
+	sb.border_width_bottom = TAB_LINE
+	sb.border_color = COL_ACCENT if active else Color(0, 0, 0, 0)
+	sb.content_margin_left = 4
+	sb.content_margin_right = 4
 	sb.content_margin_top = 4
 	sb.content_margin_bottom = 4
-	if active:
-		sb.bg_color = Color(COL_ACCENT, 0.24 if hover else 0.16)
-		sb.border_color = Color(COL_ACCENT, 0.60)
-	else:
-		sb.bg_color = Color(1, 1, 1, 0.09 if hover else 0.04)
-		sb.border_color = Color(1, 1, 1, 0.22 if hover else 0.12)
+	return sb
+
+
+## Unterstrichenes Feld (Suche, Auswahl): nur 1 px Linie unten.
+func _underline_box(focus: bool = false) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0, 0, 0, 0)
+	sb.border_width_bottom = 1
+	sb.border_color = Color(COL_ACCENT, 0.8) if focus else ROW_LINE
+	sb.content_margin_left = 0
+	sb.content_margin_right = 4
+	sb.content_margin_top = 4
+	sb.content_margin_bottom = 4
 	return sb
 
 
@@ -1127,18 +1163,138 @@ func _make_toggle(text: String, font_size: int, radius: int = 10) -> Button:
 	return b
 
 
-func _apply_toggle(b: Button, active: bool) -> void:
-	var r: int = b.get_meta("radius", 10)
-	var n := _toggle_box(active, r)
-	b.add_theme_stylebox_override("normal", n)
-	b.add_theme_stylebox_override("hover", _toggle_box(active, r, true))
-	b.add_theme_stylebox_override("pressed", n)
+## Reiter-Zustand: aktiv = Elfenbein + Unterstrich, inaktiv gedimmt, Hover weiss.
+## accent_text: aktiver Text in Bernstein (Filter-Schalter).
+func _apply_toggle(b: Button, active: bool, accent_text: bool = false) -> void:
+	var n := _toggle_box(active)
+	for st in ["normal", "hover", "pressed", "hover_pressed", "disabled"]:
+		b.add_theme_stylebox_override(st, n)
 	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	var fg := COL_ACCENT if active else COL_DIM
-	b.add_theme_color_override("font_color", fg)
-	b.add_theme_color_override("font_pressed_color", fg)
-	b.add_theme_color_override("font_focus_color", fg)
-	b.add_theme_color_override("font_hover_color", COL_ACCENT if active else COL_TEXT)
+	var fg := (COL_ACCENT if accent_text else COL_TEXT) if active else COL_DIM
+	for fc in ["font_color", "font_pressed_color", "font_focus_color"]:
+		b.add_theme_color_override(fc, fg)
+	b.add_theme_color_override("font_hover_color", fg if active else COL_TEXT)
+	b.add_theme_color_override("font_hover_pressed_color", fg if active else COL_TEXT)
+
+
+## Reiner Textknopf: kein Rahmen, keine Flaeche; gedimmt, Hover weiss.
+func _text_btn(b: BaseButton, font_size: int = 14, col: Color = COL_DIM) -> void:
+	var e := StyleBoxEmpty.new()
+	e.content_margin_left = 4
+	e.content_margin_right = 4
+	e.content_margin_top = 4
+	e.content_margin_bottom = 4
+	for st in ["normal", "hover", "pressed", "hover_pressed", "disabled", "focus"]:
+		b.add_theme_stylebox_override(st, e)
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_size_override("font_size", font_size)
+	_text_btn_color(b, col)
+	b.add_theme_color_override("font_disabled_color", Color(COL_DIM, 0.5))
+	UiTheme._attach_sounds(b)
+
+
+func _text_btn_color(b: BaseButton, col: Color) -> void:
+	for fc in ["font_color", "font_pressed_color", "font_focus_color"]:
+		b.add_theme_color_override(fc, col)
+	var hov := COL_TEXT if col == COL_DIM else col.lightened(0.15)
+	b.add_theme_color_override("font_hover_color", hov)
+	b.add_theme_color_override("font_hover_pressed_color", hov)
+	b.add_theme_color_override("icon_normal_color", col)
+	b.add_theme_color_override("icon_hover_color", hov)
+
+
+## Auswahlfeld als Text ("Title ▾"): kein Kasten, Pfeil bleibt.
+func _text_select(ob: OptionButton, font_size: int = 13) -> void:
+	_text_btn(ob, font_size, COL_TEXT)
+	ob.add_theme_constant_override("arrow_margin", 0)
+
+
+## Waagerechte Linie 1 px (Weiss 12 %).
+func _rule_line() -> ColorRect:
+	var r := ColorRect.new()
+	r.color = ROW_LINE
+	r.custom_minimum_size = Vector2(0, 1)
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return r
+
+
+var _caps_font: FontVariation
+var _tnum_font: FontVariation
+
+
+## UI-Schrift mit gleich breiten Ziffern (tnum), einmal gebaut.
+func _num_font() -> FontVariation:
+	if _tnum_font == null:
+		_tnum_font = UiTheme.body_font()
+	return _tnum_font
+
+
+## Gesperrte, gedimmte Ueberschrift ("TOP SCORES", Gruppenkopf).
+func _caps_label(text: String, font_size: int = 12) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	if _caps_font == null:
+		_caps_font = FontVariation.new()
+		_caps_font.base_font = _num_font()
+		_caps_font.spacing_glyph = 2
+	l.add_theme_font_override("font", _caps_font)
+	l.add_theme_font_size_override("font_size", font_size)
+	l.add_theme_color_override("font_color", COL_DIM)
+	return l
+
+
+## Schalter-Zeile "Name ...... Schalter": keine Umrandung, 1 px Linie unten,
+## Hover 6 % heller. Fuer Mods (CheckButton) und Ueben (Button).
+func _mod_row_style(b: BaseButton) -> void:
+	var n := StyleBoxFlat.new()
+	n.bg_color = Color(1, 1, 1, 0)
+	n.border_width_bottom = 1
+	n.border_color = ROW_LINE
+	n.content_margin_left = 0
+	n.content_margin_right = 4
+	n.content_margin_top = 4
+	n.content_margin_bottom = 4
+	var h: StyleBoxFlat = n.duplicate()
+	h.bg_color = Color(1, 1, 1, HOVER_LIFT)
+	for st in ["normal", "pressed", "disabled"]:
+		b.add_theme_stylebox_override(st, n)
+	b.add_theme_stylebox_override("hover", h)
+	b.add_theme_stylebox_override("hover_pressed", h)
+	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(0, 40)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.add_theme_font_size_override("font_size", 14)
+	for fc in ["font_color", "font_pressed_color", "font_hover_color", "font_hover_pressed_color", "font_focus_color"]:
+		b.add_theme_color_override(fc, COL_TEXT)
+	if b is Button:
+		(b as Button).alignment = HORIZONTAL_ALIGNMENT_LEFT
+
+
+## Ruhiger Verlauf als Vollflaeche (Hintergrund statt Panels).
+func _grad_rect(from: Color, to: Color, vertical: bool) -> TextureRect:
+	var g := Gradient.new()
+	g.colors = PackedColorArray([from, to])
+	var t := GradientTexture2D.new()
+	t.gradient = g
+	t.width = 4 if vertical else 256
+	t.height = 256 if vertical else 4
+	t.fill_from = Vector2.ZERO
+	t.fill_to = Vector2(0, 1) if vertical else Vector2(1, 0)
+	var r := TextureRect.new()
+	r.texture = t
+	r.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	r.stretch_mode = TextureRect.STRETCH_SCALE
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return r
+
+
+## Kartenkurve der Liste: x-Einzug = 44 px * d^2, d = Abstand der Kartenmitte
+## von der Listenmitte (0..1). Eine glatte Kurve, keine Ausnahme.
+static func curve_indent(d: float) -> float:
+	var c := clampf(absf(d), 0.0, 1.0)
+	return CURVE_PX * c * c
 
 
 ## Download-Symbol (Pfeil nach unten auf Linie), einmal gezeichnet.
@@ -1179,59 +1335,60 @@ func _line_icon(size: int, segs: Array) -> ImageTexture:
 
 func _build_info_panel() -> void:
 	# Hoehe folgt dem Inhalt: kein leerer Glasbereich unter der Bestenliste.
+	# Kein Kasten: der Inhalt steht direkt auf dem linken Verlauf (Plakat).
 	var panel := PanelContainer.new()
-	panel.offset_left = M
+	panel.offset_left = INFO_X
 	panel.offset_top = HEAD_Y + HEAD_H + M
 	panel.offset_bottom = panel.offset_top + 400.0
-	panel.offset_right = M + INFO_W
-	panel.add_theme_stylebox_override("panel", UiTheme.glass_box(18, 0.5))
+	panel.offset_right = INFO_X + INFO_W
+	panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	add_child(panel)
 	_info_panel = panel
 	resized.connect(_layout_info)
 
-	var margin := MarginContainer.new()
-	for side in ["margin_left", "margin_right", "margin_top", "margin_bottom"]:
-		margin.add_theme_constant_override(side, M)
-	panel.add_child(margin)
-
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 10)
-	margin.add_child(vb)
+	vb.add_theme_constant_override("separation", 8)
+	panel.add_child(vb)
 	vb.minimum_size_changed.connect(func(): _fit_info.call_deferred())
 
-	_title_label = _add_label(vb, "", 26, COL_TEXT)
+	_title_label = _add_label(vb, "", 44, COL_TEXT)
 	_title_label.add_theme_font_override("font", UiTheme.heading_font(1))
+	_title_label.add_theme_constant_override("line_spacing", -6)
 	_title_label.mouse_filter = Control.MOUSE_FILTER_PASS  # Tooltip mit dem vollen Titel
+	# Bis zwei Zeilen, dann kuerzen.
+	_title_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_title_label.max_lines_visible = 2
+	_title_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	var by := VBoxContainer.new()
 	by.add_theme_constant_override("separation", 0)
 	vb.add_child(by)
-	_artist_label = _add_label(by, "", 17, COL_TEXT.darkened(0.12))
+	_artist_label = _add_label(by, "", 20, COL_TEXT)
 	_mapper_label = _add_label(by, "", 13, COL_DIM)
-
-	# Lange Titel kuerzen statt das Panel zu weiten: es bleibt INFO_W breit.
-	for lbl in [_title_label, _artist_label, _mapper_label]:
+	for lbl in [_artist_label, _mapper_label]:
 		lbl.autowrap_mode = TextServer.AUTOWRAP_OFF  # Umbruch und Kuerzen schliessen sich aus
 		lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	_artist_label.mouse_filter = Control.MOUSE_FILTER_PASS
+	_info_gap(vb, 12)  # mit Trennung 8 = 20 px
 
-	# Diff-Name links, Sterne in Sternfarbe rechts. Die Diff waehlt die Liste rechts.
+	# Diff-Zeile: Sterne als Zahl in Sternfarbe links, daneben der Diff-Name.
 	var diff_row := HBoxContainer.new()
 	diff_row.add_theme_constant_override("separation", 12)
 	vb.add_child(diff_row)
+	_star_label = Label.new()
+	_star_label.add_theme_font_size_override("font_size", 22)
+	_star_label.add_theme_font_override("font", UiTheme.heading_font(0))
+	diff_row.add_child(_star_label)
 	_diff_label = Label.new()
 	_diff_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_diff_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	_diff_label.add_theme_font_size_override("font_size", 19)
+	_diff_label.add_theme_font_size_override("font_size", 22)
 	_diff_label.add_theme_color_override("font_color", COL_TEXT)
 	diff_row.add_child(_diff_label)
-	_star_label = Label.new()
-	_star_label.add_theme_font_size_override("font_size", 19)
-	_star_label.add_theme_font_override("font", UiTheme.heading_font(1))
-	diff_row.add_child(_star_label)
 
-	# Kennzahlen als ruhige Paare: Beschriftung klein, Wert darunter.
+	# Kennzahlen als ruhige Paare zwischen zwei Haarlinien.
+	vb.add_child(_rule_line())
 	var stats := HBoxContainer.new()
-	stats.add_theme_constant_override("separation", 22)
+	stats.add_theme_constant_override("separation", 24)
 	vb.add_child(stats)
 	_len_label = _stat_pair(stats, tr("Länge"))
 	_bpm_label = _stat_pair(stats, "BPM")
@@ -1239,74 +1396,84 @@ func _build_info_panel() -> void:
 	_keys_val = _stat_pair(stats, tr("Tasten"))
 	_od_val = _stat_pair(stats, "OD")
 	_hp_val = _stat_pair(stats, "HP")
+	vb.add_child(_rule_line())
 	_stats_label = Label.new()  # nur noch fuer alte Aufrufer, nicht im Baum
-	_maxpp_label = _add_label(vb, "", 14, UiTheme.ACCENT2)
+	_maxpp_label = _add_label(vb, "", 13, UiTheme.ACCENT2)
 	_maxpp_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	_maxpp_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 
-	var play := Button.new()
-	play.text = tr("Spielen")
-	play.custom_minimum_size = Vector2(0, 56)
-	play.add_theme_font_size_override("font_size", 22)
-	UiTheme.style_button(play, true)
-	play.add_theme_font_override("font", UiTheme.heading_font(4))
-	# Hover-Glow: weicher Akzent-Schein statt hartem Farbsprung.
-	var play_hover := play.get_theme_stylebox("hover") as StyleBoxFlat
-	if play_hover != null:
-		play_hover = play_hover.duplicate()
-		play_hover.shadow_color = Color(COL_ACCENT, 0.35)
-		play_hover.shadow_size = 14
-		play_hover.shadow_offset = Vector2.ZERO
-		play.add_theme_stylebox_override("hover", play_hover)
-		play.add_theme_stylebox_override("focus", play_hover)
-	play.pressed.connect(_on_play_pressed)
-	play.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	# Modus-Umschalter (3x2) mit Tutorial-Knopf als eigene Zeile, SPIELEN darunter.
+	# Modus Mania | Trace als Text-Reiter, Tutorial als Textknopf rechts.
 	var mode_row := HBoxContainer.new()
-	mode_row.add_theme_constant_override("separation", 6)
+	mode_row.add_theme_constant_override("separation", 16)
 	vb.add_child(mode_row)
 	var sw := _build_mode_switch()
-	sw.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	mode_row.add_child(sw)
-	_tutorial_btn = _make_toggle(tr("Tutorial"), 12, 6)
-	_tutorial_btn.custom_minimum_size = Vector2(72, 0)
-	_tutorial_btn.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var mode_fill := Control.new()
+	mode_fill.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mode_row.add_child(mode_fill)
+	_tutorial_btn = Button.new()
+	_tutorial_btn.text = tr("Tutorial")
+	_text_btn(_tutorial_btn, 13)
 	_tutorial_btn.pressed.connect(_start_mode_tutorial)
 	mode_row.add_child(_tutorial_btn)
 	_apply_tutorial_btn()
-	vb.add_child(play)
+	_info_gap(vb, 4)
+
+	# PLAY: kompakter Bernstein-Knopf, daneben "Mods" und "More" als Text.
+	var play := Button.new()
+	play.text = tr("Spielen")
+	play.custom_minimum_size = Vector2(200, 52)
+	play.focus_mode = Control.FOCUS_NONE
+	play.add_theme_font_size_override("font_size", 20)
+	play.add_theme_font_override("font", UiTheme.heading_font(2))
+	var pn := UiTheme.solid_box(UiTheme.primary_fill(), 0)
+	pn.set_corner_radius_all(4)
+	var ph: StyleBoxFlat = pn.duplicate()
+	ph.bg_color = pn.bg_color.lightened(HOVER_LIFT)
+	var pp: StyleBoxFlat = pn.duplicate()
+	pp.bg_color = pn.bg_color.darkened(0.10)
+	var pd: StyleBoxFlat = pn.duplicate()
+	pd.bg_color = Color(UiTheme.RAISED, 0.8)
+	for st in ["normal", "focus"]:
+		play.add_theme_stylebox_override(st, pn)
+	play.add_theme_stylebox_override("hover", ph)
+	play.add_theme_stylebox_override("pressed", pp)
+	play.add_theme_stylebox_override("disabled", pd)
+	for fc in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		play.add_theme_color_override(fc, UiTheme.ON_ACCENT)
+	play.add_theme_color_override("font_disabled_color", COL_DIM)
+	UiTheme._attach_sounds(play)
+	play.pressed.connect(_on_play_pressed)
+	var play_row := HBoxContainer.new()
+	play_row.add_theme_constant_override("separation", 16)
+	vb.add_child(play_row)
+	play_row.add_child(play)
 	_play_btn = play
 
-	# Mods: geschlossen EINE Zeile mit den aktiven Kuerzeln, Klick klappt die
-	# Schalter mit vollen Namen auf (Esc klappt zu). Aktionen hinter "Mehr".
-	var mods_line := HBoxContainer.new()
-	mods_line.add_theme_constant_override("separation", 8)
-	vb.add_child(mods_line)
+	# Mods: EIN Textknopf mit den aktiven Kuerzeln, Klick klappt die Schalter
+	# mit vollen Namen darunter auf (Esc klappt zu). Aktionen hinter "More".
 	_mods_btn = Button.new()
-	_mods_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_mods_btn.icon_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	_mods_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_mods_btn.custom_minimum_size = Vector2(0, 40)
-	_mods_btn.add_theme_font_size_override("font_size", 15)
 	_mods_btn.tooltip_text = tr("Mods auf- und zuklappen (Esc klappt zu)")
-	UiTheme.style_ghost_button(_mods_btn, 6)
+	_text_btn(_mods_btn, 16)
+	_mods_btn.add_theme_constant_override("h_separation", 4)
 	_mods_btn.pressed.connect(func(): _set_mods_open(not _mods_fold.visible))
-	mods_line.add_child(_mods_btn)
+	play_row.add_child(_mods_btn)
 	_more_btn = MenuButton.new()
 	_more_btn.text = tr("Mehr")
-	_more_btn.flat = false
+	_more_btn.flat = true
 	_more_btn.tooltip_text = tr("Sammlung, an Freund schicken, Marathon")
-	_more_btn.custom_minimum_size = Vector2(88, 40)
-	_more_btn.add_theme_font_size_override("font_size", 15)
-	UiTheme.style_ghost_button(_more_btn, 6)
+	_text_btn(_more_btn, 16)
 	_more_btn.get_popup().add_theme_font_size_override("font_size", 15)
 	_more_btn.about_to_popup.connect(_fill_more_menu)
 	_more_btn.get_popup().id_pressed.connect(_on_more_item)
-	mods_line.add_child(_more_btn)
+	play_row.add_child(_more_btn)
 
-	var mods_row := HFlowContainer.new()
-	mods_row.add_theme_constant_override("h_separation", 8)
-	mods_row.add_theme_constant_override("v_separation", 8)
+	# Aufgeklappt: Zeilen "Name ...... Schalter" in zwei Spalten, Linien statt Rahmen.
+	var mods_row := GridContainer.new()
+	mods_row.columns = 2
+	mods_row.add_theme_constant_override("h_separation", 24)
+	mods_row.add_theme_constant_override("v_separation", 0)
 	mods_row.visible = false
 	vb.add_child(mods_row)
 	_mods_fold = mods_row
@@ -1314,19 +1481,8 @@ func _build_info_panel() -> void:
 	var nf := CheckButton.new()
 	nf.text = "No Fail"
 	nf.tooltip_text = "Kein Abbruch bei leerer Lebensleiste"
-	nf.focus_mode = Control.FOCUS_NONE
 	nf.button_pressed = _nf_enabled
-	nf.custom_minimum_size = Vector2(0, 40)
-	nf.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	nf.add_theme_font_size_override("font_size", 14)
-	var nf_box := _toggle_box(false, 10)
-	nf.add_theme_stylebox_override("normal", nf_box)
-	nf.add_theme_stylebox_override("pressed", nf_box)
-	nf.add_theme_stylebox_override("hover", _toggle_box(false, 10, true))
-	nf.add_theme_stylebox_override("hover_pressed", _toggle_box(false, 10, true))
-	nf.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	for fc in ["font_color", "font_pressed_color", "font_hover_color", "font_hover_pressed_color"]:
-		nf.add_theme_color_override(fc, COL_TEXT)
+	_mod_row_style(nf)
 	UiTheme._attach_sounds(nf)
 	nf.toggled.connect(_on_nf_toggled)
 	mods_row.add_child(nf)
@@ -1335,19 +1491,8 @@ func _build_info_panel() -> void:
 	var sv := CheckButton.new()
 	sv.text = "SV"
 	sv.tooltip_text = "Jede Map mit Tempowechseln"
-	sv.focus_mode = Control.FOCUS_NONE
 	sv.button_pressed = _sv_enabled
-	sv.custom_minimum_size = Vector2(0, 40)
-	sv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	sv.add_theme_font_size_override("font_size", 14)
-	var sv_box := _toggle_box(false, 10)
-	sv.add_theme_stylebox_override("normal", sv_box)
-	sv.add_theme_stylebox_override("pressed", sv_box)
-	sv.add_theme_stylebox_override("hover", _toggle_box(false, 10, true))
-	sv.add_theme_stylebox_override("hover_pressed", _toggle_box(false, 10, true))
-	sv.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	for fc in ["font_color", "font_pressed_color", "font_hover_color", "font_hover_pressed_color"]:
-		sv.add_theme_color_override(fc, COL_TEXT)
+	_mod_row_style(sv)
 	UiTheme._attach_sounds(sv)
 	sv.toggled.connect(_on_sv_toggled)
 	mods_row.add_child(sv)
@@ -1364,6 +1509,7 @@ func _build_info_panel() -> void:
 		_rule_mod_btns[k] = rb
 	TempoBrowserRow.build(self, mods_row)  # mv-tempo: Turbo, Tonhoehe, Ueben
 	for tbtn in TempoBrowserRow._btns:
+		_mod_row_style(tbtn as BaseButton)
 		(tbtn as BaseButton).toggled.connect(func(_on: bool): _refresh_mods_line())
 	# Aktionen leben im Menue "Mehr"; die Knoepfe bleiben unsichtbar als Zustandstraeger.
 	var act_holder := Control.new()
@@ -1405,27 +1551,21 @@ func _build_info_panel() -> void:
 	act_holder.add_child(_marathon_btn)
 	_refresh_mods_line()
 
-	var sep := ColorRect.new()
-	sep.custom_minimum_size = Vector2(0, 1)
-	sep.color = Color(1, 1, 1, 0.08)
-	vb.add_child(sep)
+	_info_gap(vb, 16)
 
-	# BESTE SCORES: Top 5 dieser Diff (pp + Datum) + Replay-Zugriff.
+	# TOP SCORES: Ueberschrift gesperrt, rechts Local | Online | Replay als Text-Reiter.
 	var lb_head := HBoxContainer.new()
-	lb_head.add_theme_constant_override("separation", 8)
+	lb_head.add_theme_constant_override("separation", 12)
 	lb_head.custom_minimum_size = Vector2(0, 28)
 	vb.add_child(lb_head)
-	var lb_title := Label.new()
-	lb_title.text = "BESTE SCORES"
-	lb_title.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	lb_title.add_theme_font_size_override("font_size", 13)
-	lb_title.add_theme_color_override("font_color", COL_DIM)
+	var lb_title := _caps_label("BESTE SCORES", 12)
 	lb_head.add_child(lb_title)
 	_lb_title = lb_title
-	# Modus-Tag: die Liste zeigt NUR Scores dieses Modus.
+	# Modus-Tag: die Liste zeigt NUR Scores dieses Modus (gedimmter Text, kein Kasten).
 	var tag_box := PanelContainer.new()
 	tag_box.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	tag_box.mouse_filter = Control.MOUSE_FILTER_PASS
+	tag_box.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	lb_head.add_child(tag_box)
 	_lb_mode_tag = Label.new()
 	_lb_mode_tag.add_theme_font_size_override("font_size", 11)
@@ -1436,17 +1576,14 @@ func _build_info_panel() -> void:
 	lb_head.add_child(lb_fill)
 	_lb_src_btns.clear()
 	for src_i in 2:
-		var sb := _make_toggle(tr("Lokal") if src_i == 0 else tr("Online"), 12, 8)
-		sb.custom_minimum_size = Vector2(56, 26)
+		var sb := _make_toggle(tr("Lokal") if src_i == 0 else tr("Online"), 13)
 		sb.pressed.connect(_set_lb_online.bind(src_i == 1))
 		lb_head.add_child(sb)
 		_lb_src_btns.append(sb)
 	_restyle_lb_src()
 	_replay_btn = Button.new()
 	_replay_btn.text = "Replay"
-	_replay_btn.custom_minimum_size = Vector2(0, 28)
-	_replay_btn.add_theme_font_size_override("font_size", 12)
-	UiTheme.style_ghost_button(_replay_btn, 8)
+	_text_btn(_replay_btn, 13)
 	_replay_btn.visible = false
 	_replay_btn.pressed.connect(_watch_replay)
 	lb_head.add_child(_replay_btn)
@@ -1458,7 +1595,7 @@ func _build_info_panel() -> void:
 	_lb_scroll = lb_scroll
 	_lb_box = VBoxContainer.new()
 	_lb_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_lb_box.add_theme_constant_override("separation", 4)
+	_lb_box.add_theme_constant_override("separation", 0)
 	lb_scroll.add_child(_lb_box)
 	_lb_box.minimum_size_changed.connect(func(): _fit_info.call_deferred())
 	_layout_info.call_deferred()
@@ -1473,10 +1610,18 @@ func _info_w() -> float:
 func _layout_info() -> void:
 	if _info_panel == null:
 		return
-	_info_panel.offset_right = M + _info_w()
+	_info_panel.offset_right = INFO_X + _info_w()
 	if _stage != null:
-		_stage.offset_left = M + _info_w() + M
+		_stage.offset_left = INFO_X + _info_w() + M
 	_fit_info()
+
+
+## Fester Abstand in der linken Spalte (zusaetzlich zur Trennung 8 px).
+func _info_gap(parent: Control, px: int) -> void:
+	var g := Control.new()
+	g.custom_minimum_size = Vector2(0, px)
+	g.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(g)
 
 
 ## Das linke Panel ist nur so hoch wie sein Inhalt: die Bestenliste bekommt genau
@@ -1498,12 +1643,10 @@ func _stat_pair(parent: Control, caption: String) -> Label:
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
 	parent.add_child(col)
-	var cap := Label.new()
-	cap.text = caption.to_upper()
-	cap.add_theme_font_size_override("font_size", 11)
-	cap.add_theme_color_override("font_color", COL_DIM)
+	var cap := _caps_label(caption.to_upper(), 11)
 	col.add_child(cap)
 	var val := Label.new()
+	val.add_theme_font_override("font", _num_font())  # gleich breite Ziffern
 	val.add_theme_font_size_override("font_size", 17)
 	val.add_theme_color_override("font_color", COL_TEXT)
 	col.add_child(val)
@@ -1514,11 +1657,12 @@ func _stat_pair(parent: Control, caption: String) -> Label:
 func _refresh_mods_line() -> void:
 	if _mods_btn == null or _mods_fold == null:
 		return
-	_mods_btn.text = tr("Mods") + "     " + mods_codes(_current_mods())
+	# Aktive Kuerzel in Bernstein, sonst "Mods" gedimmt.
+	var codes := _current_mods_codes()
+	var on := not codes.is_empty()
+	_mods_btn.text = "  ".join(codes) if on else tr("Mods")
 	_mods_btn.icon = _rec_fold_icon(_mods_fold.visible)
-	var on := not _current_mods_codes().is_empty()
-	for fc in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
-		_mods_btn.add_theme_color_override(fc, COL_ACCENT if on else COL_TEXT)
+	_text_btn_color(_mods_btn, COL_ACCENT if on else COL_DIM)
 
 
 func _current_mods_codes() -> Array:
@@ -4309,50 +4453,52 @@ func _estimate_pp(e: Dictionary) -> float:
 
 func _score_row(rank: int, e: Dictionary, hl: bool = false) -> Control:
 	# Zeile ~52 px: Platz, Rang-Buchstabe gross, Name/Mods+Datum, Score/Acc+Kombo, pp.
+	# Kein Kasten: 1 px Linie unten; eigener Lauf nur mit 2 px Bernstein-Strich links.
 	var panel := PanelContainer.new()
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(1, 1, 1, 0.055 if hl else 0.025)
-	sb.border_width_left = 3 if hl else 0
-	sb.border_color = COL_ACCENT
-	sb.set_corner_radius_all(3)
-	sb.content_margin_left = 10
-	sb.content_margin_right = 12
-	sb.content_margin_top = 3
-	sb.content_margin_bottom = 3
+	sb.bg_color = Color(0, 0, 0, 0)
+	sb.border_width_bottom = 1
+	sb.border_color = ROW_LINE
 	panel.add_theme_stylebox_override("panel", sb)
 	panel.custom_minimum_size = Vector2(0, 52)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
+	row.add_theme_constant_override("separation", 12)
 	panel.add_child(row)
+	# 2 px Strich-Platz in jeder Zeile (nur beim eigenen Lauf sichtbar): Spalten bleiben buendig.
+	var strip := ColorRect.new()
+	strip.color = COL_ACCENT if hl else Color(0, 0, 0, 0)
+	strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	strip.custom_minimum_size = Vector2(2, 0)
+	row.add_child(strip)
 	var num := Label.new()
 	num.text = str(rank + 1)
-	num.custom_minimum_size = Vector2(20, 0)
+	num.custom_minimum_size = Vector2(16, 0)
 	num.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	num.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	num.add_theme_font_size_override("font_size", 14)
-	num.add_theme_color_override("font_color", COL_TEXT if rank == 0 else COL_DIM)
+	num.add_theme_color_override("font_color", COL_DIM)
 	row.add_child(num)
 	var g := str(e.get("grade", "?"))
 	var grade := Label.new()
 	grade.text = g
-	grade.custom_minimum_size = Vector2(46, 0)
+	grade.custom_minimum_size = Vector2(40, 0)
 	grade.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	grade.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	grade.add_theme_font_override("font", UiTheme.heading_font(0))
-	grade.add_theme_font_size_override("font_size", 34)
+	grade.add_theme_font_size_override("font_size", 30)
 	grade.add_theme_color_override("font_color", GRADE_COLOR.get(g.left(1), COL_TEXT))
 	row.add_child(grade)
 	var is_self := bool(e.get("is_self", true))
 	var left := _two_lines(row, ScoreStore._self_name() if is_self else str(e.get("player", "?")),
 		_join_dot([ScoreStore.mods_label(e), score_date_text(str(e.get("date", "")), UiTheme.is_german())]),
-		HORIZONTAL_ALIGNMENT_LEFT)
+		HORIZONTAL_ALIGNMENT_LEFT, 16, 11)
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	if not is_self:
 		left.tooltip_text = tr("Score von %s (Multiplayer)") % str(e.get("player", "?"))
 		left.mouse_filter = Control.MOUSE_FILTER_PASS
 	_two_lines(row, UiTheme.fmt_score(int(e.get("score", 0))),
 		"%s  ·  %dx" % [UiTheme.fmt_pct(float(e.get("accuracy", 0.0)) * 100.0), int(e.get("max_combo", 0))],
-		HORIZONTAL_ALIGNMENT_RIGHT)
+		HORIZONTAL_ALIGNMENT_RIGHT, 18, 12)
 	var pp_lbl := Label.new()
 	var pp_val := float(e.get("pp", -1.0))
 	pp_lbl.text = UiTheme.fmt_pp(pp_val) if pp_val > 0.0 else "—"
@@ -4374,17 +4520,16 @@ func _score_row(rank: int, e: Dictionary, hl: bool = false) -> Control:
 		var sh := Button.new()
 		sh.text = "⇪"
 		sh.tooltip_text = tr("Score teilen")
-		sh.custom_minimum_size = Vector2(26, 22)
 		sh.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		sh.add_theme_font_size_override("font_size", 12)
-		UiTheme.style_ghost_button(sh, 6)
+		_text_btn(sh, 14)
 		sh.pressed.connect(func(): ScoreShare.share(oid))
 		row.add_child(sh)
 	return panel
 
 
 ## Zwei Zeilen: oben gross (15 px), unten klein und ruhig (12 px).
-func _two_lines(parent: Control, top: String, sub: String, align: HorizontalAlignment) -> VBoxContainer:
+func _two_lines(parent: Control, top: String, sub: String, align: HorizontalAlignment,
+		top_px: int = 16, sub_px: int = 12) -> VBoxContainer:
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
 	col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -4395,7 +4540,9 @@ func _two_lines(parent: Control, top: String, sub: String, align: HorizontalAlig
 		l.horizontal_alignment = align
 		if align == HORIZONTAL_ALIGNMENT_LEFT:
 			l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-		l.add_theme_font_size_override("font_size", 16 if i == 0 else 12)
+		else:
+			l.add_theme_font_override("font", _num_font())  # gleich breite Ziffern
+		l.add_theme_font_size_override("font_size", top_px if i == 0 else sub_px)
 		l.add_theme_color_override("font_color", COL_TEXT if i == 0 else COL_DIM)
 		col.add_child(l)
 	return col
@@ -4428,17 +4575,11 @@ const MODE_TIPS := {
 
 
 func _build_mode_switch() -> Control:
-	var grid := GridContainer.new()
-	grid.columns = 2
-	grid.add_theme_constant_override("h_separation", 4)
-	grid.add_theme_constant_override("v_separation", 4)
-	grid.custom_minimum_size = Vector2(0, 27)
+	var grid := HBoxContainer.new()
+	grid.add_theme_constant_override("separation", 16)
 	_mode_btns.clear()
 	for m in PLAY_MODES:
-		var b := _make_toggle("Mania" if m == "mania" else ScoreStore.mode_label(m), 13, 6)  # Mania = 4K-7K
-		b.custom_minimum_size = Vector2(0, 27)
-		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		b.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		var b := _make_toggle("Mania" if m == "mania" else ScoreStore.mode_label(m), 16)  # Mania = 4K-7K
 		b.tooltip_text = tr(MODE_TIPS[m])
 		var mode: String = m
 		b.pressed.connect(func(): _set_play_mode(mode))
@@ -4592,18 +4733,8 @@ func _style_lb_mode_tag(score_mode: String) -> void:
 	var col := COL_ACCENT
 	_lb_mode_tag.text = (RuleMods.board_tag(score_mode).replace("Mania 4K", _score_label(""))
 			if RuleMods.is_mines_board(score_mode) else _score_label(score_mode)).to_upper()   # Minen: "MANIA 7K · MINES"
-	_lb_mode_tag.add_theme_color_override("font_color", col.lerp(COL_TEXT, 0.25))
+	_lb_mode_tag.add_theme_color_override("font_color", Color(col, 0.75))
 	var box := _lb_mode_tag.get_parent() as PanelContainer
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(col, 0.16)
-	sb.border_color = Color(col, 0.6)
-	sb.set_border_width_all(1)
-	sb.set_corner_radius_all(8)
-	sb.content_margin_left = 7
-	sb.content_margin_right = 7
-	sb.content_margin_top = 1
-	sb.content_margin_bottom = 1
-	box.add_theme_stylebox_override("panel", sb)
 	box.tooltip_text = RuleMods.board_text("tip") if RuleMods.is_mines_board(score_mode) 			else tr("Nur Scores im Modus %s") % _score_label(score_mode)
 
 
@@ -4617,14 +4748,22 @@ func _score_label(score_mode: String) -> String:
 
 ## SV-Stufe: zwei Mini-Schalter Normal | Stark (Standard Stark) neben dem SV-Mod.
 func _build_sv_level() -> Control:
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 2)
-	box.custom_minimum_size = Vector2(62, 40)
+	# Zeile wie die Mod-Schalter: Beschriftung links, zwei Text-Reiter rechts.
+	var box := HBoxContainer.new()
+	box.add_theme_constant_override("separation", 12)
+	box.custom_minimum_size = Vector2(0, 40)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var cap := Label.new()
+	cap.text = tr("SV-Stufe")
+	cap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cap.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	cap.add_theme_font_size_override("font_size", 14)
+	cap.add_theme_color_override("font_color", COL_DIM)
+	box.add_child(cap)
 	_sv_level_btns.clear()
 	for lv in [SvMod.STRENGTH_NORMAL, SvMod.STRENGTH_STRONG]:
-		var b := _make_toggle("Normal" if lv == SvMod.STRENGTH_NORMAL else "Stark", 11, 6)
-		b.custom_minimum_size = Vector2(62, 19)
-		b.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		var b := _make_toggle("Normal" if lv == SvMod.STRENGTH_NORMAL else "Stark", 13)
+		b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		b.tooltip_text = "SV-Stufe: klassische Muster" if lv == SvMod.STRENGTH_NORMAL \
 				else "SV-Stufe: Beat-Tanz mit Rücklauf und Sprüngen (Standard)"
 		var level: int = lv
@@ -4689,18 +4828,7 @@ func _on_play_pressed() -> void:
 func _make_mod_button(key: String) -> CheckButton:
 	var b := CheckButton.new()
 	b.text = key
-	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size = Vector2(0, 40)
-	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.add_theme_font_size_override("font_size", 14)
-	var box := _toggle_box(false, 10)
-	b.add_theme_stylebox_override("normal", box)
-	b.add_theme_stylebox_override("pressed", box)
-	b.add_theme_stylebox_override("hover", _toggle_box(false, 10, true))
-	b.add_theme_stylebox_override("hover_pressed", _toggle_box(false, 10, true))
-	b.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	for fc in ["font_color", "font_pressed_color", "font_hover_color", "font_hover_pressed_color"]:
-		b.add_theme_color_override(fc, COL_TEXT)
+	_mod_row_style(b)
 	UiTheme._attach_sounds(b)
 	return b
 
