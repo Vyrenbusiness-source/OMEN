@@ -226,6 +226,16 @@ const STAR_FILTERS := [
 	["4–6★", 4.0, 6.0],
 	["6★+", 6.0, 999.0],
 ]
+## Kopfzeile: eigener Tab "For you" (Vorschlaege in eigener Ansicht ueber der
+## Liste, nie oberhalb der Liste), Filter als kleines Feld auf Abruf.
+var _tab_foryou: Button
+var _foryou_mode := false
+var _rec_view: PanelContainer
+var _filter_btn: Button
+var _filter_pop: PanelContainer
+var _filter_pop_box: VBoxContainer
+
+
 func _ready() -> void:
 	_perf_ready_t = Time.get_ticks_usec()
 	_bench_t0 = _perf_ready_t
@@ -695,6 +705,8 @@ func _build_ui() -> void:
 	_build_info_panel()
 	_build_stage()
 	_build_list()
+	move_child(_rec_view, -1)
+	move_child(_filter_pop, -1)
 	_update_list_top()
 
 
@@ -752,6 +764,12 @@ func _build_header() -> void:
 	_tab_collections.custom_minimum_size = Vector2(0, HEAD_H)
 	_tab_collections.pressed.connect(func(): _set_collection_mode(true))
 	top_right.add_child(_tab_collections)
+
+	_tab_foryou = _make_toggle(tr("For you"), 15)
+	_tab_foryou.custom_minimum_size = Vector2(0, HEAD_H)
+	_tab_foryou.tooltip_text = tr("Show suggestions")
+	_tab_foryou.pressed.connect(func(): _set_foryou_mode(true))
+	top_right.add_child(_tab_foryou)
 	_style_tabs()
 
 	_tab_online = Button.new()
@@ -772,7 +790,7 @@ func _build_header() -> void:
 	_import_btn.add_theme_font_size_override("font_size", 15)
 	UiTheme.style_ghost_button(_import_btn, 10)
 	_import_btn.pressed.connect(_open_import_panel)
-	top_right.add_child(_import_btn)
+	left.add_child(_import_btn)
 
 	# Filter-Reihen stehen in einem Stapel: wird eine Reihe hoeher oder kommt eine
 	# dazu (Sammlungen), rutscht die Liste mit.
@@ -807,13 +825,36 @@ func _build_header() -> void:
 		_refresh_filter(_search.text)
 		_scroll_to_selected(true))
 	sort_row.add_child(_group_btn)
+	_filter_btn = _make_toggle(tr("Filter"), 13, 8)
+	_filter_btn.custom_minimum_size = Vector2(0, FILTER_H)
+	_filter_btn.tooltip_text = tr("Sterne, Bestwert, Rang und Tasten filtern")
+	_filter_btn.pressed.connect(func():
+		_filter_pop.visible = not _filter_pop.visible
+		_restyle_filter_btn())
+	sort_row.add_child(_filter_btn)
+
+	# Filter-Feld: liegt ueber der Liste, nimmt ihr keine Hoehe weg.
+	_filter_pop = PanelContainer.new()
+	var fp_sb := StyleBoxFlat.new()
+	fp_sb.bg_color = Color(UiTheme.BG, 0.97)
+	fp_sb.set_corner_radius_all(4)
+	fp_sb.set_border_width_all(1)
+	fp_sb.border_color = Color(1, 1, 1, 0.12)
+	fp_sb.set_content_margin_all(12)
+	_filter_pop.add_theme_stylebox_override("panel", fp_sb)
+	_filter_pop.visible = false
+	_place_right(_filter_pop, FILTER_Y + FILTER_H + 6, 0.0)
+	add_child(_filter_pop)
+	_filter_pop_box = VBoxContainer.new()
+	_filter_pop_box.add_theme_constant_override("separation", 8)
+	_filter_pop.add_child(_filter_pop_box)
 
 	# Filter-Reihe: Sterne-Chips, SV und Tasten rechtsbuendig.
 	var filter_row := HBoxContainer.new()
 	filter_row.custom_minimum_size = Vector2(0, FILTER_H)
 	filter_row.alignment = BoxContainer.ALIGNMENT_END
 	filter_row.add_theme_constant_override("separation", 6)
-	_filter_stack.add_child(filter_row)
+	_filter_pop_box.add_child(filter_row)
 	_filter_row = filter_row
 
 	for fi in STAR_FILTERS.size():
@@ -842,18 +883,8 @@ func _build_header() -> void:
 	score_row.custom_minimum_size = Vector2(0, SCORE_H)
 	score_row.alignment = BoxContainer.ALIGNMENT_END
 	score_row.add_theme_constant_override("separation", 6)
-	_filter_stack.add_child(score_row)
+	_filter_pop_box.add_child(score_row)
 	_score_chips_row = score_row
-	# "For you" an/aus (Vorschlaege oberhalb der Liste), links in der Reihe.
-	_rec_chip = _make_toggle(tr("For you"), 13, 15)
-	_rec_chip.custom_minimum_size = Vector2(0, SCORE_H)
-	_rec_chip.tooltip_text = tr("Show suggestions")
-	_rec_chip.pressed.connect(func(): _set_recs_hidden(not bool(_rec.hidden)))
-	score_row.add_child(_rec_chip)
-	var rec_gap := Control.new()
-	rec_gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	rec_gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	score_row.add_child(rec_gap)
 	# Mit/Ohne Bestwert wie der SV-Chip: erneut klicken = wieder alle Maps.
 	for bi in [BEST_WITH, BEST_WITHOUT]:
 		var chip := _make_toggle(tr(BEST_NAMES[bi]), 13, 15)
@@ -909,7 +940,7 @@ func _build_header() -> void:
 	_search = LineEdit.new()
 	_search.placeholder_text = "Map suchen"
 	_search.clear_button_enabled = true
-	_search.custom_minimum_size = Vector2(140, HEAD_H)
+	_search.custom_minimum_size = Vector2(120, HEAD_H)
 	_search.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_search.add_theme_stylebox_override("normal", _toggle_box(false, 10))
 	var search_focus := _toggle_box(false, 10, true)
@@ -2326,11 +2357,54 @@ func _cover_loaded(path: String, img: Image, dim: float = 0.62) -> void:
 # ---------------------------------------------------------------------------
 
 func _style_tabs() -> void:
-	_apply_toggle(_tab_collections, _collection_mode)
-	_apply_toggle(_tab_downloaded, not _collection_mode)
+	_apply_toggle(_tab_collections, _collection_mode and not _foryou_mode)
+	_apply_toggle(_tab_downloaded, not _collection_mode and not _foryou_mode)
+	if _tab_foryou != null:
+		_apply_toggle(_tab_foryou, _foryou_mode)
+
+
+## Tab "For you": Vorschlaege als eigene Ansicht in der rechten Spalte.
+func _set_foryou_mode(on: bool) -> void:
+	_foryou_mode = on
+	if on and _collection_mode:
+		_collection_mode = false
+		_chips_row.visible = false
+		_apply_filter_layout()
+		_refresh_filter(_search.text)
+	if _filter_pop != null:
+		_filter_pop.visible = false
+	_style_tabs()
+	_apply_recs_visibility()
+	_restyle_filter_btn()
+	if on:
+		_recs_refresh()
+
+
+## Zahl aktiver Filter (Sterne, SV, Tasten, Bestwert/Rang) fuer den Filter-Knopf.
+func _active_filter_count() -> int:
+	var n := 0
+	if _star_filter != 0:
+		n += 1
+	if _sv_filter:
+		n += 1
+	if _key_filter != 0:
+		n += 1
+	if int(_mode_filter().get("best", BEST_ALL)) != BEST_ALL:
+		n += 1
+	return n
+
+
+## Filter-Knopf: Akzent, solange ein Filter wirkt oder das Feld offen ist; Zahl im Text.
+func _restyle_filter_btn() -> void:
+	if _filter_btn == null:
+		return
+	var n := _active_filter_count()
+	_filter_btn.text = tr("Filter") + (("  %d" % n) if n > 0 else "")
+	_apply_toggle(_filter_btn, n > 0 or _filter_pop.visible)
 
 
 func _set_collection_mode(on: bool) -> void:
+	_foryou_mode = false
 	_collection_mode = on
 	_coll_undo = ""
 	if on and not CollectionStore.list_for(_play_mode).has(_active_collection):
@@ -2923,6 +2997,7 @@ func _save_browser_state() -> void:
 
 
 func _refresh_filter(query: String) -> void:
+	_restyle_filter_btn()
 	if _state_ready:
 		_save_browser_state()
 	var q := query.strip_edges().to_lower()
@@ -5343,6 +5418,10 @@ func _apply_filter_layout() -> void:
 	if _sv_chip != null:
 		_sv_chip.visible = not _collection_mode
 	_chips_row.visible = _collection_mode
+	if _filter_btn != null:
+		_filter_btn.visible = not _collection_mode
+		if _collection_mode:
+			_filter_pop.visible = false
 	_apply_recs_visibility()
 	_update_list_top()
 
@@ -6044,9 +6123,28 @@ static func _rec_translations() -> void:
 
 func _build_recs() -> void:
 	_rec_translations()
+	_rec_view = PanelContainer.new()
+	var rv_sb := StyleBoxFlat.new()
+	rv_sb.bg_color = Color(UiTheme.BG, 0.94)
+	rv_sb.set_corner_radius_all(4)
+	rv_sb.set_content_margin_all(14)
+	_rec_view.add_theme_stylebox_override("panel", rv_sb)
+	_rec_view.anchor_left = 1.0
+	_rec_view.anchor_right = 1.0
+	_rec_view.anchor_bottom = 1.0
+	_rec_view.offset_left = -(M + RIGHT_W)
+	_rec_view.offset_right = -M
+	_rec_view.offset_top = FILTER_Y
+	_rec_view.offset_bottom = -M
+	_rec_view.visible = false
+	add_child(_rec_view)
+	var rv_scroll := ScrollContainer.new()
+	rv_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_rec_view.add_child(rv_scroll)
 	_rec_box = VBoxContainer.new()
+	_rec_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_rec_box.add_theme_constant_override("separation", 8)
-	_filter_stack.add_child(_rec_box)
+	rv_scroll.add_child(_rec_box)
 	var head := HBoxContainer.new()
 	head.custom_minimum_size = Vector2(0, 28)
 	head.add_theme_constant_override("separation", 6)
@@ -6156,20 +6254,19 @@ func _set_recs_hidden(on: bool) -> void:
 func _apply_recs_visibility() -> void:
 	if _rec_box == null:
 		return
-	var hidden := bool(_rec.hidden)
 	# Sammlungs-Ansicht: keine Vorschlaege, dort zaehlt nur die eigene Liste.
-	var off := _collection_mode
-	_rec_box.visible = not hidden and not off
-	if _rec_chip != null:
-		_rec_chip.visible = hidden and not off  # nur zum Wieder-Einblenden
-	var open := not bool(_rec.collapsed)
+	var open := _foryou_mode and not _collection_mode
+	if _rec_view != null:
+		_rec_view.visible = open
 	if _rec_body != null:
-		_rec_body.visible = open
-	_rec_fold_btn.icon = _rec_fold_icon(open)
+		_rec_body.visible = true
+	# Der Tab ersetzt Einklappen und Ausblenden: der Kopf ist nur noch Titel.
+	_rec_fold_btn.icon = null
+	_rec_fold_btn.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var starter := bool(_rec_res.get("starter", false))
 	for b in _rec_level_btns:
-		b.visible = open and not starter
-	_rec_hide_btn.visible = open
+		b.visible = not starter
+	_rec_hide_btn.visible = false
 	_restyle_rec_levels()
 	_update_list_top()
 
@@ -6186,8 +6283,8 @@ func _recs_refresh() -> void:
 	if _rec_box == null or DisplayServer.get_name() == "headless" or _rec_frozen:
 		return
 	_apply_recs_visibility()
-	if bool(_rec.hidden):
-		return
+	if not _foryou_mode:
+		return  # nur rechnen, wenn der Tab offen ist
 	if _rec_thread != null:
 		_rec_again = true
 		return
@@ -6306,7 +6403,8 @@ func _recs_render() -> void:
 		_rec_body = null
 	_rec_rows.clear()
 	_rec_on_rows.clear()
-	var n := rec_count(get_viewport_rect().size.y)
+	# Eigener Tab: volle Spaltenhoehe, Vorschlaege untereinander.
+	var n := maxi(rec_count(get_viewport_rect().size.y), 6)
 	var tall := n > 3
 	var starter := bool(_rec_res.get("starter", false))
 	var comfort := float(_rec_res.get("comfort", -1.0))
