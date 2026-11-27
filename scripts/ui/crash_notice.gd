@@ -59,9 +59,11 @@ func _ready() -> void:
 	offset_left = 24
 	offset_bottom = -24
 	custom_minimum_size = Vector2(420, 0)
+	# Graphit-Flaeche, Bernstein-Kante links (Stil der Seite, kein Alarm-Rot).
 	var sb := UiTheme.glass_box(10, 0.92, 0.2)
-	sb.border_width_left = 3
-	sb.border_color = UiTheme.BAD
+	sb.border_width_top = 0
+	sb.border_width_left = 2
+	sb.border_color = UiTheme.ACCENT
 	sb.content_margin_left = 18
 	sb.content_margin_right = 16
 	sb.content_margin_top = 12
