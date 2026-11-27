@@ -2,10 +2,17 @@ extends SceneTree
 
 ## Headless-Tests fuer den Absturzschutz (scripts/system/crash_guard.gd):
 ## Wachmarke, Stufenlogik, Neustart-Startzeile, Bericht, Cache-Leeren, Texte.
+## Dazu Einbau: GpuGuard-Zusammenspiel, Stufe 2 in WorldTheme/WorldBackdrop,
+## Thread-Fixes (osz_importer: Textur nur im Hauptthread, profile_panel: kein
+## get_image() im Thread), Autoload/Uebersetzungen in project.godot.
 ## Schreibt nur in einen Temp-Ordner, nie nach user://.
 
 const G := preload("res://scripts/system/crash_guard.gd")
 var _failed := 0
+var _dir := ""
+## Textur aus dem Nebenthread: Daten kommen erst im Hauptthread (naechster Frame).
+var _thread_tex: Texture2D = null
+var _frames := 0
 
 
 func _check(ok: bool, msg: String) -> void:
@@ -33,9 +40,120 @@ func _initialize() -> void:
 	_caches(dir)
 	_misc()
 	_texts()
-	G._remove_tree(dir)
+	_gpu_guard()
+	_integration()
+	_threads(dir)
+	_dir = dir
+
+
+## Zweiter Teil nach ein paar Frames (call_deferred aus dem Thread ist durch).
+func _process(_delta: float) -> bool:
+	_frames += 1
+	if _frames < 3:
+		return false
+	_check(_thread_tex != null and _thread_tex.get_width() == 600 and _thread_tex.get_height() == 300,
+		"Thread-Textur im Hauptthread gefuellt (600x300)")
+	G._remove_tree(_dir)
 	print("=== Crash-Guard-Tests: %s ===" % ("OK" if _failed == 0 else "%d FEHLER" % _failed))
 	quit(1 if _failed > 0 else 0)
+	return true
+
+
+func _gpu_guard() -> void:
+	_check(G.undo_gpu_safe({"gpu_safe": false}, 0, 1), "erster Absturz: Stufe 1 statt OpenGL")
+	_check(G.undo_gpu_safe({"gpu_safe": false}, 2, 3), "Stufe 2 -> 3: noch kein OpenGL")
+	_check(not G.undo_gpu_safe({"gpu_safe": false}, 3, 3), "Stufe 3 stuerzte trotzdem ab: OpenGL bleibt")
+	_check(not G.undo_gpu_safe({"gpu_safe": false}, 1, 1), "Absturz im Menue (Stufe gleich): OpenGL bleibt")
+	_check(not G.undo_gpu_safe({"gpu_safe": true}, 0, 1), "Nutzer hatte sicheren Modus an: bleibt")
+	_check(not G.undo_gpu_safe({}, 0, 1), "unbekannter Zustand: sicher bleiben")
+
+
+func _integration() -> void:
+	var proj := FileAccess.get_file_as_string("res://project.godot")
+	_check(proj.contains('CrashGuard="*res://scripts/system/crash_guard.gd"'), "Autoload CrashGuard eingetragen")
+	_check(proj.find('CrashGuard="') > proj.find('GpuGuard="') and proj.find('CrashGuard="') < proj.find('Settings="'),
+		"CrashGuard nach GpuGuard, vor Settings")
+	_check(proj.contains("crash.en.translation") and proj.contains("crash.de.translation"), "crash-Uebersetzungen registriert")
+	_check(proj.contains("run/flush_stdout_on_print=true"), "flush_stdout_on_print an")
+	_check(proj.contains("file_logging/enable_file_logging.pc=true"), "Datei-Log im Release an")
+	var menu := FileAccess.get_file_as_string("res://scripts/ui/main_menu.gd")
+	_check(menu.contains("CrashNotice.show_if_pending(self)"), "Hauptmenue zeigt den Hinweis")
+	var sp := FileAccess.get_file_as_string("res://scripts/ui/settings_panel.gd")
+	_check(sp.contains("CrashGuard.stage_label()") and sp.contains("CrashGuard.reset_stage()"),
+		"Einstellungen: Stufe sichtbar + zuruecksetzbar")
+	# Ohne aktive Stufe (headless, Autoload inaktiv): Welten unveraendert.
+	_check(not WorldTheme.safe_simple(), "Stufe 0: Themen-Welten erlaubt")
+	_check(WorldTheme.resolve("storm", null, 0.0, Color.WHITE) == "storm", "Stufe 0: erzwungene Welt bleibt")
+	var big := Image.create(5000, 2500, false, Image.FORMAT_RGBA8)
+	_check(WorldTheme.safe_image(big).get_width() == 5000, "Stufe 0: keine Texturgrenze")
+	var g := root.get_node_or_null(^"CrashGuard")
+	_check(g != null, "Autoload CrashGuard laeuft")
+	if g != null:
+		var old: int = g.stage
+		g.stage = G.STAGE_SIMPLE
+		_check(WorldTheme.safe_simple(), "Stufe 2: einfache Welt")
+		_check(WorldTheme.resolve("storm", null, 0.0, Color.WHITE) == WorldTheme.GALAXY, "Stufe 2: Galaxie statt Themen-Welt")
+		_check(WorldBackdrop.theme_sky_material("storm") == null, "Stufe 2: kein 8192er-Themenhimmel")
+		_check(WorldTheme.safe_image(big).get_width() == 4096, "Stufe 2: Bild auf 4096 begrenzt")
+		_check(OszImporter.texture_from_image(Image.create(6000, 1000, false, Image.FORMAT_RGBA8)).get_width() == 4096,
+			"Stufe 2: Map-Bild-Textur auf 4096 begrenzt")
+		g.stage = old
+
+
+## Thread-Gefahren: Textur-Upload und GPU-Readback nur im Hauptthread.
+func _threads(dir: String) -> void:
+	var osz := dir.path_join("thread_test.osz")
+	var img := Image.create(600, 300, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0.8, 0.5, 0.2))
+	var png := img.save_png_to_buffer()
+	var zp := ZIPPacker.new()
+	zp.open(osz)
+	for n in ["bg.png", "sub/cover.png", "other.png"]:
+		zp.start_file(n)
+		zp.write_file(png)
+		zp.close_file()
+	zp.close()
+
+	var li := OszImporter.load_image(osz, "bg.png")
+	_check(li is Image and li.get_width() == 600, "load_image: nur Image, keine Textur")
+	# Worker (WorkerThreadPool) legt nur das Image in den Cache.
+	OszImporter.prepare(osz, "", "bg.png")
+	OszImporter.import(osz)  # wartet auf den Worker
+	var key := OszImporter._ckey(osz, "bg.png")
+	_check(OszImporter._image_cache.get(key) is Image, "Worker cached Image statt Textur")
+	var tex := OszImporter.load_image_texture(osz, "bg.png")
+	_check(tex is ImageTexture and tex.get_width() == 600, "Hauptthread erzeugt die Textur (600x300)")
+	_check(OszImporter._image_cache.get(key) is Texture2D, "danach Textur im Cache")
+	_check(OszImporter.load_image_texture(osz, "bg.png") == tex, "zweiter Aufruf: dieselbe Textur")
+
+	# Aufruf aus einem Nebenthread (wie tournament_panel _hires_job).
+	var th := Thread.new()
+	th.start(func(): return OszImporter.load_image_texture(osz, "other.png"))
+	_thread_tex = th.wait_to_finish()
+	_check(_thread_tex is ImageTexture and _thread_tex.get_width() == 0,
+		"Nebenthread: Textur noch leer (kein Upload im Thread)")
+
+	# Profil-Thumbs: im Thread nur dekodieren und verkleinern.
+	var th2 := Thread.new()
+	th2.start(func(): return ProfilePanel.thumb_image(osz, "Sub/COVER.png"))
+	var thumb: Image = th2.wait_to_finish()
+	_check(thumb != null and thumb.get_width() == ProfilePanel.THUMB_W and thumb.get_height() == 110,
+		"Profil-Thumb im Thread: Image 220x110")
+	_check(ProfilePanel.thumb_image(osz, "") == null and ProfilePanel.thumb_image(osz, "fehlt.png") == null,
+		"Profil-Thumb ohne Bild: null")
+	var src := FileAccess.get_file_as_string("res://scripts/ui/profile_panel.gd")
+	var a := src.find("func _thumb_worker(")
+	var b := src.find("
+func ", a + 10)
+	var body := src.substr(a, b - a)
+	_check(a >= 0 and not body.contains("get_image(") and not body.contains("background_texture("),
+		"_thumb_worker: kein get_image()/keine Textur im Thread")
+	var osrc := FileAccess.get_file_as_string("res://scripts/parser/osz_importer.gd")
+	var pa := osrc.find("static func _prepare_task(")
+	var pb := osrc.find("
+static func ", pa + 10)
+	_check(pa >= 0 and not osrc.substr(pa, pb - pa).contains("_load_image_uncached"),
+		"_prepare_task: keine Textur im Worker")
 
 
 func _marker(dir: String) -> void:
