@@ -36,11 +36,10 @@ const QUALITY_COLOR := [
 	Color(1.0, 0.85, 0.42), Color(0.84, 0.97, 1.0), Color(0.47, 0.95, 0.62),
 	Color(0.42, 0.64, 1.0), Color(0.64, 0.66, 0.72), Color(1.0, 0.38, 0.42),
 ]
-const GRADE_COLOR := {
-	"SS": Color(1.0, 0.94, 0.72), "S": Color(1.0, 0.85, 0.25),
-	"A": Color(0.4, 1.0, 0.5), "B": Color(0.35, 0.75, 1.0),
-	"C": Color(0.9, 0.6, 1.0), "D": Color(1.0, 0.4, 0.4),
-}
+## Rang-Farben aus UiTheme (eine Quelle fuer alle Ansichten).
+const GRADE_COLOR := UiTheme.GRADE_COLORS
+## Rang im Karten-Kopf: so viel groesser als die Score-Zahl.
+const GRADE_HEAD_FACTOR := 2.0
 const RANK_COLS := [Color(1.0, 0.85, 0.3), Color(0.78, 0.82, 0.9), Color(0.85, 0.55, 0.35)]
 ## Kartenfarben im Vergleich: A = Akzent (cyan), B = gedaempftes Pink.
 const SIDE_A := UiTheme.ACCENT
@@ -513,6 +512,11 @@ func _px(v: float) -> int:
 	return int(round(v * _s))
 
 
+## Schriftgroesse der Score-Zahl (_hero); Bezug fuer die Rang-Groesse.
+func _score_px() -> int:
+	return 22 if _compact else _px(38)
+
+
 func _draw() -> void:
 	if not _top_line:
 		return
@@ -724,7 +728,7 @@ func _hero(st: Dictionary, ref: Dictionary) -> Control:
 	var r := HBoxContainer.new()
 	r.add_theme_constant_override("separation", _px(16))
 	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var big := 22 if _compact else _px(38)
+	var big := _score_px()
 	var mid := 18 if _compact else _px(30)
 	var has_ref := not ref.is_empty()
 	var sc := int(st.get("score", 0))
