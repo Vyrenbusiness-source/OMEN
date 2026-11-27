@@ -1,6 +1,6 @@
 extends SceneTree
 
-## Trace-QA ueber alle lokalen Mania-4K-Maps (Vorbild: tests/run_orbit_qa_tests.gd).
+## Trace-QA ueber alle lokalen Mania-4K-Maps.
 ## Misst je Map: Segmentlaengen (px, Standardtempo), Pfeil-Ueberdeckung, Selbstueberschneidung
 ## des Fadens im sichtbaren Vorlauf, Haarnadel-Dichte, Kamera-Spruenge; ein Bot mit
 ## menschlicher Reaktionszeit/Streuung misst Acc je Sterne-Band.

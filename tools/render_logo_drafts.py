@@ -521,7 +521,7 @@ def final():
             ft = ImageFont.truetype(r"C:\Windows\Fonts\segoeui.ttf", 30)
         except OSError:
             ft = ImageFont.load_default()
-        txt = "Free rhythm game for Windows. osu!mania maps in 3D, 2D and Orbit."
+        txt = "Free rhythm game for Windows. osu!mania maps in 3D and 2D, plus Trace."
         d.text(((1280 - d.textlength(txt, font=ft)) / 2, y0 + lg.height + 50), txt, font=ft, fill=(157, 151, 141, 255))
         soc.convert("RGB").save(os.path.join(REPO, "docs", "media", "social_preview.png"))
     os.remove(tmp)

@@ -50,14 +50,14 @@ def add(b, n, mode, world="", flash=False): cuts.append((b, n, mode, world, flas
 add(0, 2, "title")
 for i, w in enumerate(["galaxy", "neon", "aurora", "abyss"]):
     add(2 + 2 * i, 2, "3d", w)
-add(10, 2, "2d"); add(12, 2, "orbit"); add(14, 2, "rally")
-add(16, 2, "dirigent"); add(18, 2, "trace"); add(20, 2, "rebound")
+add(10, 2, "2d"); add(12, 2, "trace"); add(14, 2, "3d", "storm")
+add(16, 2, "2d"); add(18, 2, "trace"); add(20, 2, "3d", "nerve")
 add(22, 2, "3d", "fractal")
-seq = ["3d", "2d", "orbit", "rally", "dirigent", "trace", "rebound"]
+seq = ["3d", "2d", "trace"]
 drop_worlds = ["singularity", "storm", "boss", "obsidian", "rift", "monolith", "nerve", "eclipse"]
 st = {"k": 0, "wi": 0}
 def nxt():
-    m = seq[st["k"] % 7]; st["k"] += 1; w = ""
+    m = seq[st["k"] % len(seq)]; st["k"] += 1; w = ""
     if m == "3d": w = drop_worlds[st["wi"] % len(drop_worlds)]; st["wi"] += 1
     return m, w
 def run_cuts(a, e, step):
@@ -148,9 +148,6 @@ def args_for(s):
         if m == "2d": a.append("--2d")
         else: a += ["--3d", "--theme=" + w]
         return scene + a + common
-    if m == "dirigent":   # eigener Filmmodus: --movie-from (spult auf from-2,5 s), kein --shot
-        return scene + ["--mode=dirigent", "--dirigent-map=" + os.environ["MAP"], "--dirigent-diff=" + FULLDIFF, "--autoplay", "--lang=en",
-                        "--movie-from=%d" % round(shot_at), "--movie-len=%.2f" % s["len"]]
     return scene + ["--mode=" + m, "--%s-map=%s" % (m, os.environ["MAP"])] + common
 
 def record(s):
