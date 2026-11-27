@@ -667,9 +667,9 @@ func _test_online_parse() -> void:
 	_ok(bool(p.ok) and (p.results as Array).size() == 2 and int(p.raw) == 4, "nur ranked 4K-Sets (%d)" % (p.results as Array).size())
 	_ok(str(p.results[0].genre) == "electronic" and str(p.results[0].preview_url).begins_with("https://"),
 		"Genre-Name und Vorschau-Adresse")
-	var bad: Dictionary = OnlineBrowser.quiet_parse("<html>403</html>", 3)
+	var bad: Dictionary = OnlineBrowser.quiet_parse("<html>403</html>")
 	_ok(not bool(bad.ok) and (bad.results as Array).is_empty(), "Fehlerseite: still verworfen")
-	_ok(not bool(OnlineBrowser.quiet_parse("", 3).ok), "leere Antwort: still verworfen")
+	_ok(not bool(OnlineBrowser.quiet_parse("").ok), "leere Antwort: still verworfen")
 	_ok(OnlineBrowser.genre_name(10) == "electronic" and OnlineBrowser.genre_name(1) == "" and OnlineBrowser.genre_name(6) == "",
 		"Genre-Namen")
 	var urls: Array = OnlineBrowser.quiet_urls("electronic", 0, 50)
