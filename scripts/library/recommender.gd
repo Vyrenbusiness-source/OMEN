@@ -1,14 +1,13 @@
 class_name Recommender
 extends RefCounted
 
-## Song-Empfehlungen fuer alle Modi (mania, orbit, rally, dirigent, trace,
-## rebound). Rein statisch und deterministisch: gleiche Laeufe + Kandidaten
+## Song-Empfehlungen fuer alle Modi (mania, trace). Rein statisch und deterministisch: gleiche Laeufe + Kandidaten
 ## + Zeitpunkt -> gleiche Liste. Oberflaeche: song_select.gd ("For you").
 ## Formeln und Grenzen: docs/recommend.md.
 ##
 ## Lauf (run): {set, diff, stars, accuracy 0..1, pp (nur Mania, -1 = unbekannt),
 ##   failed, unranked, grade, date "YYYY-MM-DDTHH:MM:SS"}
-## Kandidat: {set, diff, stars, osu_mode (3 = 4K, 0 = Standard; Standard 3),
+## Kandidat: {set, diff, stars, osu_mode (3 = Mania; fehlt: 3; andere nie spielbar),
 ##   max_pp (optional, Mania: pp bei SS), last_played (optional), best_grade (optional),
 ##   artist/title/mapper/genre/language/tags/bpm/length/style/sv (optional, fuer
 ##   Stilprofil, Stil-Bonus und Grund)}
@@ -19,7 +18,7 @@ const LEVEL_PUSH := "push"            # Push: an/ueber der Grenze, Top-Leistung 
 const LEVELS: Array[String] = ["easy", "challenge", "push"]
 const LEVEL_DEFAULT := LEVEL_CHALLENGE
 
-const MODES: Array[String] = ["mania", "orbit", "rally", "dirigent", "trace", "rebound"]
+const MODES: Array[String] = ["mania", "trace"]
 
 const PLAY_ACC := 0.90      # Spielbereich: typische Acc am eigenen Level (Mitte von Rang B bis A)
 const PLAY_LO := 0.85       # Acc im Band B..A verschiebt das Level nicht
@@ -71,11 +70,7 @@ const PUSH_STEP_HI := 1.0
 ## Standardkurve je Modus: {comfort (Level in Sternen), slope (Acc-Verlust je Stern)}.
 const DEFAULTS := {
 	"mania": {"comfort": 2.0, "slope": 0.07},
-	"orbit": {"comfort": 1.5, "slope": 0.07},
-	"rally": {"comfort": 1.5, "slope": 0.07},
-	"dirigent": {"comfort": 1.5, "slope": 0.07},
 	"trace": {"comfort": 1.5, "slope": 0.07},
-	"rebound": {"comfort": 1.5, "slope": 0.07},
 }
 ## Mania-pp wie rosu-pp: kappa * max(Sterne - 0,15, 0,05)^2,2 * max(0, 5 * Acc - 4).
 const MANIA_K := 6.5
@@ -130,12 +125,9 @@ static func unit(mode: String) -> String:
 	return "pp" if normalize_mode(mode) == "mania" else "pts"
 
 
-## Diff fuer den Modus spielbar? trace/rebound/mania: nur 4K (osu_mode 3);
-## orbit/rally/dirigent: 4K und Standard (0).
-static func playable(mode: String, osu_mode: int) -> bool:
-	if osu_mode == 3:
-		return true
-	return osu_mode == 0 and ["orbit", "rally", "dirigent"].has(normalize_mode(mode))
+## Diff fuer den Modus spielbar? Mania und Trace spielen nur Mania-Maps (osu_mode 3).
+static func playable(_mode: String, osu_mode: int) -> bool:
+	return osu_mode == 3
 
 
 # --- Leistung ---
@@ -916,8 +908,7 @@ static func level_target(sk: Dictionary, level: String) -> float:
 	return c + CHALLENGE_TARGET
 
 
-## Suchauftrag passend zum Profil: {mode, osu_mode (0 = osu!standard fuer Orbit,
-## sonst 3 = 4K), lo, hi, target (osu!-Sterne), shift, genre, bpm, key}.
+## Suchauftrag passend zum Profil: {mode, osu_mode (immer 3 = Mania), lo, hi, target (osu!-Sterne), shift, genre, bpm, key}.
 ## star_shift = osu!-Sterne minus Modus-Sterne (Median der eigenen Maps; Mania 0),
 ## weil der Mirror nur osu!-Sterne kennt. key = Cache-Schluessel (Sterne auf 0,5).
 static func online_query(mode: String, level: String, sk: Dictionary, t: Dictionary = {},
@@ -927,7 +918,7 @@ static func online_query(mode: String, level: String, sk: Dictionary, t: Diction
 	var lo := maxf(0.0, rng.x + star_shift - ONLINE_STAR_PAD)
 	var hi := maxf(lo + 0.3, rng.y + star_shift + ONLINE_STAR_PAD)
 	var genre := top_key(t.get("genres", {}), float(t.get("total", 0.0)), 0.35) if not t.is_empty() else ""
-	var osu_mode := 0 if m == "orbit" else 3
+	var osu_mode := 3
 	return {"mode": m, "osu_mode": osu_mode, "lo": lo, "hi": hi,
 		"target": level_target(sk, level) + star_shift, "shift": star_shift,
 		"genre": genre, "bpm": float(t.get("bpm", -1.0)) if not t.is_empty() else -1.0,
