@@ -427,10 +427,10 @@ func _nearest(L) -> void:
 		b.difficulty = { "CircleSize": cs }
 		return { "osu_filename": "x%d_%d.osu" % [mode, int(cs)], "beatmap": b }
 	var imp := { "ok": true, "difficulties": [mk.call(3, 7.0), mk.call(3, 4.0), mk.call(0, 4.0)] }
-	var i: int = L._nearest_4k("res://nonexistent.osz", imp, 4.0)
+	var i: int = L._nearest_4k("res://nonexistent.osz", imp, 4.0)  # warmd: nolint
 	_check(i == 1, "Fallback-Diff ist 4K (nicht 7K)")
 	var none := { "ok": true, "difficulties": [mk.call(3, 7.0)] }
-	_check(L._nearest_4k("res://nonexistent.osz", none, 4.0) == -1, "nur 7K -> keine Diff")
+	_check(L._nearest_4k("res://nonexistent.osz", none, 4.0) == -1, "nur 7K -> keine Diff")  # warmd: nolint
 
 
 ## Endergebnis-Paket: klein, fremde Werte werden geklemmt.
