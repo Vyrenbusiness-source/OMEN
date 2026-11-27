@@ -143,15 +143,14 @@ func _threads(dir: String) -> void:
 		"Profil-Thumb ohne Bild: null")
 	var src := FileAccess.get_file_as_string("res://scripts/ui/profile_panel.gd")
 	var a := src.find("func _thumb_worker(")
-	var b := src.find("
-func ", a + 10)
+	var b := src.find("\nfunc ", a + 10)
 	var body := src.substr(a, b - a)
-	_check(a >= 0 and body.contains("load_thumb_image(") and not body.contains("get_image(") 			and not body.contains("background_texture("),
+	_check(a >= 0 and body.contains("load_thumb_image(") and not body.contains("get_image(") \
+			and not body.contains("background_texture("),
 		"_thumb_worker: kein get_image()/keine Textur im Thread")
 	var osrc := FileAccess.get_file_as_string("res://scripts/parser/osz_importer.gd")
 	var pa := osrc.find("static func _prepare_task(")
-	var pb := osrc.find("
-static func ", pa + 10)
+	var pb := osrc.find("\nstatic func ", pa + 10)
 	_check(pa >= 0 and not osrc.substr(pa, pb - pa).contains("_load_image_uncached"),
 		"_prepare_task: keine Textur im Worker")
 
