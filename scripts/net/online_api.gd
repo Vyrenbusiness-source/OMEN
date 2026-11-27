@@ -649,6 +649,15 @@ func _on_score_reply(entry: Dictionary, code: int, text: String) -> void:
 			else:
 				_finish_entry(entry, "ok")
 		"update":
+			var body_ver := str((entry.get("body", {}) as Dictionary).get("client_version", ""))
+			if body_ver != client_version():
+				# Der EINTRAG ist veraltet (unter alter Version eingereiht), nicht der Client:
+				# verwerfen, weiter; der Nachtrag sendet den Lauf mit der aktuellen Version.
+				_note_error(code, msg)
+				_log_line("dropped", code, "played on version %s, server no longer accepts it" % body_ver, entry)
+				_set_submit(entry, "failed", short_reason(code, msg))
+				_finish_entry(entry, "error")
+				return
 			update_required = true
 			_note_error(code, msg)
 			_log_line("update", code, msg, entry)
@@ -1614,6 +1623,13 @@ func _call(cb: Callable, a: Variant, b: Variant) -> void:
 func _send(method: String, path: String, body: Variant, done: Callable) -> void:
 	var text := "" if body == null else JSON.stringify(body)
 	var url := base_url + path
+	# Jede 2xx-Antwort loescht "Client veraltet": das Flag darf nie zu Unrecht haengen bleiben.
+	var inner := done
+	done = func(code: int, data: String):
+		if code >= 200 and code < 300 and update_required:
+			update_required = false
+			state_changed.emit()
+		inner.call(code, data)
 	if transport.is_valid():
 		transport.call(method, url, headers(), text, done)
 		return

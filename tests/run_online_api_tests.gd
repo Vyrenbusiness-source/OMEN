@@ -296,6 +296,7 @@ func _run() -> void:
 	_submit_tests()
 	_backfill_tests()
 	_catch_up_tests()
+	_stale_426_tests()
 
 	a.free()
 	DirAccess.remove_absolute(TMP_Q)
@@ -696,4 +697,54 @@ func _catch_up_tests() -> void:
 	# ohne Login nichts
 	a.token = ""
 	_check(not a.start_catch_up(), "ohne Login kein Nachtrag")
+	a.free()
+
+
+## 426 mit veraltetem Eintrag (unter alter Version eingereiht): Eintrag weg, Client nicht
+## "veraltet", naechster Eintrag geht raus, Nachtrag laeuft; aktueller Eintrag + 426 setzt
+## das Flag, eine spaetere 2xx loescht es.
+func _stale_426_tests() -> void:
+	var a := _api()
+	a.bf_interval = 0.0
+	a.bf_rate_wait = 0.0
+	a.bf_meta_provider = func(_p: String, v: String) -> Dictionary:
+		var m := _meta()
+		m["md5"] = "md5_" + v
+		m["difficulty"] = v
+		m["total_notes"] = 60
+		return m
+	var files := {"a.osz": "/x/a.osz"}
+	var entries := [_entry("a.osz", "Alt", 60)]
+	a.catch_up_provider = func() -> Dictionary: return files
+	a.catch_up_entries = func() -> Array: return entries
+	var tok := a.token
+	a.token = ""
+	a.submit(_result(), _meta())
+	var m2 := _meta()
+	m2["md5"] = "second"
+	a.submit(_result(), m2)
+	a.token = tok
+	(a._queue[0] as Dictionary).body["client_version"] = "0.0.1"
+	_log.clear()
+	_script = [[426, "{\"error\":\"update required\"}"], [200, "{}"], [200, "{}"]]
+	a._pump()
+	_check(not a.update_required, "426 alter Eintrag: Client nicht veraltet")
+	_check(a.queue_size() == 0 and _log.size() == 2, "alter Eintrag verworfen, naechster gesendet (%d)" % _log.size())
+	_check("played on version 0.0.1" in _log_text(), "Protokoll: dropped, alte Version")
+	_check(a._catch_t >= 0.0, "Nachtrag eingeplant")
+	_log.clear()
+	_check(a.start_catch_up(), "Nachtrag startet nach verworfenem Eintrag")
+	_check(_log.size() >= 1 and a.backfill_state().state == "finished", "Nachtrag sendet")
+	# aktueller Eintrag + 426: wirklich veraltet
+	a.submit(_result(), _meta())
+	_check(a.queue_size() == 0 and not a.update_required, "gesendet, kein Flag")
+	a.token = ""
+	a.submit(_result(), m2)
+	a.token = tok
+	_script = [[426, "{}"]]
+	a._pump()
+	_check(a.update_required and a.last_status == "update", "426 mit aktueller Version: veraltet")
+	_script = [[200, "{}"]]
+	a._send("GET", "/auth/me", null, func(_c: int, _t: String): pass)
+	_check(not a.update_required, "2xx loescht update_required")
 	a.free()
