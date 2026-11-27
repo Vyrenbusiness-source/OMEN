@@ -99,6 +99,7 @@ func _init() -> void:
 	_test_removed_modes()
 	_test_sv_level()
 	_test_migration()
+	_test_run_fields()
 	_test_legacy_rescore()
 	_test_playtime()
 
@@ -346,3 +347,57 @@ func _test_playtime() -> void:
 	_check(ScoreStore.playtime_ms(ScoreStore.MODE_TRACE) == 5000 and ScoreStore.playtime_ms() == 75000, "Spielzeit: Modi getrennt")
 	var GS = load("res://scripts/game_session.gd")
 	_check(GS.playtime_mode_of("res://scenes/trace.tscn") == "trace" 			and GS.playtime_mode_of("res://scenes/mania_3d.tscn") == "" 			and GS.playtime_mode_of("res://scenes/song_select.tscn") == null, "Spielzeit: Szenen-Modus")
+
+
+## Schema 4: neue Laeufe tragen alle Felder des Online-Submits; alte Eintraege
+## bleiben unveraendert, vor dem ersten neuen Schreiben liegt eine .bak.
+func _test_run_fields() -> void:
+	var real := ScoreStore.PATH
+	var path := real.get_base_dir().path_join("runfields_%d.cfg" % OS.get_process_id())
+	ScoreStore.PATH = path
+	DirAccess.remove_absolute(path + ".bak")
+	var old := ConfigFile.new()
+	var ok := ScoreStore._key("old3.osz", "Hard")
+	old.set_value("meta", "schema", 3)
+	old.set_value("scores", ok, { "score": 800, "grade": "A", "accuracy": 0.9, "mods": ["HD"] })
+	old.save(path)
+	var old_text := FileAccess.get_file_as_string(path)
+	ScoreStore._migrated_path = ""
+	# Laden migriert: .bak = alte Datei, alter Eintrag ohne erfundene Felder.
+	var o := ScoreStore.best("old3.osz", "Hard")
+	_check(int(o.score) == 800 and not o.has("mod_mult") and not o.has("mines") and not o.has("stars"),
+			"Schema 4: alter Eintrag unveraendert, Felder fehlen weiter")
+	_check(FileAccess.file_exists(path + ".bak") and FileAccess.get_file_as_string(path + ".bak") == old_text,
+			"Schema 4: .bak der alten Datei")
+	# Mit Minen und Mods
+	var mine := { "score": 5000, "accuracy": 0.98, "grade": "S", "mods": ["MN", "HD"], "mod_mult": 1.1,
+		"mines": 40, "mine_hits": 3, "keys": 6 }
+	ScoreStore.submit("new.osz", "Hard", mine, "mines")
+	var e := ScoreStore.best("new.osz", "Hard", "mines")
+	_check(int(e.get("mines", -1)) == 40 and int(e.get("mine_hits", -1)) == 3, "Minen-Zaehler gespeichert")
+	_check(is_equal_approx(float(e.get("mod_mult", 0)), 1.1) and int(e.get("keys", 0)) == 6, "mod_mult + keys gespeichert")
+	_check(str(e.get("client_version", "")) == OnlineApi.client_version() and str(e.get("date", "")).length() >= 19,
+			"client_version + Datum mit Sekunden")
+	# Trace mit Sternen
+	ScoreStore.submit("tr.osz", "Hard", { "score": 900, "accuracy": 0.9, "grade": "A", "mods": ["NF"],
+		"mod_mult": 0.5, "stars": 3.25 }, "trace")
+	var t := ScoreStore.best("tr.osz", "Hard", "trace")
+	_check(is_equal_approx(float(t.get("stars", -1)), 3.25) and is_equal_approx(float(t.get("mod_mult", 0)), 0.5),
+			"Trace: stars + mod_mult gespeichert")
+	# Verlauf traegt dieselben Felder
+	ScoreStore.log_play("new.osz", "Hard", "x", mine, "mines")
+	var h := ScoreStore.top_scores("new.osz", "Hard", 3, "mines")
+	var rp := ScoreStore.recent_plays(3, "mines")
+	_check(rp.size() == 1 and int(rp[0].get("mines", -1)) == 40 and is_equal_approx(float(rp[0].get("mod_mult", 0)), 1.1),
+			"Verlauf/Recent tragen Felder")
+	# Roundtrip: Datei neu lesen, alter Eintrag weiter da
+	ScoreStore._migrated_path = ""
+	var again := ScoreStore.best("new.osz", "Hard", "mines")
+	_check(int(again.get("mine_hits", -1)) == 3 and int(ScoreStore.best("old3.osz", "Hard").score) == 800,
+			"Roundtrip: neu und alt lesbar")
+	var cfg := ConfigFile.new()
+	cfg.load(path)
+	_check(int(cfg.get_value("meta", "schema", 0)) == 4, "Schema 4 gesetzt")
+	DirAccess.remove_absolute(path)
+	DirAccess.remove_absolute(path + ".bak")
+	ScoreStore.PATH = real
