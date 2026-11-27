@@ -6,7 +6,6 @@ extends Control
 ## Hintergrund: entsaettigtes Cover der letzten Map, Puls exakt auf dem Beat.
 
 const COL_ACCENT := UiTheme.ACCENT
-const COL_DIM := UiTheme.DIM
 
 var _pp_label: Label
 var _name_label: Label
@@ -15,8 +14,7 @@ var _card_avatar: Control
 var _profile_card: Control
 var _btn_play: Button
 var _btn_mp: Button
-var _btn_orbit: Button
-var _mode_subs := {}  # Modus -> Unterzeile (Sprachwechsel)
+var _btn_mania: Button
 var _btn_settings: Button
 var _tour_step := -1
 var _tour_steps: Array = []
@@ -26,8 +24,6 @@ var _music: AudioStreamPlayer
 var _viz: AudioVisualizer
 var _beat_clock: BeatClock
 # Bass-Reaktivitaet: Logo, Shader-Hintergrund, Overlay.
-var _logo: Control
-var _logo_sub: Label
 var _bg_mat: ShaderMaterial
 var _dim_overlay: ColorRect
 var _bass_avg: float = 0.0
@@ -268,29 +264,6 @@ static func menu_stack(view_h: float, buttons_h: float) -> Dictionary:
 		"buttons_h": buttons_h, "top": top, "bottom": view_h - (btn_y + buttons_h)}
 
 
-## Songfarbe: Durchschnitt des runterskalierten Covers, Saettigung/Helligkeit angehoben.
-func _cover_color(cover: Texture2D) -> Color:
-	if cover == null:
-		return UiTheme.ACCENT
-	var img := cover.get_image()
-	if img == null or img.is_empty():
-		return UiTheme.ACCENT
-	if img.is_compressed():
-		img.decompress()
-	img.resize(8, 8, Image.INTERPOLATE_BILINEAR)
-	var r := 0.0
-	var g := 0.0
-	var b := 0.0
-	for y in 8:
-		for x in 8:
-			var c := img.get_pixel(x, y)
-			r += c.r
-			g += c.g
-			b += c.b
-	var avg := Color(r / 64.0, g / 64.0, b / 64.0)
-	return Color.from_hsv(avg.h, clampf(avg.s * 1.3, 0.45, 0.9), clampf(avg.v * 1.5, 0.75, 1.0))
-
-
 func _load_cover(osz_path: String, bm: Beatmap) -> Texture2D:
 	return OszImporter.load_background_texture(osz_path, bm)
 
@@ -435,7 +408,7 @@ func _daily_download(mirror: BeatmapMirror, set_id: int) -> MapSet:
 
 
 ## Modus-Kacheln des Hauptmenues (Reihenfolge = ScoreStore.MODES).
-const MENU_MODES := ["mania", "orbit", "rally", "dirigent", "trace", "rebound"]
+const MENU_MODES := ["mania", "trace"]
 
 
 ## "MULTIPLAYER" -> "Multiplayer" (nur erster Buchstabe gross).
@@ -554,26 +527,18 @@ func _play_mode_entry(mode: String) -> void:
 	cfg.load(BROWSER_STATE)
 	cfg.set_value("browser", "play_mode", mode)
 	cfg.save(BROWSER_STATE)
-	if mode == "orbit":
-		# Bis der Spieler gewaehlt hat, fuehrt der Orbit-Eintrag in die Karriere.
-		var career := OrbitCareer.load_state()
-		if not bool(career.get("chosen", false)):
-			career["mode"] = OrbitCareer.MODE_CAREER
-			OrbitCareer.save_state(career)
 	_play()
 
 
+## Kachel-Titel: Mania ohne Tastenzahl (die Kachel fuehrt zu 4K bis 7K).
+func _mode_title(mode: String) -> String:
+	return "Mania" if mode == ScoreStore.MODE_MANIA else ScoreStore.mode_label(mode)
+
+
 func _mode_sub_text(mode: String) -> String:
-	# Modus ohne Spielszene: Kachel zeigt "Kommt bald" (Browser blendet ihn genauso aus).
-	if not ScoreStore.mode_ready(mode):
-		return tr("Kommt bald")
-	match mode:
-		"mania": return tr("Vier Spuren")
-		"rally": return tr("Tischtennis")
-		"dirigent": return tr("Takt führen")
-		"trace": return tr("Den Takt zeichnen")
-		"rebound": return tr("Im Takt springen")
-	return tr("Zielen + Tippen")
+	if mode == ScoreStore.MODE_TRACE:
+		return tr("Den Takt zeichnen")
+	return tr("Vier bis sieben Spuren, 2D oder 3D")
 
 
 ## "?" auf einer Kachel: Tutorial des Modus (nur wenn scenes/<modus>_tutorial.tscn existiert).
@@ -581,8 +546,6 @@ func _start_mode_tutorial(mode: String) -> void:
 	var path := ScoreStore.mode_tutorial(mode)
 	if path == "":
 		return
-	if mode == "orbit" and ResourceLoader.exists("res://scripts/orbit/orbit_tutorial.gd"):
-		(load("res://scripts/orbit/orbit_tutorial.gd") as GDScript).mark_seen()
 	_fade_music_out()
 	SceneFader.go(path)
 
@@ -631,31 +594,20 @@ func _show_gpu_notice() -> void:
 # Ansicht. Alles in Entwurfs-Einheiten (1 Einheit = 1 px bei 1280x720); _u
 # rechnet auf die Fenstergroesse um. Schrift und Symbole werden in der
 # Zielgroesse gerastert (nie skaliert), jede Kante liegt auf ganzen Pixeln.
-# Raster: Inhalt 1088 breit = Spalte links 320 + Abstand 48 + 3 Kacheln je 232
-# (Abstand 12). Rand zum Fenster 32.
+# Raster: Inhalt 1088 breit = Spalte links 320 + Abstand 48 + 2 Kacheln je 354
+# (Abstand 12). Die Kacheln sind so hoch wie die Spalte links. Rand zum Fenster 32.
 # ---------------------------------------------------------------------------
 
 const GRID_W := 1088.0
 const COL_W := 320.0
 const COL_GAP := 48.0
-const TILE_W := 232.0
-const TILE_H := 140.0
 const TILE_GAP := 12.0
+const TILE_W := (GRID_W - COL_W - COL_GAP - TILE_GAP) * 0.5  # 354
 const PLAY_H := 58.0
 const ROW_H := 37.0
 const EDGE := 32.0
-const BLOCK_H := TILE_H * 2.0 + TILE_GAP  # 292 = PLAY_H + 12 + 6 * ROW_H
-
-## Symbole der Modi (Quelle: assets_game/icons/modes/<modus>.svg, gleiche Pfade).
-## Hier als Text, damit sie in der Zielgroesse scharf gerastert werden.
-const MODE_SVG := {
-	"mania": '<path d="M4.5 3.5v17M9.5 3.5v17M14.5 3.5v17M19.5 3.5v17"/>',
-	"orbit": '<circle cx="11" cy="13" r="7"/><circle cx="11" cy="13" r="2"/><circle cx="19.5" cy="4.5" r="2" fill="#fff" stroke="none"/>',
-	"rally": '<circle cx="9.5" cy="10.5" r="6"/><path d="M13.8 14.8l5.7 5.7"/><circle cx="19.5" cy="5" r="2" fill="#fff" stroke="none"/>',
-	"dirigent": '<path d="M3.5 18.5C6 9 13 5 20.5 5.5"/><path d="M3.5 18.5l3.5-1"/><circle cx="20.5" cy="5.5" r="1.5" fill="#fff" stroke="none"/>',
-	"trace": '<path d="M3.5 19.5h6v-8h5v-6h6"/><circle cx="20.5" cy="5.5" r="1.5" fill="#fff" stroke="none"/>',
-	"rebound": '<circle cx="12" cy="5" r="2.5"/><path d="M3.5 20.5C6 12 18 12 20.5 20.5"/>',
-}
+const BLOCK_H := PLAY_H + 12.0 + 7.0 * ROW_H  # 329: Spielen + sieben Zeilen
+const TILE_H := BLOCK_H
 
 var _u := 1.0
 var _ui: Control
@@ -676,29 +628,29 @@ var _body_font: Font
 static var _tex_cache := {}
 
 
-const PREVIEW_H := 82.0
+## Vorschau oben in der Kachel, darunter Name und Unterzeile (80 Einheiten).
+const PREVIEW_H := TILE_H - 80.0
 
 
-## Mini-Vorschau eines Modus in der Kachel: eine kleine Spielszene mit den echten
+## Vorschau eines Modus in der Kachel: eine kleine Spielszene mit den echten
 ## Objekten und Farben des Modus (gefuellte Formen mit Verlauf, Schatten und Kontur,
-## kein Linien-Piktogramm). Gezeichnet in Entwurfs-Einheiten (Breite x PREVIEW_H),
-## skaliert scharf mit u. Steht still; bei Hover/Fokus laeuft die Szene ruhig in
+## kein Linien-Piktogramm). Gezeichnet in Szenen-Einheiten (BASE_W breit), skaliert
+## scharf mit u * zoom. Steht still; bei Hover/Fokus laeuft die Szene ruhig in
 ## einer Schleife.
 class ModePreview extends Control:
 	const INK := UiTheme.TEXT
 	const AMBER := UiTheme.ACCENT
 	const DARK := Color(0.043, 0.041, 0.038)
-	const BLUE := Color(0.33, 0.53, 0.76)
-	const TEAL := Color(0.37, 0.72, 0.68)
-	const ORANGE := Color(0.90, 0.53, 0.26)
+	const BASE_W := 232.0   ## Szenenbreite in Einheiten
+	const BASE_H := 82.0    ## Hoehe, fuer die die Trace-Linie entworfen ist
 	var mode := "mania"
 	var u := 1.0
+	var zoom := 1.0
 	var col := Color.WHITE
 	var hover := 0.0
 	var want := 0.0
 	var ph := 0.3
 	var _bg: StyleBoxFlat
-	var _rr: StyleBoxFlat
 
 	func _ready() -> void:
 		clip_contents = true
@@ -728,74 +680,9 @@ class ModePreview extends Control:
 		draw_circle(p, r, fill, true, -1.0, true)
 		draw_arc(p, r - 0.4, 0.0, TAU, 40, line, w, true)
 
-	func _ellipse(c: Vector2, rx: float, ry: float) -> PackedVector2Array:
-		var pts := PackedVector2Array()
-		for i in 40:
-			var a := TAU * float(i) / 40.0
-			pts.append(c + Vector2(cos(a) * rx, sin(a) * ry))
-		return pts
-
-	func _ring(c: Vector2, rx: float, ry: float, line: Color, w: float) -> void:
-		var pts := _ellipse(c, rx, ry)
-		pts.append(pts[0])
-		draw_polyline(pts, line, w, true)
-
 	## Viereck mit senkrechtem Verlauf (oben/unten).
 	func _quad(tl: Vector2, tr: Vector2, br: Vector2, bl: Vector2, top: Color, bot: Color) -> void:
 		draw_polygon(PackedVector2Array([tl, tr, br, bl]), PackedColorArray([top, top, bot, bot]))
-
-	func _shadow(p: Vector2, rx: float, ry: float, al: float) -> void:
-		draw_colored_polygon(_ellipse(p, rx * 1.4, ry * 1.4), Color(0, 0, 0, al * 0.45))
-		draw_colored_polygon(_ellipse(p, rx, ry), Color(0, 0, 0, al))
-
-	## Kugel mit Licht von oben links: Kontur, Schattenseite, Koerper, Licht, Glanzpunkt.
-	func _ball(p: Vector2, r: float, c: Color, al: float = 1.0) -> void:
-		draw_circle(p, r + 0.9, Color(DARK, 0.9 * al), true, -1.0, true)
-		draw_circle(p, r, Color(c.darkened(0.45), al), true, -1.0, true)
-		draw_circle(p + Vector2(-0.10, -0.12) * r, r * 0.84, Color(c.darkened(0.14), al), true, -1.0, true)
-		draw_circle(p + Vector2(-0.22, -0.26) * r, r * 0.55, Color(c.lightened(0.16), al), true, -1.0, true)
-		draw_circle(p + Vector2(-0.34, -0.38) * r, r * 0.21, Color(1, 1, 1, 0.82 * al), true, -1.0, true)
-
-	## Flache Scheibe mit Tiefe: Schatten, dunkle Fuellung, heller oben, Rand in Farbe.
-	func _disc(p: Vector2, r: float, c: Color, al: float, rim: float = 1.8) -> void:
-		draw_circle(p + Vector2(0.0, 1.8), r + 1.2, Color(0, 0, 0, 0.40 * al), true, -1.0, true)
-		draw_circle(p, r, Color(c.darkened(0.62), 1.0), true, -1.0, true)
-		draw_circle(p + Vector2(0.0, -r * 0.12), r * 0.84, Color(c.darkened(0.50), 1.0), true, -1.0, true)
-		draw_arc(p, r - rim * 0.5, 0.0, TAU, 48, Color(c, al), rim, true)
-
-	func _half(p: Vector2, r: float, a0: float, c: Color) -> void:
-		var pts := PackedVector2Array()
-		for i in 25:
-			var ang := a0 + PI * float(i) / 24.0
-			pts.append(p + Vector2(cos(ang), sin(ang)) * r)
-		draw_colored_polygon(pts, c)
-
-	func _capsule(p0: Vector2, p1: Vector2, r: float, fill: Color, line: Color) -> void:
-		draw_line(p0, p1, line, (r + 1.3) * 2.0, true)
-		draw_circle(p0, r + 1.3, line, true, -1.0, true)
-		draw_circle(p1, r + 1.3, line, true, -1.0, true)
-		draw_line(p0, p1, fill, r * 2.0, true)
-		draw_circle(p0, r, fill, true, -1.0, true)
-		draw_circle(p1, r, fill, true, -1.0, true)
-
-	func _rrect(r: Rect2, rad: float, fill: Color, line: Color, lw: int) -> void:
-		if _rr == null:
-			_rr = StyleBoxFlat.new()
-			_rr.anti_aliasing = true
-		_rr.bg_color = fill
-		_rr.border_color = line
-		_rr.set_border_width_all(lw)
-		_rr.set_corner_radius_all(roundi(rad))
-		draw_style_box(_rr, r)
-
-	## Ziffer scharf in Bildpunkten (nicht ueber die Skalierung der Zeichenflaeche).
-	func _num(p: Vector2, txt: String, px: float, c: Color) -> void:
-		var f := get_theme_default_font()
-		var fs := maxi(roundi(px * u), 6)
-		var bw := 40.0 * u
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-		draw_string(f, Vector2(p.x * u - bw * 0.5, p.y * u + float(fs) * 0.36), txt, HORIZONTAL_ALIGNMENT_CENTER, bw, fs, c)
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2(u, u))
 
 	func _draw() -> void:
 		var s := size
@@ -810,23 +697,15 @@ class ModePreview extends Control:
 		_bg.bg_color = top
 		draw_style_box(_bg, Rect2(Vector2.ZERO, s))
 		_quad(Vector2(0.0, float(k)), Vector2(s.x, float(k)), Vector2(s.x, s.y), Vector2(0.0, s.y), top, bot)
-		draw_set_transform(Vector2.ZERO, 0.0, Vector2(u, u))
-		var w := s.x / u
-		var h := s.y / u
+		var z := u * zoom
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2(z, z))
+		var w := s.x / z
+		var h := s.y / z
 		var dim := 0.86 + 0.14 * hover
-		match mode:
-			"orbit":
-				_orbit(w, h, dim)
-			"rally":
-				_rally(w, h, dim)
-			"dirigent":
-				_dirigent(w, h, dim)
-			"trace":
-				_trace(w, h, dim)
-			"rebound":
-				_rebound(w, h, dim)
-			_:
-				_mania(w, h, dim)
+		if mode == ScoreStore.MODE_TRACE:
+			_trace(w, h, dim)
+		else:
+			_mania(w, h, dim)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		var hair := maxf(roundf(u), 1.0)
 		draw_rect(Rect2(0.0, s.y - hair, s.x, hair), Color(INK, 0.10), true)
@@ -893,206 +772,18 @@ class ModePreview extends Control:
 		draw_line(Vector2(x_at.call(0.0, ly), ly), Vector2(x_at.call(4.0, ly), ly), Color(DARK, 0.8), 5.0, true)
 		draw_line(Vector2(x_at.call(0.0, ly), ly), Vector2(x_at.call(4.0, ly), ly), Color(AMBER, a), 2.4, true)
 
-	# Orbit: Zielfeld mit Scheiben, Zieh-Bahnen, Quadrat mit Anflugring, geteilter
-	# Scheibe (zwei Tasten) und Zeiger.
-	func _orbit(w: float, h: float, a: float) -> void:
-		var cx := w * 0.5
-		for gx in 9:
-			for gy in 3:
-				var q := Vector2(cx - 112.0 + 28.0 * float(gx), 13.0 + 28.0 * float(gy))
-				draw_line(q - Vector2(2, 0), q + Vector2(2, 0), Color(INK, 0.09), 1.0)
-				draw_line(q - Vector2(0, 2), q + Vector2(0, 2), Color(INK, 0.09), 1.0)
-		# Blaue Zieh-Bahn mit Kopf, zweite Scheibe.
-		var b0 := Vector2(cx - 64.0, 27.0)
-		var b1 := Vector2(cx - 20.0, 19.0)
-		_capsule(b0, b1, 9.5, Color(BLUE.darkened(0.72), 1.0), Color(BLUE.darkened(0.38), a))
-		draw_arc(b1, 5.6, 0.0, TAU, 32, Color(BLUE.darkened(0.15), a), 1.6, true)
-		_disc(Vector2(cx - 80.0, 57.0), 12.5, BLUE, a)
-		_disc(b0, 13.5, BLUE, a)
-		# Bernstein-Quadrat mit Anflugring.
-		var sq := Vector2(cx - 36.0, 54.0)
-		draw_arc(sq, 17.5, 0.0, TAU, 48, Color(INK, 0.30 * a), 1.3, true)
-		draw_line(sq + Vector2(0, -20.5), sq + Vector2(0, -15.0), Color(INK, 0.65 * a), 1.8, true)
-		_rrect(Rect2(sq - Vector2(11, 11) + Vector2(0, 1.6), Vector2(22, 22)), 5.0, Color(0, 0, 0, 0.4), Color(0, 0, 0, 0.0), 0)
-		_rrect(Rect2(sq - Vector2(11, 11), Vector2(22, 22)), 5.0, Color(AMBER.darkened(0.52), 1.0), Color(AMBER.lightened(0.12), a), 2)
-		_rrect(Rect2(sq - Vector2(8, 8), Vector2(16, 9)), 3.0, Color(AMBER, 0.14), Color(0, 0, 0, 0.0), 0)
-		# Bernstein-Zieh-Bahn rechts mit Folgering.
-		var s0 := Vector2(cx + 50.0, 43.0)
-		var s1 := Vector2(cx + 88.0, 62.0)
-		_capsule(s0, s1, 9.5, Color(AMBER.darkened(0.68), 1.0), Color(AMBER.darkened(0.28), a))
-		draw_arc(s1, 5.6, 0.0, TAU, 32, Color(AMBER.darkened(0.10), a), 1.6, true)
-		draw_arc(s0, 23.0, 0.0, TAU, 64, Color(INK, 0.26 * a), 1.3, true)
-		draw_arc(s0, 23.0, -PI * 0.5, -PI * 0.5 + TAU * (0.12 + 0.5 * ph), 40, Color(INK, 0.92 * a), 2.2, true)
-		draw_circle(s0 + Vector2(0, 1.6), 11.4, Color(0, 0, 0, 0.4), true, -1.0, true)
-		draw_circle(s0, 10.6, Color(INK, 1.0), true, -1.0, true)
-		draw_circle(s0, 8.3, Color(AMBER.darkened(0.14), 1.0), true, -1.0, true)
-		draw_circle(s0 + Vector2(0, -1.4), 6.2, Color(AMBER.lightened(0.06), 1.0), true, -1.0, true)
-		draw_circle(s0, 2.3, Color(INK, 1.0), true, -1.0, true)
-		# Geteilte Scheibe (zwei Tasten zugleich) mit schrumpfendem Anflugring.
-		var sp := Vector2(cx + 4.0, 51.0)
-		draw_circle(sp + Vector2(0, 1.8), 15.6, Color(0, 0, 0, 0.42), true, -1.0, true)
-		_half(sp, 12.6, PI * 0.5, Color(BLUE.darkened(0.05), 1.0))
-		_half(sp, 12.6, -PI * 0.5, Color(AMBER.darkened(0.20), 1.0))
-		draw_arc(sp, 14.4, 0.0, TAU, 48, Color(INK, 1.0), 2.0, true)
-		draw_arc(sp, 14.4 + 11.0 * (1.0 - ph), 0.0, TAU, 48, Color(INK, (0.20 + 0.6 * ph) * a), 1.3, true)
-		# Zeiger auf dem Weg vom Quadrat zur Scheibe.
-		var e := ph * ph * (3.0 - 2.0 * ph)
-		var cur := (sq + Vector2(6, -4)).lerp(sp + Vector2(-13.5, 5.5), e)
-		_dot(cur, 3.8, Color(1, 1, 1, 1), Color(1, 1, 1, 0.0))
-
-	# Rally: Tisch in Perspektive mit Netz, drei Baelle im Flug mit Schatten, Schlaeger.
-	func _rally(w: float, h: float, a: float) -> void:
-		var cx := w * 0.5
-		var yt := 21.0
-		var yb := h + 8.0
-		var hw := func(y: float) -> float:
-			return lerpf(47.0, 106.0, (y - yt) / (yb - yt))
-		var lx := func(l: float, y: float) -> float:
-			return cx + (l - 2.0) * hw.call(y) * 0.5
-		_quad(Vector2(lx.call(0.0, yt), yt), Vector2(lx.call(4.0, yt), yt), Vector2(lx.call(4.0, yb), yb), Vector2(lx.call(0.0, yb), yb),
-			Color(0.105, 0.140, 0.185, 1.0), Color(0.190, 0.240, 0.305, 1.0))
-		var tint := [BLUE, TEAL, Color(0.86, 0.74, 0.46), ORANGE]
-		for l in [1, 2]:
-			var c: Color = tint[l]
-			_quad(Vector2(lx.call(float(l), yt), yt), Vector2(lx.call(float(l) + 1.0, yt), yt),
-				Vector2(lx.call(float(l) + 1.0, yb), yb), Vector2(lx.call(float(l), yb), yb), Color(c, 0.02), Color(c, 0.13))
-		for l in [1.0, 3.0]:
-			draw_line(Vector2(lx.call(l, yt), yt), Vector2(lx.call(l, yb), yb), Color(INK, 0.13), 1.0, true)
-		draw_line(Vector2(cx, yt), Vector2(cx, yb), Color(INK, 0.40 * a), 1.2, true)
-		draw_polyline(PackedVector2Array([Vector2(lx.call(0.0, yb), yb), Vector2(lx.call(0.0, yt), yt), Vector2(lx.call(4.0, yt), yt), Vector2(lx.call(4.0, yb), yb)]),
-			Color(INK, 0.85 * a), 1.5, true)
-		# Zielringe an der vorderen Kante.
-		for l in 4:
-			var c: Color = tint[l]
-			_ring(Vector2(lx.call(float(l) + 0.5, 73.0), 73.0), 10.0, 4.0, Color(c, 0.50 * a), 1.1)
-		var yn := 46.0
-		var balls := [[1.5, TEAL, 0.0], [2.5, Color(0.94, 0.92, 0.88), 0.36], [3.5, ORANGE, 0.70]]
-		var draw_ball := func(b: Array, far: bool) -> void:
-			var t := fposmod(float(b[2]) + ph, 1.0)
-			var gy := lerpf(25.0, 75.0, t)
-			if (gy < yn) != far:
-				return
-			var gx: float = lx.call(float(b[0]), gy)
-			var hop := 24.0 * sin(PI * t / 0.6) if t < 0.6 else 12.0 * sin(PI * (t - 0.6) / 0.4)
-			var r := lerpf(3.0, 6.6, t)
-			var al := clampf(t * 8.0, 0.0, 1.0) * clampf((1.0 - t) * 8.0, 0.0, 1.0)
-			_shadow(Vector2(gx, gy), r * 1.15, r * 0.40, 0.36 * al)
-			_ball(Vector2(gx, gy - r - hop), r, b[1], al)
-		for b in balls:
-			draw_ball.call(b, true)
-		# Netz: Gewebe, helle Oberkante, Pfosten.
-		var nx0: float = lx.call(0.0, yn) - 4.0
-		var nx1: float = lx.call(4.0, yn) + 4.0
-		draw_rect(Rect2(nx0, yn - 10.0, nx1 - nx0, 10.0), Color(0.78, 0.84, 0.90, 0.13), true)
-		var x := nx0 + 4.0
-		while x < nx1:
-			draw_line(Vector2(x, yn - 10.0), Vector2(x, yn), Color(INK, 0.10), 1.0)
-			x += 4.0
-		draw_line(Vector2(nx0, yn - 5.0), Vector2(nx1, yn - 5.0), Color(INK, 0.10), 1.0)
-		draw_line(Vector2(nx0, yn - 10.0), Vector2(nx1, yn - 10.0), Color(INK, 0.92 * a), 1.8, true)
-		draw_line(Vector2(nx0, yn - 11.5), Vector2(nx0, yn + 1.5), Color(INK, 0.75 * a), 2.0, true)
-		draw_line(Vector2(nx1, yn - 11.5), Vector2(nx1, yn + 1.5), Color(INK, 0.75 * a), 2.0, true)
-		# Schlaeger hinter dem weissen Ball.
-		var pp := Vector2(lx.call(2.5, 70.0) - 3.0, 62.0)
-		draw_line(pp + Vector2(-2.0, 9.0), pp + Vector2(-5.0, 24.0), Color(DARK, 1.0), 7.5, true)
-		draw_line(pp + Vector2(-2.0, 9.0), pp + Vector2(-5.0, 24.0), Color(0.62, 0.46, 0.28, 1.0), 5.0, true)
-		draw_circle(pp + Vector2(0, 1.6), 12.2, Color(0, 0, 0, 0.4), true, -1.0, true)
-		draw_circle(pp, 11.6, Color(0.86, 0.80, 0.68, 1.0), true, -1.0, true)
-		draw_circle(pp, 9.8, Color(0.170, 0.150, 0.130, 1.0), true, -1.0, true)
-		draw_circle(pp + Vector2(0, -1.5), 7.6, Color(0.215, 0.190, 0.165, 1.0), true, -1.0, true)
-		for b in balls:
-			draw_ball.call(b, false)
-
-	# Dirigent: runde Buehne mit Takt-Uhr, Schlagpunkte mit Ziffern, Taktstock auf dem
-	# Weg zum naechsten Schlag; darunter die Einsatz-Leiste (Kreis/Raute je Taste).
-	func _dirigent(w: float, h: float, a: float) -> void:
-		var cx := w * 0.5
-		var c := Vector2(cx, 30.0)
-		var rad := 43.0
-		draw_circle(c + Vector2(0, 2.0), rad + 2.0, Color(0, 0, 0, 0.36), true, -1.0, true)
-		draw_circle(c, rad, Color(0.100, 0.096, 0.090, 1.0), true, -1.0, true)
-		draw_circle(c + Vector2(0, -2.0), rad * 0.90, Color(0.128, 0.123, 0.115, 1.0), true, -1.0, true)
-		draw_arc(c, rad * 0.62, 0.0, TAU, 64, Color(INK, 0.06), 1.0, true)
-		draw_arc(c, rad, 0.0, TAU, 72, Color(INK, 0.30 * a), 1.2, true)
-		var a1 := -PI * 0.5 + TAU * (0.16 + 0.25 * ph)
-		draw_arc(c, rad + 3.6, -PI * 0.5, a1, 40, Color(AMBER, a), 1.8, true)
-		draw_line(c + Vector2(0, -rad - 6.2), c + Vector2(0, -rad - 1.0), Color(AMBER, a), 1.6, true)
-		draw_circle(c + Vector2(cos(a1), sin(a1)) * (rad + 3.6), 2.3, Color(AMBER, 1.0), true, -1.0, true)
-		var p := [c + Vector2(0, 23), c + Vector2(-28, 3), c + Vector2(28, 3), c + Vector2(0, -19)]
-		var curve := func(i0: int, i1: int, t: float) -> Vector2:
-			var m: Vector2 = (p[i0] + p[i1]) * 0.5
-			var ctl: Vector2 = m + (c + Vector2(0, 14) - m) * 0.9
-			return (p[i0] as Vector2).lerp(ctl, t).lerp(ctl.lerp(p[i1], t), t)
-		for sgm in [[0, 1], [1, 2], [2, 3]]:
-			var pts := PackedVector2Array()
-			for i in 13:
-				pts.append(curve.call(sgm[0], sgm[1], float(i) / 12.0))
-			draw_polyline(pts, Color(INK, 0.24 * a), 1.2, true)
-		draw_circle(p[0], 3.0, Color(INK, 0.42 * a), true, -1.0, true)
-		# Schlag 2 gerade getroffen: Bernstein-Scheibe mit auslaufendem Ring.
-		draw_arc(p[1], 7.4 + 8.0 * ph, 0.0, TAU, 40, Color(AMBER, 0.75 * (1.0 - ph) * a), 1.3, true)
-		draw_circle(p[1], 7.0, Color(AMBER.darkened(0.48), 1.0), true, -1.0, true)
-		draw_arc(p[1], 6.5, 0.0, TAU, 40, Color(AMBER, a), 1.5, true)
-		# Schlag 4 wartet, Schlag 3 ist das Ziel (gross, Anflugring).
-		draw_circle(p[3], 6.8, Color(0.185, 0.178, 0.167, 1.0), true, -1.0, true)
-		draw_arc(p[3], 6.3, 0.0, TAU, 40, Color(INK, 0.50 * a), 1.2, true)
-		_num(p[3], "4", 8.5, Color(INK, 0.70 * a))
-		draw_arc(p[2], 10.6 + 9.0 * (1.0 - ph), 0.0, TAU, 40, Color(INK, (0.18 + 0.5 * ph) * a), 1.2, true)
-		draw_circle(p[2] + Vector2(0, 1.8), 11.2, Color(0, 0, 0, 0.4), true, -1.0, true)
-		draw_circle(p[2], 10.6, Color(0.215, 0.206, 0.193, 1.0), true, -1.0, true)
-		draw_arc(p[2], 9.9, 0.0, TAU, 48, Color(INK, a), 1.7, true)
-		_num(p[2], "3", 12.0, Color(INK, a))
-		# Taktstock.
-		var e := ph * ph * (3.0 - 2.0 * ph)
-		var tr_pts := PackedVector2Array()
-		var tr_cols := PackedColorArray()
-		for i in 13:
-			var f := float(i) / 12.0
-			tr_pts.append(curve.call(1, 2, e * f))
-			tr_cols.append(Color(AMBER.lightened(0.2), 0.85 * f * a))
-		if e > 0.03:
-			draw_polyline_colors(tr_pts, tr_cols, 2.2, true)
-		var hp: Vector2 = curve.call(1, 2, e)
-		draw_line(hp + Vector2(9, 12), hp, Color(DARK, 0.8), 4.4, true)
-		draw_line(hp + Vector2(9, 12), hp, Color(INK, 0.95), 2.0, true)
-		draw_circle(hp + Vector2(9, 12), 2.5, AMBER, true, -1.0, true)
-		_dot(hp, 3.6, Color(1.0, 0.97, 0.9, 1.0), Color(1, 1, 1, 0.0))
-		# Einsatz-Leiste.
-		var ly := 72.5
-		var x0 := cx - 94.0
-		var x1 := cx + 94.0
-		_rrect(Rect2(x0, ly - 7.5 + 1.5, x1 - x0, 15.0), 5.0, Color(0, 0, 0, 0.35), Color(0, 0, 0, 0.0), 0)
-		_rrect(Rect2(x0, ly - 7.5, x1 - x0, 15.0), 5.0, Color(0.088, 0.085, 0.080, 1.0), Color(INK, 0.16), 1)
-		var jx := x0 + 17.0
-		for i in 14:
-			var x := jx + (float(i) + 1.0 - 2.0 * ph) * 15.0
-			if x < jx - 0.5 or x > x1 - 7.0:
-				continue
-			var al := clampf((x1 - 7.0 - x) / 12.0, 0.0, 1.0)
-			var q := Vector2(x, ly)
-			if i % 2 == 0:
-				draw_circle(q, 5.0, Color(DARK, al), true, -1.0, true)
-				draw_circle(q, 4.2, Color(AMBER.darkened(0.22), al), true, -1.0, true)
-				draw_circle(q + Vector2(0, -0.8), 3.0, Color(AMBER.lightened(0.08), al), true, -1.0, true)
-			else:
-				var d := 4.8
-				_poly(PackedVector2Array([q + Vector2(0, -d), q + Vector2(d, 0), q + Vector2(0, d), q + Vector2(-d, 0)]),
-					Color(BLUE.lightened(0.05), al), Color(BLUE.lightened(0.45), al), 1.0)
-		var kk := fposmod(ph * 2.0, 1.0)
-		draw_arc(Vector2(jx, ly), 6.2 + 3.2 * kk, 0.0, TAU, 40, Color(AMBER, 0.8 * (1.0 - kk) * a), 1.2, true)
-		draw_arc(Vector2(jx, ly), 5.8, 0.0, TAU, 40, Color(INK, 0.95 * a), 1.5, true)
-
 	# Trace: farbiges Band je Richtung, Richtungspfeile ueber den Abschnitten, Kopf
 	# mit Bernstein-Spur.
 	func _trace(w: float, h: float, a: float) -> void:
 		var cx := w * 0.5
+		var oy := (h - BASE_H) * 0.5   # Linie senkrecht mittig
 		var seg_col := [Color(0.96, 0.76, 0.36), Color(0.36, 0.80, 0.95), Color(0.56, 0.93, 0.70), Color(0.95, 0.44, 0.80)]
 		var seg_dir := [Vector2.RIGHT, Vector2.LEFT, Vector2.UP, Vector2.DOWN]
 		var n := 72
 		var pts := PackedVector2Array()
 		for i in n + 1:
 			var f := float(i) / float(n)
-			pts.append(Vector2(cx - 98.0 + 196.0 * f, 53.0 + 14.0 * sin(f * 7.2 + 0.4) + 4.0 * sin(f * 14.0)))
+			pts.append(Vector2(cx - 98.0 + 196.0 * f, oy + 53.0 + 14.0 * sin(f * 7.2 + 0.4) + 4.0 * sin(f * 14.0)))
 		var g := (0.06 + 0.86 * ph) * float(n)
 		var hi := clampi(int(g), 1, n - 2)
 		var head := pts[hi].lerp(pts[hi + 1], clampf(g - float(hi), 0.0, 1.0))
@@ -1129,7 +820,7 @@ class ModePreview extends Control:
 			var nrm := Vector2(-tan.y, tan.x)
 			draw_line(q - nrm * 7.5, q + nrm * 7.5, Color(DARK, 0.9), 4.0, true)
 			draw_line(q - nrm * 7.0, q + nrm * 7.0, Color(c.lightened(0.35), a), 1.8, true)
-			var ap := q + Vector2(0.0, -19.0 if q.y > 34.0 else 19.0)
+			var ap := q + Vector2(0.0, -19.0 if q.y > oy + 34.0 else 19.0)
 			var d: Vector2 = seg_dir[s4]
 			var sd := Vector2(-d.y, d.x)
 			var arrow := PackedVector2Array([ap + d * 7.5, ap - d * 5.5 + sd * 6.6, ap - d * 2.0, ap - d * 5.5 - sd * 6.6])
@@ -1146,44 +837,6 @@ class ModePreview extends Control:
 		draw_circle(head, 9.6, Color(INK, 0.12), true, -1.0, true)
 		draw_arc(head, 9.6, 0.0, TAU, 40, Color(INK, 0.38 * a), 1.0, true)
 		_dot(head, 4.4, Color(1, 1, 1, 1), Color(1, 1, 1, 0.0))
-
-	# Rebound: vier Trommeln mit Chromrand auf dem Pult, Kugeln springen im Takt,
-	# Schatten und Aufschlag-Ring auf dem Fell.
-	func _rebound(w: float, h: float, a: float) -> void:
-		var cx := w * 0.5
-		for i in 4:
-			var px := cx + (float(i) - 1.5) * 50.0
-			draw_rect(Rect2(px - 20.0, 5.0, 40.0, 44.0), Color(INK, 0.022), true)
-			draw_rect(Rect2(px - 20.0, 5.0, 40.0, 44.0), Color(INK, 0.055), false, 1.0)
-		_quad(Vector2(cx - 106.0, 46.0), Vector2(cx + 106.0, 46.0), Vector2(cx + 112.0, h + 2.0), Vector2(cx - 112.0, h + 2.0),
-			Color(0.140, 0.135, 0.127, 1.0), Color(0.066, 0.063, 0.060, 1.0))
-		draw_line(Vector2(cx - 106.0, 46.0), Vector2(cx + 106.0, 46.0), Color(INK, 0.24), 1.2, true)
-		var ball_col := [Color(0.27, 0.53, 0.95), Color(0.74, 0.85, 0.97), Color(0.74, 0.85, 0.97), Color(0.27, 0.53, 0.95)]
-		var offs := [0.0, 0.55, 0.25, 0.80]
-		var high := [30.0, 24.0, 33.0, 20.0]
-		var chrome := Color(0.80, 0.82, 0.85, 1.0)
-		for i in 4:
-			var p := Vector2(cx + (float(i) - 1.5) * 50.0, 58.0)
-			var c: Color = ball_col[i]
-			var t := fposmod(ph * 2.0 + float(offs[i]), 1.0)
-			var up := sin(PI * t)
-			_shadow(p + Vector2(0, 9.0), 22.0, 5.0, 0.30)
-			draw_colored_polygon(_ellipse(p + Vector2(0, 6.5), 21.0, 6.0), Color(0.050, 0.050, 0.053, 1.0))
-			draw_rect(Rect2(p.x - 21.0, p.y, 42.0, 6.5), Color(0.050, 0.050, 0.053, 1.0), true)
-			for k in 5:
-				var bx := p.x - 16.0 + 8.0 * float(k)
-				var by := p.y + 5.6 - 0.9 * absf(float(k) - 2.0)
-				draw_line(Vector2(bx, by), Vector2(bx, by + 4.0), Color(chrome, 0.55), 1.2)
-			_ring(p + Vector2(0, 5.0), 21.0, 6.0, Color(c, 0.40 * a), 1.0)
-			draw_colored_polygon(_ellipse(p, 21.0, 6.0), chrome.darkened(0.25))
-			draw_colored_polygon(_ellipse(p + Vector2(0, -0.6), 20.6, 5.6), chrome)
-			draw_colored_polygon(_ellipse(p, 19.0, 4.8), Color(0.120, 0.120, 0.126, 1.0))
-			_ring(p, 13.5, 3.3, Color(c, 0.32 * a), 1.0)
-			if t < 0.4:
-				var e := t / 0.4
-				_ring(p, 5.0 + 12.0 * e, 1.3 + 3.0 * e, Color(c.lightened(0.3), (1.0 - e) * a), 1.4)
-			_shadow(p, 7.5 * (1.0 - 0.45 * up), 2.0 * (1.0 - 0.45 * up), 0.55 * (1.0 - 0.55 * up))
-			_ball(p + Vector2(0.0, -8.0 - float(high[i]) * up), 8.4, c)
 
 
 ## Logo-Buehne: Wortmarke als Textur, der Bernstein-Punkt der Spur-Marke atmet
@@ -1250,8 +903,8 @@ func _ready() -> void:
 		get_tree().quit(0)
 	elif args.has("--shot-menu"):
 		# Harness: --shot-focus zeigt Tastatur-Fokus, --shot-tour die Menue-Tour.
-		if args.has("--shot-focus") and _btn_orbit != null:
-			_btn_orbit.grab_focus()
+		if args.has("--shot-focus") and _btn_mania != null:
+			_btn_mania.grab_focus()
 		if args.has("--shot-tour"):
 			_start_tour.call_deferred()
 		_capture()
@@ -1432,11 +1085,6 @@ static func _svg_tex(key: String, svg: String, scale: float) -> Texture2D:
 	return tex
 
 
-func _mode_icon(mode: String, px: float) -> Texture2D:
-	var svg := '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">%s</svg>' % str(MODE_SVG.get(mode, MODE_SVG.mania))
-	return _svg_tex("mode_" + mode, svg, px / 24.0)
-
-
 # --- Aufbau ----------------------------------------------------------------
 
 ## Baut die ganze Bedien-Ebene neu (Start, Fenstergroesse, Sprachwechsel).
@@ -1456,7 +1104,6 @@ func _rebuild_ui() -> void:
 		c.queue_free()
 	_btns.clear()
 	_markers.clear()
-	_mode_subs.clear()
 	_intro.clear()
 	_np_bar = null
 	_np_progress = null
@@ -1506,7 +1153,6 @@ func _build_logo(x0: float, st: Dictionary) -> void:
 		var ts := stage.tex.get_size()
 		stage.dot = Vector2((107.95 + 4.0) / LOGO_VB_W * ts.x, (65.5 + 4.0) / 139.0 * ts.y)
 		stage.dot_r = 13.0 / LOGO_VB_W * ts.x
-	_logo = stage
 	_logo_stage = stage
 	_intro.append(stage)
 
@@ -1520,7 +1166,6 @@ func _build_logo(x0: float, st: Dictionary) -> void:
 	_ui.add_child(sub)
 	var sw := ceilf(sub.get_minimum_size().x / _u)
 	_place(sub, x0, float(st.sub_y), sw, MENU_SUB_H)
-	_logo_sub = sub
 	_intro.append(sub)
 	var line := ColorRect.new()
 	line.color = UiTheme.LINE
@@ -1735,8 +1380,6 @@ func _build_campaign_row(x0: float, y: float) -> float:
 
 ## --- Daily Trace: eine Map pro Tag fuer alle, Serie, Tages-Bild (TraceDaily) ---
 func _build_daily_row(x0: float, y: float) -> float:
-	if not ScoreStore.mode_ready("trace"):
-		return y
 	var state := TraceDaily.load_state()
 	_daily_adopt_result(state)
 	_btn_daily = _menu_button("", false)
@@ -1837,20 +1480,19 @@ func _menu_button(text: String, primary: bool) -> Button:
 	return b
 
 
-## Rechte Flaeche: die sechs Modi als 3x2-Raster gleich grosser Kacheln. Jede
-## oeffnet den Browser direkt im Modus (browser_state.cfg play_mode).
+## Rechte Flaeche: Mania und Trace als zwei gleich grosse Kacheln, so hoch wie
+## die Spalte links. Jede oeffnet den Browser direkt im Modus (browser_state.cfg play_mode).
 func _build_modes(x0: float, y0: float) -> void:
-	var i := 0
-	for m in MENU_MODES:
+	for i in MENU_MODES.size():
+		var m: String = MENU_MODES[i]
 		var tile := _mode_tile(m)
-		if m == "orbit":
-			_btn_orbit = tile
+		if m == ScoreStore.MODE_MANIA:
+			_btn_mania = tile
 		tile.pressed.connect(_play_mode_entry.bind(m))
 		_ui.add_child(tile)
-		_place(tile, x0 + (i % 3) * (TILE_W + TILE_GAP), y0 + (i / 3) * (TILE_H + TILE_GAP), TILE_W, TILE_H)
+		_place(tile, x0 + i * (TILE_W + TILE_GAP), y0, TILE_W, TILE_H)
 		_fill_tile(tile, m)
 		_intro.append(tile)
-		i += 1
 
 
 ## Modus-Kachel: ruhige Flaeche, Symbol in Modusfarbe (ModeBadge), Name, Unterzeile.
@@ -1889,7 +1531,6 @@ func _mode_tile(mode: String) -> Button:
 
 
 func _fill_tile(b: Button, mode: String) -> void:
-	var ready := ScoreStore.mode_ready(mode)
 	var box := Control.new()
 	box.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1898,33 +1539,31 @@ func _fill_tile(b: Button, mode: String) -> void:
 	var pv := ModePreview.new()
 	pv.mode = mode
 	pv.u = _u
+	var bw := 1.0 / _u * maxf(roundf(_u), 1.0)
+	pv.zoom = (TILE_W - 2.0 * bw) / ModePreview.BASE_W
 	pv.col = ModeBadge.color(mode)
 	pv.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(pv)
-	var bw := 1.0 / _u * maxf(roundf(_u), 1.0)
 	_place(pv, bw, bw, TILE_W - 2.0 * bw, PREVIEW_H)
 	var upd := func(): pv.set_hover(b.is_hovered() or b.has_focus())
 	b.mouse_entered.connect(upd)
 	b.mouse_exited.connect(upd)
 	b.focus_entered.connect(upd)
 	b.focus_exited.connect(upd)
-	var title := _label(ScoreStore.mode_label(mode), 19.0, UiTheme.TEXT, true)
+	var title := _label(_mode_title(mode), 22.0, UiTheme.TEXT, true)
 	title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	box.add_child(title)
-	_place(title, 16.0, PREVIEW_H + 7.0, TILE_W - 32.0, 24.0)
-	var sub := _label(_mode_sub_text(mode), 13.0, UiTheme.DIM)
+	_place(title, 20.0, PREVIEW_H + 14.0, TILE_W - 40.0, 28.0)
+	var sub := _label(_mode_sub_text(mode), 14.0, UiTheme.DIM)
 	sub.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	sub.clip_text = true
 	sub.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	box.add_child(sub)
-	_place(sub, 16.0, PREVIEW_H + 30.0, TILE_W - 32.0, 18.0)
-	_mode_subs[mode] = sub
-	if not ready:
-		box.modulate.a = 0.5
+	_place(sub, 20.0, PREVIEW_H + 44.0, TILE_W - 40.0, 20.0)
 	if ScoreStore.mode_tutorial(mode) != "":
 		var q := _tutorial_dot(mode)
 		b.add_child(q)
-		_place(q, TILE_W - 10.0 - 22.0, 10.0, 22.0, 22.0)
+		_place(q, TILE_W - 12.0 - 24.0, PREVIEW_H + 16.0, 24.0, 24.0)
 
 
 ## Kleines "?" oben rechts in der Kachel: oeffnet das Tutorial des Modus.
