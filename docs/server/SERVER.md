@@ -10,6 +10,8 @@ Rohdatei zum automatischen Abrufen:
 
 Stand: Client v1.44.0 · `min_version` = **1.30.0**
 
+Hinweis (Client): der automatische Nachtrag sendet jetzt auch `mania5k`-`mania7k` (mit `keys`) und `trace` (mit `stars` statt `pp`). Felder unveraendert, gleiche wie beim direkten Senden. Minen-Laeufe und Laeufe mit fehlenden lokalen Feldern werden nicht nachgetragen.
+
 ---
 
 ## 0. Einmalig einrichten, damit nicht jede Version Arbeit macht
