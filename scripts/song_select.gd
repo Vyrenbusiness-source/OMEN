@@ -147,6 +147,7 @@ var _detail_due := 0
 var _bg_next: TextureRect
 var _bg_tween: Tween
 var _bg_gen := 0
+var _stage_aspect := 16.0 / 9.0
 var _board_gen := 0
 var _bg_dim := 0.30
 var _detail_tasks: Array[int] = []
@@ -1628,24 +1629,38 @@ func _build_stage() -> void:
 
 
 func _layout_stage() -> void:
-	# Das Map-Bild ist der Hintergrund (_bg): in der Mitte nur noch Vorschau-Linie
-	# und Spektrum, ruhig am unteren Rand.
+	# Scharfes Map-Bild als Kachel in der Mitte (Seitenverhaeltnis des Bildes, kein
+	# Strecken), darunter Vorschau-Linie und Spektrum. Dahinter liegt dasselbe Bild
+	# weich und abgedunkelt als Vollbild (_bg).
 	var avail := _stage.size
-	var w := minf(avail.x - 2.0 * M, 760.0)
-	var fits := w >= 240.0
-	_progress_bg.visible = fits
-	_stage_viz.visible = fits
-	_stage_shadow.visible = false
-	_stage_mask.visible = false
+	var aspect := _stage_aspect
+	var w := minf(avail.x - 2.0 * M, 620.0)
+	var viz_h := 64.0
+	var gap := 18.0
+	var h := w / aspect
+	var max_h := minf(avail.y - (gap + 3.0 + gap + viz_h), 460.0)
+	if h > max_h:
+		h = max_h
+		w = h * aspect
+	var fits := w >= 240.0 or h >= 200.0
+	for c in _stage.get_children():
+		(c as CanvasItem).visible = fits
 	if not fits:
 		return
-	var viz_h := 64.0
+	var total := h + gap + 3.0 + gap + viz_h
+	# Optisch etwas ueber der Mitte: ruhiger Schwerpunkt.
+	var top := maxf((avail.y - total) * 0.42, 0.0)
 	var x := (avail.x - w) * 0.5
-	var y := avail.y - viz_h - 3.0 - 14.0
-	_progress_bg.position = Vector2(x, y)
-	_progress_bg.size = Vector2(w, 3)
-	_stage_viz.position = Vector2(x, y + 3.0 + 14.0)
-	_stage_viz.size = Vector2(w, viz_h)
+	_stage_shadow.position = Vector2(x, top)
+	_stage_shadow.size = Vector2(w, h)
+	_stage_mask.position = Vector2(x, top)
+	_stage_mask.size = Vector2(w, h)
+	var lw := maxf(w, 360.0)
+	var lx := (avail.x - lw) * 0.5
+	_progress_bg.position = Vector2(lx, top + h + gap)
+	_progress_bg.size = Vector2(lw, 3)
+	_stage_viz.position = Vector2(lx, top + h + gap + 3.0 + gap)
+	_stage_viz.size = Vector2(lw, viz_h)
 
 
 func _info_chip(parent: Node) -> Label:
@@ -4915,6 +4930,9 @@ func _start_detail_jobs() -> void:
 	if ms.background_file != "":
 		_detail_tasks.append(WorkerThreadPool.add_task(
 			_bg_job.bind(get_instance_id(), ms.osz_path, ms.background_file, _bg_gen), false, "browser-bg"))
+	else:
+		_bg.texture = null  # Map ohne Bild: kein Hintergrund der vorigen Map stehen lassen
+		_bg_next.texture = null
 
 
 func _reap_detail_tasks() -> void:
@@ -4973,14 +4991,27 @@ func _hp_text(ms: MapSet, diff: int) -> String:
 
 ## Worker: Map-Bild lesen, klein rechnen, weich zeichnen, Helligkeit messen.
 static func _bg_job(owner_id: int, osz: String, file: String, gen: int) -> void:
-	var img := bg_image(OszImporter.read_file_bytes(osz, file), file.get_extension().to_lower())
+	var src := decode_image(OszImporter.read_file_bytes(osz, file), file.get_extension().to_lower())
+	if src == null:
+		return
+	var sharp := src.duplicate() as Image
+	if sharp.get_width() > 1280:
+		sharp.resize(1280, maxi(int(round(1280.0 * sharp.get_height() / sharp.get_width())), 1),
+			Image.INTERPOLATE_LANCZOS)
+	var img := blur_image(src)
 	var o: Object = instance_from_id(owner_id)
-	if o != null and img != null:
-		o.call_deferred(&"_on_bg_ready", img, gen, image_luminance(img))
+	if o != null:
+		o.call_deferred(&"_on_bg_ready", img, gen, image_luminance(img), sharp)
 
 
 ## Bild aus Bytes (jpg/png/webp/bmp), 320 px breit, weich, wieder auf 960 px.
 static func bg_image(bytes: PackedByteArray, ext: String) -> Image:
+	var img := decode_image(bytes, ext)
+	return blur_image(img) if img != null else null
+
+
+## Bild aus Bytes (jpg/png/webp/bmp), RGB8; null wenn unlesbar.
+static func decode_image(bytes: PackedByteArray, ext: String) -> Image:
 	if bytes.is_empty():
 		return null
 	var img := Image.new()
@@ -4999,6 +5030,12 @@ static func bg_image(bytes: PackedByteArray, ext: String) -> Image:
 	if err != OK or img.get_width() < 16 or img.get_height() < 16:
 		return null
 	img.convert(Image.FORMAT_RGB8)
+	return img
+
+
+## 640 px breit, in Halbschritten auf 80 px und bilinear zurueck: leicht unscharf.
+static func blur_image(src: Image) -> Image:
+	var img := src.duplicate() as Image
 	# In Halbschritten verkleinern (jeder Schritt mittelt 2x2, kein Aliasing),
 	# dann in Doppelschritten weich hochziehen: leicht unscharf, keine Bloecke.
 	var w := 640
@@ -5029,9 +5066,15 @@ static func image_luminance(img: Image) -> float:
 
 
 ## Hauptthread: nur hochladen und 0,35 s ueberblenden. Helle Bilder staerker dimmen.
-func _on_bg_ready(img: Image, gen: int, lum: float) -> void:
+func _on_bg_ready(img: Image, gen: int, lum: float, sharp: Image) -> void:
 	if gen != _bg_gen or not is_inside_tree():
 		return
+	# Kachel: scharfes Bild unveraendert, Rahmen folgt seinem Seitenverhaeltnis.
+	_cover.texture = ImageTexture.create_from_image(sharp)
+	var asp := clampf(float(sharp.get_width()) / maxf(sharp.get_height(), 1.0), 0.6, 2.4)
+	if absf(asp - _stage_aspect) > 0.01:
+		_stage_aspect = asp
+		_layout_stage()
 	var tex := ImageTexture.create_from_image(img)
 	var k := clampf(BG_TARGET_LUM / maxf(lum, 0.01), 0.16, 0.55)
 	_bg_dim = k
