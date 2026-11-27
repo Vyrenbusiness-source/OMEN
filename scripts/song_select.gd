@@ -51,12 +51,10 @@ var _stats_label: Label
 var _star_label: Label
 var _best_label: Label
 var _lb_box: VBoxContainer
-var _list_box: VBoxContainer
 var _search: LineEdit
 var _count_label: Label
-var _card_buttons: Array[Button] = []
 # Bass-Reaktion der Vorschau (dezent): Onset gegen gleitenden Mittelwert.
-var _pulse_card: Button = null
+var _pulse_card: Control = null
 var _play_btn: Button
 # Glow der ausgewaehlten Karte: dieselbe StyleBox wird pro Frame nur
 # skalar angepasst (keine Allokation).
@@ -70,15 +68,12 @@ var _progress_fill: ColorRect
 var _preview_len := 0.0
 var _bpm_cache: Dictionary = {}
 # Weiches Scrollen der Liste beim Kartenwechsel.
-var _scroll_tween: Tween
 const CARD_H := 76.0
-const CARD_RADIUS := 6
+const CARD_RADIUS := 3
 var _frame_idle: StyleBoxFlat
 var _frame_hover: StyleBoxFlat
 var _frame_sel: StyleBoxFlat
 var _glow_box: StyleBoxFlat
-var _card_cover_mat: ShaderMaterial
-var _card_cover_size := Vector2.ZERO
 const CARD_SLIDE := 8.0
 const LIST_PAD := 16
 const LIST_TOP := SCORE_Y + SCORE_H
@@ -129,7 +124,6 @@ var _online_md5_cache: Dictionary = {}
 var _pp_fill_tried: Dictionary = {}
 
 # Lazy-Loading der Karten-Thumbnails (2 pro Frame).
-var _thumb_queue: Array = []
 # Lade-Messung (--perf): Startzeit von _ready bzw. der letzten Auswahl.
 var _perf_ready_t := 0
 var _perf_select_t := 0
@@ -201,19 +195,24 @@ var _maxpp_thread: Thread
 var _tab_collections: Button
 var _tab_downloaded: Button
 var _tab_online: Button
-var _scroll: ScrollContainer
 
 # Online-Tab (Mirror catboy.best): eigener Browser, bleibt versteckt am Leben.
 var _online: OnlineBrowser = null
 # Schwierigkeits-Filter der Bibliothek (client-seitig).
+# Sortierung wie osu! (Schluessel fuer BrowserSort.sort_sets); Index wird je Modus
+# gespeichert (browser_state.cfg, sort_ver 2).
 const SORT_TITLE := 0
-const SORT_STARS_UP := 1
-const SORT_STARS_DOWN := 2
-const SORT_RECENT := 3
-const SORT_DOWNLOADED := 4
-const SORT_MOST_PLAYED := 5
-const SORT_NAMES := ["Titel", "Sterne aufsteigend", "Sterne absteigend",
-	"Zuletzt gespielt", "Zuletzt heruntergeladen", "Meistgespielt"]
+const SORT_DIFFICULTY := 5
+const SORT_ADDED := 6
+const SORT_RECENT := 7
+const SORT_RANK := 8
+const SORT_KEYS := ["title", "artist", "mapper", "bpm", "length", "difficulty",
+	"date_added", "last_played", "rank"]
+const SORT_DESC := ["date_added", "last_played"]  # neueste zuerst
+const GROUP_KEYS := ["none", "artist", "difficulty", "keys", "rank", "collections"]
+const GROUP_NAMES := ["Keine", "Interpret", "Sterne", "Tasten", "Rang", "Sammlungen"]
+const SORT_NAMES := ["Titel", "Interpret", "Mapper", "BPM", "Länge", "Schwierigkeit",
+	"Hinzugefügt", "Zuletzt gespielt", "Rang"]
 const BEST_ALL := 0
 const BEST_WITH := 1
 const BEST_WITHOUT := 2
@@ -229,10 +228,20 @@ const STAR_FILTERS := [
 ]
 func _ready() -> void:
 	_perf_ready_t = Time.get_ticks_usec()
+	_bench_t0 = _perf_ready_t
 	MarathonRun.end()  # zurueck im Browser: kein Marathon mehr aktiv
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_library = MapLibrary.new()
 	_library.scan()
+	var mult = _arg_value("--bench-mult")
+	if mult != null and OS.get_cmdline_args().has("--bench-browser"):
+		# Messung: Bibliothek N-fach (Kopien im Speicher) fuer grosse Listen.
+		var base: Array = _library.mapsets.duplicate()
+		for k in range(1, clampi(int(mult), 1, 100)):
+			for src in base:
+				var cp := MapSet.from_dict(src.osz_path, src.to_dict())
+				cp.title = "%s %d" % [src.title, k]
+				_library.mapsets.append(cp)
 	GameSession.perf_since("Browser: Library-Scan gesamt", _perf_ready_t)
 	# SV-Erkennung fuer alte Cache-Eintraege im Hintergrund nachrechnen.
 	_library.start_sv_backfill(_on_sv_backfill_done)
@@ -260,6 +269,7 @@ func _ready() -> void:
 				if kv.size() == 2:
 					d[kv[0]] = Array(kv[1].split("+")) if kv[0] == "grades" else int(kv[1])
 			_mode_filters[_play_mode] = sanitize_mode_filter(d)
+			_group_mode = clampi(int(d.get("group", _group_mode)), 0, GROUP_KEYS.size() - 1)
 	for a in OS.get_cmdline_args():
 		# Debug/Shots: --rec-level=push, --rec-hidden, --rec-collapsed (nie gespeichert).
 		if a.begins_with("--rec-level="):
@@ -356,6 +366,8 @@ func _ready() -> void:
 		add_child.call_deferred(SettingsPanel.new())
 	elif OS.get_cmdline_args().has("--rules-harness"):
 		RuleModsHarness.run_browser(self)   # Harness: Regel-Mods per Klick, Minen-Liste, Replay
+	elif OS.get_cmdline_args().has("--bench-browser"):
+		_bench_browser.call_deferred()  # Messung fuer docs/perf/browser.md
 	elif OS.get_cmdline_args().has("--shot"):
 		_capture_screenshot_and_quit()
 
@@ -383,6 +395,99 @@ func _debug_pick() -> Array:
 				continue
 			return [ms, i]
 	return []
+
+
+## --bench-browser: Zeit bis zur ersten sichtbaren Liste, laengster Frame beim
+## Durchscrollen der ganzen Bibliothek (VSync aus) und Zeit je Set-Wechsel.
+## Ergebnis als eine BENCH-Zeile, dann Ende. Werte in docs/perf/browser.md.
+func _bench_browser() -> void:
+	_bench_on = true
+	DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
+	await RenderingServer.frame_post_draw
+	var first_ms := (Time.get_ticks_usec() - _bench_t0) / 1000.0
+	for i in 60:
+		await get_tree().process_frame
+	# Anlauf abwarten: Vorbereitung der Auswahl (Worker: Vollbild-Hintergrund,
+	# Parse, Textur-Upload) und erste Cover laufen bis etwa 1 s nach dem Start.
+	# Ohne Pause landen diese Hintergrund-Frames im Scroll-Wert (siehe browser.md).
+	if not OS.get_cmdline_args().has("--bench-cold-scroll"):
+		await get_tree().create_timer(1.5).timeout
+	var total := _bench_content_h()
+	var view := _bench_view_h()
+	var frames := PackedFloat32Array()
+	var y := 0.0
+	var last := Time.get_ticks_usec()
+	var stop_at := Time.get_ticks_msec() + 90000
+	var slow: Array = []
+	while y < total - view and Time.get_ticks_msec() < stop_at:
+		y += 40.0
+		_bench_new = 0
+		_bench_cov = 0
+		_bench_lay_us = 0
+		_bench_titles = ""
+		_bench_misc = ""
+		_bench_scroll(y)
+		await get_tree().process_frame
+		var now := Time.get_ticks_usec()
+		var ft := (now - last) / 1000.0
+		frames.append(ft)
+		last = now
+		if ft > 8.0:
+			slow.append("y=%d %.1fms layout=%.1fms new_nodes=%d covers=%d steps=%s titles=%s" % [
+				int(y), ft, _bench_lay_us / 1000.0, _bench_new, _bench_cov, _bench_misc, _bench_titles])
+	for s in slow:
+		print("BENCH_SLOW ", s)
+	var sorted := frames.duplicate()
+	sorted.sort()
+	var worst := sorted[-1] if not sorted.is_empty() else 0.0
+	var p99 := sorted[int(sorted.size() * 0.99)] if not sorted.is_empty() else 0.0
+	var over := 0
+	var sum := 0.0
+	for f in frames:
+		sum += f
+		if f > 8.0:
+			over += 1
+	var sw := PackedFloat32Array()
+	var n := mini(_filtered.size(), 20)
+	for k in n:
+		var ms: MapSet = _filtered[(k * 7919) % _filtered.size()]
+		var t0 := Time.get_ticks_usec()
+		_select_set(ms, _hardest(ms))
+		_scroll_to_selected()
+		await RenderingServer.frame_post_draw
+		sw.append((Time.get_ticks_usec() - t0) / 1000.0)
+		await get_tree().create_timer(0.05).timeout
+	var sws := sw.duplicate()
+	sws.sort()
+	print("BENCH sets=%d content_px=%d first_list_ms=%.1f scroll_frames=%d max_frame_ms=%.2f p99_ms=%.2f avg_ms=%.2f frames_over_8ms=%d switch_median_ms=%.1f switch_max_ms=%.1f" % [
+		_filtered.size(), int(total), first_ms, frames.size(), worst, p99,
+		sum / maxf(frames.size(), 1.0), over, sws[sws.size() / 2] if not sws.is_empty() else 0.0,
+		sws[-1] if not sws.is_empty() else 0.0])
+	_preview.stop()
+	get_tree().quit()
+
+
+var _bench_t0 := 0
+var _bench_new := 0
+var _bench_cov := 0
+var _bench_lay_us := 0
+var _bench_titles := ""
+var _bench_misc := ""
+var _bench_on := false
+
+
+func _bench_content_h() -> float:
+	return _content_h
+
+
+func _bench_view_h() -> float:
+	return _view.size.y
+
+
+func _bench_scroll(y: float) -> void:
+	_scroll_y = y
+	_scroll_goal = y
+	_list_dirty = true
 
 
 ## Lade-Messung: Map wechseln (Auswahl -> Vorschau-Ton), kurz warten, SPIELEN.
@@ -677,19 +782,40 @@ func _build_header() -> void:
 	_filter_stack.minimum_size_changed.connect(_update_list_top)
 	add_child(_filter_stack)
 
-	# Filter-Reihe: Anzahl links, Sterne-Chips + Sortierung rechtsbuendig.
-	var filter_row := HBoxContainer.new()
-	filter_row.custom_minimum_size = Vector2(0, FILTER_H)
-	filter_row.add_theme_constant_override("separation", 6)
-	_filter_stack.add_child(filter_row)
-	_filter_row = filter_row
-
+	# Sortier-Reihe (osu!-Vorbild): Anzahl links, Sortierung + Gruppierung rechts.
+	var sort_row := HBoxContainer.new()
+	sort_row.custom_minimum_size = Vector2(0, FILTER_H)
+	sort_row.add_theme_constant_override("separation", 8)
+	_filter_stack.add_child(sort_row)
 	_count_label = Label.new()
 	_count_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_count_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_count_label.add_theme_font_size_override("font_size", 13)
 	_count_label.add_theme_color_override("font_color", COL_DIM)
-	filter_row.add_child(_count_label)
+	sort_row.add_child(_count_label)
+	sort_row.add_child(_select_caption(tr("Sortieren")))
+	_sort_btn = _make_select(SORT_NAMES, _sort_mode(), tr("Sortierung (je Modus gemerkt)"))
+	_sort_btn.item_selected.connect(func(i):
+		_mode_filter()["sort"] = i
+		_refresh_filter(_search.text)
+		_scroll_to_selected(true))
+	sort_row.add_child(_sort_btn)
+	sort_row.add_child(_select_caption(tr("Gruppieren")))
+	_group_btn = _make_select(GROUP_NAMES, _group_mode, tr("Gruppenköpfe in der Liste"))
+	_group_btn.item_selected.connect(func(i):
+		_group_mode = i
+		_refresh_filter(_search.text)
+		_scroll_to_selected(true))
+	sort_row.add_child(_group_btn)
+
+	# Filter-Reihe: Sterne-Chips, SV und Tasten rechtsbuendig.
+	var filter_row := HBoxContainer.new()
+	filter_row.custom_minimum_size = Vector2(0, FILTER_H)
+	filter_row.alignment = BoxContainer.ALIGNMENT_END
+	filter_row.add_theme_constant_override("separation", 6)
+	_filter_stack.add_child(filter_row)
+	_filter_row = filter_row
+
 	for fi in STAR_FILTERS.size():
 		var chip := _make_toggle(STAR_FILTERS[fi][0], 13, 16)
 		chip.custom_minimum_size = Vector2(0, FILTER_H)
@@ -710,24 +836,6 @@ func _build_header() -> void:
 	_restyle_star_chips()
 	_keys_btn = _make_keys_filter()
 	filter_row.add_child(_keys_btn)
-	_sort_btn = OptionButton.new()
-	for si in SORT_NAMES.size():
-		_sort_btn.add_item(tr(SORT_NAMES[si]), si)
-	_sort_btn.select(_sort_mode())
-	_sort_btn.tooltip_text = tr("Sortierung (je Modus gemerkt)")
-	# Feste Breite (laengster Eintrag): die Reihe springt beim Wechsel nicht.
-	_sort_btn.fit_to_longest_item = true
-	_sort_btn.custom_minimum_size = Vector2(120, FILTER_H)
-	_sort_btn.add_theme_font_size_override("font_size", 13)
-	_sort_btn.add_theme_stylebox_override("normal", _toggle_box(false, 10))
-	_sort_btn.add_theme_stylebox_override("hover", _toggle_box(false, 10, true))
-	_sort_btn.add_theme_stylebox_override("pressed", _toggle_box(false, 10, true))
-	_sort_btn.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
-	_sort_btn.add_theme_color_override("font_color", COL_TEXT)
-	_sort_btn.item_selected.connect(func(i):
-		_mode_filter()["sort"] = i
-		_refresh_filter(_search.text))
-	filter_row.add_child(_sort_btn)
 
 	# Zweite Reihe: Bestwert-Filter (Segment) + Noten-Chips, je Modus gemerkt.
 	var score_row := HBoxContainer.new()
@@ -809,6 +917,36 @@ func _build_header() -> void:
 	_search.add_theme_stylebox_override("focus", search_focus)
 	_search.text_changed.connect(_refresh_filter)
 	top_right.add_child(_search)
+
+
+## Schlichtes Auswahlfeld (Sortierung, Gruppierung) im Stil der Filter-Chips.
+func _make_select(names: Array, sel: int, tip: String) -> OptionButton:
+	var ob := OptionButton.new()
+	for i in names.size():
+		ob.add_item(tr(names[i]), i)
+	ob.select(sel)
+	ob.tooltip_text = tip
+	ob.focus_mode = Control.FOCUS_NONE
+	# Feste Breite (laengster Eintrag): die Reihe springt beim Wechsel nicht.
+	ob.fit_to_longest_item = true
+	ob.custom_minimum_size = Vector2(120, FILTER_H)
+	ob.add_theme_font_size_override("font_size", 13)
+	ob.add_theme_stylebox_override("normal", _toggle_box(false, 10))
+	ob.add_theme_stylebox_override("hover", _toggle_box(false, 10, true))
+	ob.add_theme_stylebox_override("pressed", _toggle_box(false, 10, true))
+	ob.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	ob.add_theme_color_override("font_color", COL_TEXT)
+	return ob
+
+
+func _select_caption(text: String) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	l.add_theme_font_size_override("font_size", 13)
+	l.add_theme_color_override("font_color", COL_DIM)
+	return l
 
 
 ## Rechte Spalte: feste Breite RIGHT_W, rechter Rand M (Toolbar = Liste).
@@ -1307,8 +1445,6 @@ func _build_list() -> void:
 	_list_mask.stretch_mode = TextureRect.STRETCH_SCALE
 	_list_mask.clip_children = CanvasItem.CLIP_CHILDREN_ONLY
 	_list_mask.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	# Karten-Kante = Toolbar-Kante: links Innenabstand + Hover-Slide, rechts
-	# Scrollbalken im Aussenrand.
 	_list_mask.anchor_left = 1.0
 	_list_mask.anchor_right = 1.0
 	_list_mask.anchor_bottom = 1.0
@@ -1319,26 +1455,57 @@ func _build_list() -> void:
 	_list_mask.resized.connect(_update_list_fade)
 	add_child(_list_mask)
 
-	_scroll = ScrollContainer.new()
-	_scroll.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	_list_mask.add_child(_scroll)
+	# Virtuelle Liste: nur sichtbare Zeilen sind Nodes (Pool), Karten laufen
+	# rechts aus dem Bild wie in osu!.
+	_view = Control.new()
+	_view.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_view.offset_right = -VBAR_W - 4
+	_view.clip_contents = true
+	_view.mouse_filter = Control.MOUSE_FILTER_STOP
+	_view.gui_input.connect(func(ev: InputEvent):
+		if _list_wheel(ev):
+			_view.accept_event())
+	_view.resized.connect(func():
+		_release_all()
+		_clamp_scroll()
+		_list_dirty = true
+		# Filter-Reihen aendern die Hoehe: Auswahl mittig halten, bis der Nutzer scrollt.
+		if not _user_scrolled:
+			_scroll_to_selected(true))
+	_list_mask.add_child(_view)
 
-	# Innenabstand, damit Glow/Schatten und der Hover-Slide nach links nicht
-	# vom Scroll-Clip abgeschnitten werden (vorher: oberste Karte gekappt).
-	var sbw := int(_scroll.get_v_scroll_bar().get_combined_minimum_size().x)
-	var pad := MarginContainer.new()
-	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	pad.add_theme_constant_override("margin_top", LIST_PAD)
-	pad.add_theme_constant_override("margin_bottom", LIST_PAD)
-	pad.add_theme_constant_override("margin_left", LIST_PAD + int(CARD_SLIDE))
-	pad.add_theme_constant_override("margin_right", maxi(M - LIST_EDGE - sbw, 0))
-	_scroll.add_child(pad)
+	_vbar = VScrollBar.new()
+	_vbar.anchor_left = 1.0
+	_vbar.anchor_right = 1.0
+	_vbar.anchor_bottom = 1.0
+	_vbar.offset_left = -VBAR_W
+	_vbar.offset_top = LIST_PAD
+	_vbar.offset_bottom = -LIST_PAD
+	_vbar.focus_mode = Control.FOCUS_NONE
+	var grab := UiTheme.solid_box(Color(COL_TEXT, 0.22), 2)
+	var grab_hi := UiTheme.solid_box(Color(COL_ACCENT, 0.7), 2)
+	_vbar.add_theme_stylebox_override("scroll", UiTheme.solid_box(Color(1, 1, 1, 0.03), 2))
+	_vbar.add_theme_stylebox_override("scroll_focus", UiTheme.solid_box(Color(1, 1, 1, 0.03), 2))
+	_vbar.add_theme_stylebox_override("grabber", grab)
+	_vbar.add_theme_stylebox_override("grabber_highlight", grab_hi)
+	_vbar.add_theme_stylebox_override("grabber_pressed", grab_hi)
+	_vbar.value_changed.connect(func(v: float):
+		if _vbar_sync:
+			return
+		_scroll_y = v
+		_scroll_goal = v
+		_user_scrolled = true
+		_list_dirty = true)
+	_list_mask.add_child(_vbar)
 
-	_list_box = VBoxContainer.new()
-	_list_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_list_box.add_theme_constant_override("separation", 8)
-	pad.add_child(_list_box)
+	_empty_box = VBoxContainer.new()
+	_empty_box.anchor_right = 1.0
+	_empty_box.offset_left = LIST_LEFT + SET_IN
+	_empty_box.offset_right = -24
+	_empty_box.offset_top = 24
+	_empty_box.add_theme_constant_override("separation", 12)
+	_empty_box.visible = false
+	_view.add_child(_empty_box)
 
 
 ## Fade-Laenge in Pixeln konstant halten (Gradient-Offsets nach Hoehe).
@@ -1346,6 +1513,812 @@ func _update_list_fade() -> void:
 	var h := maxf(_list_mask.size.y, 1.0)
 	var f := clampf(float(LIST_PAD) / h, 0.0, 0.45)
 	_list_grad.offsets = PackedFloat32Array([0.0, f, 1.0 - f, 1.0])
+
+
+# ---------------------------------------------------------------------------
+# Karussell (osu!-Vorbild): virtuelle Liste. Daten = Eintraege (_e_*), daraus
+# Zeilen (_r_*: Gruppenkopf, Set-Karte, Diff-Zeile) mit fester Hoehe. Nur die
+# sichtbaren Zeilen haben Nodes (Pool je Art), Cover laden im Worker-Thread.
+# ---------------------------------------------------------------------------
+
+const ROW_SET := 0      # Set-Karte (Sortierung "Schwierigkeit": eine Diff je Karte)
+const ROW_DIFF := 1     # Diff-Zeile unter dem aufgeklappten Set
+const ROW_GROUP := 2    # Gruppenkopf
+const ROW_UNPLAY := 3   # Sammlung: Map ohne Diff im Modus
+const SET_H := 86.0
+const DIFF_H := 54.0
+const GROUP_H := 44.0
+const ROW_GAP := 6.0
+const LIST_TOP_PAD := 12.0
+const LIST_LEFT := 24.0      # linke Kante der Auswahl = Kante der Toolbar
+const CURVE_PX := 34.0       # Bogen: Bildmitte am weitesten links
+const SET_IN := 26.0         # nicht gewaehlte Sets etwas weiter rechts
+const DIFF_IN := 40.0        # Diff-Zeilen eingerueckt unter ihrem Set
+const HOVER_OUT := 8.0
+const CARD_OVERHANG := 90.0  # Karten laufen rechts aus dem Bild
+const VBAR_W := 6
+const WHEEL_STEP := 150.0
+const SCROLL_RATE := 16.0
+const COVER_LRU := 160
+const COVER_JOBS := 2
+const PREVIEW_DEBOUNCE_MS := 200
+
+var _view: Control
+var _vbar: VScrollBar
+var _vbar_sync := false
+var _empty_box: VBoxContainer
+var _group_btn: OptionButton
+var _group_mode := 0
+var _frame_open: StyleBoxFlat
+var _empty_sb: StyleBoxEmpty
+var _shade_tex: GradientTexture2D
+var _e_ms: Array = []                  # Eintraege in Listen-Reihenfolge (MapSet)
+var _e_di := PackedInt32Array()        # -1 = Set, sonst eine Diff (Sortierung Schwierigkeit)
+var _e_g := PackedInt32Array()         # Gruppe des Eintrags
+var _g_title: Array = []
+var _g_count := PackedInt32Array()
+var _r_kind := PackedInt32Array()
+var _r_e := PackedInt32Array()         # Eintrag (Gruppenkopf: Gruppe; Unspielbar: Index)
+var _r_di := PackedInt32Array()
+var _r_y := PackedFloat32Array()
+var _content_h := 0.0
+var _scroll_y := 0.0
+var _scroll_goal := 0.0
+var _list_dirty := true
+var _pool: Array = [[], [], [], []]
+var _live: Dictionary = {}             # Vector3i(Art, Eintrag, Diff) -> Node
+var _sel_node: Control = null
+var _sort_cache: Dictionary = {}       # MapSet -> BrowserSort-Set des aktiven Modus
+var _sort_cache_mode := ""
+var _order_cache: Dictionary = {}      # MapSet -> Diff-Reihenfolge (BrowserSort.sort_diffs)
+var _cover_lru: Dictionary = {}        # osz_path -> Texture2D (null = kein Cover)
+var _cover_order: Array = []
+var _cover_want: Array = []            # sichtbare Sets ohne Cover, oben zuerst
+var _cover_jobs: Dictionary = {}       # osz_path -> WorkerThreadPool-Task
+var _preview_due := 0
+var _user_scrolled := false
+
+
+## BrowserSort-Eingabe eines Sets (nur im Modus sichtbare Diffs, Modus-Sterne,
+## Rang/zuletzt gespielt aus dem Score-Index). Gecacht je Modus.
+func _sort_set(ms: MapSet) -> Dictionary:
+	if _sort_cache_mode != _play_mode:
+		_sort_cache.clear()
+		_order_cache.clear()
+		_sort_cache_mode = _play_mode
+	var hit = _sort_cache.get(ms)
+	if hit != null:
+		return hit
+	var info: Dictionary = _scores_for_mode().get(ms.osz_path.get_file(), {})
+	var diffs: Array = []
+	var ranks := {}
+	var best := ""
+	for i in ms.visible_diffs(_vm()):
+		var m := ms.meta_at(i)
+		var v := ms.version_name_at(i)
+		var vi: Dictionary = info.get(v, {})
+		var g := grade_bucket(str(vi.get("grade", "")))
+		ranks[i] = g
+		if g != "" and (best == "" or GRADE_CHIPS.find(g) < GRADE_CHIPS.find(best)):
+			best = g
+		var mode := int(m.get("mode", 0))
+		var d := {"version": v, "stars": _mode_stars(ms, i), "mode": mode,
+			"notes": int(m.get("notes", 0)), "duration_ms": float(m.get("duration_ms", 0.0)), "_i": i}
+		if mode == 3:
+			d["keys"] = int(round(float(m.get("cs", 4.0))))
+		if float(m.get("bpm", 0.0)) > 0.0:
+			d["bpm"] = float(m.get("bpm", 0.0))
+		if g != "":
+			d["rank"] = g
+		var last := str(vi.get("last", ""))
+		if last != "":
+			d["last_played"] = last
+		diffs.append(d)
+	var sd := {"title": ms.title, "artist": ms.artist, "mapper": ms.creator,
+		"osz_path": ms.osz_path.get_file(), "diffs": diffs, "_ms": ms, "_ranks": ranks, "_best": best}
+	_sort_cache[ms] = sd
+	return sd
+
+
+## Diffs eines Sets in Listen-Reihenfolge: Mania nach Tasten, dann Sterne.
+func _diff_order(ms: MapSet) -> Array[int]:
+	var hit = _order_cache.get(ms)
+	if hit != null:
+		return hit
+	var out: Array[int] = []
+	for d in BrowserSort.sort_diffs(_sort_set(ms)["diffs"]):
+		out.append(int(d["_i"]))
+	_order_cache[ms] = out
+	return out
+
+
+func _row_h(kind: int) -> float:
+	match kind:
+		ROW_DIFF:
+			return DIFF_H
+		ROW_GROUP:
+			return GROUP_H
+	return SET_H
+
+
+func _push_row(kind: int, e: int, di: int, y: float) -> float:
+	_r_kind.append(kind)
+	_r_e.append(e)
+	_r_di.append(di)
+	_r_y.append(y)
+	return y + _row_h(kind) + ROW_GAP
+
+
+## Zeilen aus den Eintraegen: Gruppenkoepfe, Karten, Diffs des gewaehlten Sets.
+func _rebuild_rows() -> void:
+	_r_kind = PackedInt32Array()
+	_r_e = PackedInt32Array()
+	_r_di = PackedInt32Array()
+	_r_y = PackedFloat32Array()
+	var y := LIST_TOP_PAD
+	var grouped: bool = GROUP_KEYS[_group_mode] != "none"
+	var gi := -1
+	for e in _e_ms.size():
+		if grouped and _e_g[e] != gi:
+			gi = _e_g[e]
+			y = _push_row(ROW_GROUP, gi, -1, y)
+		y = _push_row(ROW_SET, e, _e_di[e], y)
+		if _e_di[e] < 0 and _e_ms[e] == _selected_set:
+			for d in _diff_order(_e_ms[e]):
+				y = _push_row(ROW_DIFF, e, d, y)
+	if _collection_mode:
+		for u in _coll_unplayable.size():
+			y = _push_row(ROW_UNPLAY, u, -1, y)
+	_content_h = y + LIST_TOP_PAD
+
+
+## Erste Set-Karte eines Sets (-1 = nicht in der Liste).
+func _set_row_of(ms: MapSet) -> int:
+	if ms == null:
+		return -1
+	for r in _r_kind.size():
+		if _r_kind[r] == ROW_SET and _e_ms[_r_e[r]] == ms:
+			return r
+	return -1
+
+
+## Zeile der Auswahl: gewaehlte Diff-Zeile bzw. Diff-Karte, sonst die Set-Karte.
+func _sel_row() -> int:
+	var fallback := -1
+	if _selected_set == null:
+		return -1
+	for r in _r_kind.size():
+		var k := _r_kind[r]
+		if (k != ROW_SET and k != ROW_DIFF) or _e_ms[_r_e[r]] != _selected_set:
+			continue
+		if _r_di[r] == _selected_diff:
+			return r
+		if k == ROW_SET and fallback < 0:
+			fallback = r
+	return fallback
+
+
+## 0 = normal, 1 = aufgeklappter Set-Kopf, 2 = gewaehlte Diff.
+func _row_state(r: int) -> int:
+	var k := _r_kind[r]
+	if (k != ROW_SET and k != ROW_DIFF) or _e_ms[_r_e[r]] != _selected_set:
+		return 0
+	if k == ROW_SET and _r_di[r] < 0:
+		return 1
+	return 2 if _r_di[r] == _selected_diff else 0
+
+
+func _row_indent(kind: int, state: int) -> float:
+	match kind:
+		ROW_SET:
+			return 0.0 if state > 0 else SET_IN
+		ROW_DIFF:
+			return DIFF_IN - (14.0 if state == 2 else 0.0)
+	return SET_IN
+
+
+func _max_scroll() -> float:
+	return maxf(_content_h - (_view.size.y if _view != null else 0.0), 0.0)
+
+
+func _clamp_scroll() -> void:
+	var mx := _max_scroll()
+	_scroll_y = clampf(_scroll_y, 0.0, mx)
+	_scroll_goal = clampf(_scroll_goal, 0.0, mx)
+	_list_dirty = true
+
+
+func _list_wheel(ev: InputEvent) -> bool:
+	if not (ev is InputEventMouseButton) or not ev.pressed:
+		return false
+	var mb := ev as InputEventMouseButton
+	if mb.button_index != MOUSE_BUTTON_WHEEL_UP and mb.button_index != MOUSE_BUTTON_WHEEL_DOWN:
+		return false
+	var f := mb.factor if mb.factor > 0.0 else 1.0
+	var dir := -1.0 if mb.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0
+	_scroll_goal = clampf(_scroll_goal + dir * WHEEL_STEP * f, 0.0, _max_scroll())
+	_user_scrolled = true
+	return true
+
+
+## Pro Frame: weiches Scrollen, Hover-Gleiten, Cover-Auftraege, Vorschau.
+func _list_step(delta: float) -> void:
+	if _preview_due > 0 and Time.get_ticks_msec() >= _preview_due:
+		_preview_due = 0
+		_play_preview_now()
+	if _view == null:
+		return
+	var d := _scroll_goal - _scroll_y
+	if absf(d) <= 0.5 and _glyph_state != 2:
+		_glyph_warm_step()
+	if absf(d) > 0.5:
+		_scroll_y += d * (1.0 - exp(-SCROLL_RATE * delta))
+		_list_dirty = true
+	elif d != 0.0:
+		_scroll_y = _scroll_goal
+		_list_dirty = true
+	for node in _live.values():
+		var target := HOVER_OUT if bool(node.get_meta("hover", false)) else 0.0
+		var hx := float(node.get_meta("hx", 0.0))
+		if hx != target:
+			node.set_meta("hx", move_toward(hx, target, delta * 100.0))
+			_list_dirty = true
+	if _list_dirty:
+		var t := Time.get_ticks_usec()
+		_layout_list()
+		_bench_lay_us += Time.get_ticks_usec() - t
+
+
+var _cover_dim := {}  # osz_path -> Helligkeitsfaktor des Covers
+var _glyph_state := 0  # 0 = Liste noch nicht gesammelt, 1 = laeuft, 2 = fertig
+var _glyph_queue: PackedStringArray = []
+
+
+## Schriften vorwaermen, solange die Liste ruht: Titel mit Nicht-ASCII-Zeichen
+## (Japanisch, Koreanisch, ...) loesen beim ersten Zeichnen die Suche nach
+## einer System-Ersatzschrift aus (bis 40 ms). Das passiert sonst mitten im
+## Scrollen; hier einmal vorab, verteilt auf ruhige Frames (hoechstens 3 ms).
+func _glyph_warm_step() -> void:
+	if _glyph_state == 0:
+		if _library == null or _library.mapsets.is_empty():
+			return
+		var seen := {}
+		var buf := ""
+		for ms: MapSet in _library.mapsets:
+			for s: String in [ms.title, ms.artist, ms.creator]:
+				if s.to_utf8_buffer().size() != s.length() and not seen.has(s):
+					seen[s] = true
+					buf += s + " "
+					if buf.length() > 400:
+						_glyph_queue.append(buf)
+						buf = ""
+		if buf != "":
+			_glyph_queue.append(buf)
+		_glyph_state = 1
+		return
+	var font: Font = get_theme_font("font", "Label")
+	var t0 := Time.get_ticks_usec()
+	while not _glyph_queue.is_empty() and Time.get_ticks_usec() - t0 < 3000:
+		var s := _glyph_queue[_glyph_queue.size() - 1]
+		_glyph_queue.remove_at(_glyph_queue.size() - 1)
+		for fs in [20, 16, 13, 12]:
+			font.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
+	if _glyph_queue.is_empty():
+		_glyph_state = 2
+
+
+## Sichtbare Zeilen positionieren; neue aus dem Pool binden, alte zurueckgeben.
+func _layout_list() -> void:
+	if _view == null:
+		return
+	var vh := _view.size.y
+	if vh <= 0.0:
+		return
+	_list_dirty = false
+	var top := _scroll_y
+	var bot := top + vh
+	var mid := top + vh * 0.5
+	var half := maxf(vh * 0.5, 1.0)
+	var n := _r_y.size()
+	var r := maxi(_r_y.bsearch(top - SET_H - ROW_GAP) - 1, 0)
+	var keep := {}
+	var want: Array = []
+	_sel_node = null
+	while r < n and _r_y[r] < bot:
+		var kind := _r_kind[r]
+		var ry := _r_y[r]
+		var h := _row_h(kind)
+		if ry + h > top:
+			var id := Vector3i(kind, _r_e[r], _r_di[r])
+			var node: Control = _live.get(id)
+			if node == null:
+				node = _acquire(kind, r)
+			else:
+				_live.erase(id)
+			keep[id] = node
+			var st := _row_state(r)
+			var dc := clampf((ry + h * 0.5 - mid) / half, -1.0, 1.0)
+			var x := LIST_LEFT + CURVE_PX * dc * dc + _row_indent(kind, st) - float(node.get_meta("hx", 0.0))
+			node.position = Vector2(roundf(x), roundf(ry - top))
+			_style_list_row(node, st)
+			if st == 2 or (st == 1 and _sel_node == null):
+				_sel_node = node
+			if kind == ROW_SET and node.get_meta("need_cover", false):
+				want.append(_e_ms[_r_e[r]])
+		r += 1
+	for id in _live:
+		_release(_live[id])
+	_live = keep
+	_cover_want = want
+	_cover_pump()
+	_vbar_sync = true
+	_vbar.max_value = maxf(_content_h, vh)
+	_vbar.page = vh
+	_vbar.value = _scroll_y
+	_vbar.visible = _content_h > vh + 1.0
+	_vbar_sync = false
+
+
+func _acquire(kind: int, r: int) -> Control:
+	var node: Control
+	if kind == ROW_UNPLAY:
+		node = _make_unplayable_card(_coll_unplayable[_r_e[r]])
+		node.gui_input.connect(_on_row_input.bind(node))
+		node.set_meta("kind", kind)
+		_view.add_child(node)
+	elif (_pool[kind] as Array).is_empty():
+		_bench_new += 1
+		node = _new_row_node(kind)
+		_view.add_child(node)
+	else:
+		node = (_pool[kind] as Array).pop_back()
+		node.visible = true
+	node.modulate = Color.WHITE
+	node.set_meta("hover", false)
+	node.set_meta("hx", 0.0)
+	node.set_meta("st", -1)
+	_bind_row(node, r)
+	return node
+
+
+func _release(node: Control) -> void:
+	if not is_instance_valid(node):
+		return
+	if node == _pulse_card:
+		_pulse_card = null
+	var kind := int(node.get_meta("kind", ROW_SET))
+	if kind == ROW_UNPLAY:
+		node.queue_free()
+		return
+	node.visible = false
+	(_pool[kind] as Array).append(node)
+
+
+func _release_all() -> void:
+	for id in _live:
+		_release(_live[id])
+	_live.clear()
+	_list_dirty = true
+
+
+func _row_label(size: int, col: Color, heading: bool = false) -> Label:
+	var l := Label.new()
+	l.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	l.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	l.clip_text = true
+	if heading:
+		l.add_theme_font_override("font", UiTheme.heading_font(0))
+	l.add_theme_font_size_override("font_size", size)
+	l.add_theme_color_override("font_color", col)
+	l.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.55))
+	l.add_theme_constant_override("shadow_offset_y", 1)
+	return l
+
+
+func _full(c: Control) -> Control:
+	c.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	c.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return c
+
+
+## Node fuer eine Zeilenart (einmal gebaut, danach aus dem Pool neu gebunden).
+func _new_row_node(kind: int) -> Control:
+	var p := {}
+	if kind == ROW_GROUP:
+		var gc := Control.new()
+		gc.mouse_filter = Control.MOUSE_FILTER_PASS
+		p.title = _row_label(17, COL_TEXT, true)
+		p.title.position = Vector2(4, 10)
+		gc.add_child(p.title)
+		p.count = _row_label(13, COL_DIM)
+		gc.add_child(p.count)
+		p.line = ColorRect.new()
+		p.line.color = Color(COL_ACCENT, 0.35)
+		p.line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		gc.add_child(p.line)
+		gc.set_meta("p", p)
+		gc.set_meta("kind", kind)
+		return gc
+	var b := Button.new()
+	b.focus_mode = Control.FOCUS_NONE
+	b.clip_contents = true
+	for s in ["normal", "hover", "pressed", "focus", "disabled", "hover_pressed"]:
+		b.add_theme_stylebox_override(s, _empty_sb)
+	var bg := ColorRect.new()
+	bg.color = COL_CARD if kind == ROW_SET else Color(0.055, 0.055, 0.075, 0.97)
+	b.add_child(_full(bg))
+	if kind == ROW_SET:
+		p.cover = TextureRect.new()
+		p.cover.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		p.cover.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		# Helle Cover (weisse Hintergruende) gedaempft, damit Sterne und Rang lesbar bleiben.
+		p.cover.modulate = Color(0.62, 0.62, 0.64)
+		b.add_child(_full(p.cover))
+		var shade := TextureRect.new()
+		shade.texture = _shade_tex
+		shade.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		shade.stretch_mode = TextureRect.STRETCH_SCALE
+		b.add_child(_full(shade))
+		p.shade = shade
+	p.strip = ColorRect.new()
+	p.strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(p.strip)
+	if kind == ROW_SET:
+		p.title = _row_label(20, COL_TEXT)
+		p.sub = _row_label(13, Color(0.80, 0.78, 0.74))
+		p.line3 = _row_label(12, COL_DIM)
+		p.stars = _row_label(19, COL_TEXT, true)
+		p.tags = _row_label(12, COL_DIM)
+		p.rank = _row_label(38, COL_TEXT, true)
+	else:
+		p.title = _row_label(16, COL_TEXT)
+		p.sub = _row_label(12, COL_DIM)
+		p.stars = _row_label(17, COL_TEXT, true)
+		p.rank = _row_label(28, COL_TEXT, true)
+	for k in ["title", "sub", "line3", "stars", "tags", "rank"]:
+		if p.has(k):
+			b.add_child(p[k])
+	p.stars.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	if p.has("tags"):
+		p.tags.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	p.rank.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	p.rank.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	p.rank.clip_text = false
+	p.rank.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
+	p.frame = Panel.new()
+	b.add_child(_full(p.frame))
+	b.set_meta("p", p)
+	b.set_meta("kind", kind)
+	b.pressed.connect(_on_row_pressed.bind(b))
+	b.gui_input.connect(_on_row_input.bind(b))
+	b.mouse_entered.connect(func(): b.set_meta("hover", true))
+	b.mouse_exited.connect(func(): b.set_meta("hover", false))
+	return b
+
+
+## Zeile an Daten binden: Texte, Farben, Groessen (nur beim Sichtbarwerden).
+func _bind_row(node: Control, r: int) -> void:
+	var kind := _r_kind[r]
+	var e := _r_e[r]
+	var di := _r_di[r]
+	var vw := _view.size.x
+	var p: Dictionary = node.get_meta("p", {})
+	match kind:
+		ROW_GROUP:
+			node.size = Vector2(vw, GROUP_H)
+			p.title.text = str(_g_title[e])
+			var font: Font = p.title.get_theme_font("font")
+			var tw: float = font.get_string_size(p.title.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x
+			p.title.size = Vector2(minf(tw + 4.0, vw * 0.6), 24)
+			p.count.text = UiTheme.fmt_num(float(_g_count[e]), 0)
+			p.count.position = Vector2(p.title.position.x + p.title.size.x + 10.0, 14)
+			p.count.size = Vector2(80, 20)
+			p.line.position = Vector2(4, GROUP_H - 6)
+			p.line.size = Vector2(vw, 1)
+		ROW_UNPLAY:
+			node.size = Vector2(vw - LIST_LEFT - SET_IN - CURVE_PX, SET_H)
+		_:
+			_bind_card(node, p, kind, _e_ms[e], di, vw)
+
+
+func _bind_card(b: Control, p: Dictionary, kind: int, ms: MapSet, di: int, vw: float) -> void:
+	var h := _row_h(kind)
+	b.size = Vector2(vw + CARD_OVERHANG, h)
+	b.set_meta("ms", ms)
+	b.set_meta("di", di)
+	var sd := _sort_set(ms)
+	# Rechter Block sitzt so, dass er auch bei der weitesten Einrueckung sichtbar ist.
+	var right := vw - LIST_LEFT - CURVE_PX - (SET_IN if kind == ROW_SET else DIFF_IN) - 14.0
+	var st: float
+	var rk: String
+	if di >= 0:
+		st = _mode_stars(ms, di)
+		rk = str((sd["_ranks"] as Dictionary).get(di, ""))
+	else:
+		st = _mode_max(ms)
+		rk = str(sd["_best"])
+	var sc := _star_color(st)
+	p.strip.color = sc
+	p.strip.position = Vector2.ZERO
+	p.strip.size = Vector2(4 if kind == ROW_SET else 3, h)
+	p.stars.text = UiTheme.fmt_num(st, 2) if st >= 0.0 else "—"
+	p.stars.add_theme_color_override("font_color", sc.lightened(0.1))
+	p.stars.tooltip_text = tr("Sterne")
+	p.rank.text = rk
+	p.rank.add_theme_color_override("font_color", GRADE_COLOR.get(rk.left(1), COL_TEXT))
+	var rank_w := 60.0 if kind == ROW_SET else 46.0
+	p.rank.position = Vector2(right - rank_w, 0)
+	p.rank.size = Vector2(rank_w, h)
+	var text_w := right - rank_w - 110.0 - 18.0
+	if kind == ROW_SET:
+		p.title.text = ms.title if ms.title != "" else ms.osz_path.get_file().get_basename()
+		if _bench_on:
+			_bench_titles += p.title.text + " | "
+		p.title.position = Vector2(18, 10)
+		p.title.size = Vector2(text_w, 28)
+		p.sub.text = "%s  //  %s" % [ms.artist, ms.creator]
+		p.sub.position = Vector2(18, 39)
+		p.sub.size = Vector2(text_w, 20)
+		p.line3.text = (ms.version_name_at(di).strip_edges() if di >= 0 else _set_summary(sd))
+		p.line3.add_theme_color_override("font_color", sc.lightened(0.25) if di >= 0 else COL_DIM)
+		p.line3.position = Vector2(18, 60)
+		p.line3.size = Vector2(text_w, 18)
+		p.stars.position = Vector2(right - rank_w - 110.0, 16)
+		p.stars.size = Vector2(100, 26)
+		p.tags.text = _card_tags(ms, sd, di)
+		p.tags.position = Vector2(right - rank_w - 130.0, 46)
+		p.tags.size = Vector2(120, 18)
+		var path := ms.osz_path
+		if _cover_lru.has(path):
+			_cover_touch(path)
+			p.cover.texture = _cover_lru[path]
+			var dm := float(_cover_dim.get(path, 0.62))
+			p.cover.modulate = Color(dm, dm, dm * 1.03)
+			b.set_meta("need_cover", false)
+		else:
+			p.cover.texture = null
+			b.set_meta("need_cover", true)
+	else:
+		var m := ms.meta_at(di)
+		p.title.text = ms.version_name_at(di).strip_edges()
+		p.title.position = Vector2(16, 7)
+		p.title.size = Vector2(text_w, 24)
+		var bits: Array = []
+		if int(m.get("mode", 0)) == 3:
+			bits.append("%dK" % int(round(float(m.get("cs", 4.0)))))
+		bits.append(tr("%s Noten") % UiTheme.fmt_num(float(m.get("notes", 0)), 0))
+		bits.append(_format_time(float(m.get("duration_ms", 0.0))))
+		p.sub.text = "  ·  ".join(bits)
+		p.sub.position = Vector2(16, 30)
+		p.sub.size = Vector2(text_w, 18)
+		p.stars.position = Vector2(right - rank_w - 110.0, 13)
+		p.stars.size = Vector2(100, 26)
+
+
+## Dritte Zeile einer Set-Karte: Anzahl Diffs, Tastenbereich, Laenge.
+func _set_summary(sd: Dictionary) -> String:
+	var diffs: Array = sd["diffs"]
+	var lo := 99
+	var hi := 0
+	for d in diffs:
+		if d.has("keys"):
+			lo = mini(lo, int(d["keys"]))
+			hi = maxi(hi, int(d["keys"]))
+	var bits: Array = [tr("%d Diffs") % diffs.size()]
+	if hi > 0:
+		bits.append(("%dK" % lo) if lo == hi else ("%dK–%dK" % [lo, hi]))
+	var ms: MapSet = sd["_ms"]
+	bits.append(_format_time(ms.length_ms()))
+	return "  ·  ".join(bits)
+
+
+func _card_tags(ms: MapSet, sd: Dictionary, di: int) -> String:
+	var bits: Array = []
+	if di >= 0:
+		var m := ms.meta_at(di)
+		if int(m.get("mode", 0)) == 3:
+			bits.append("%dK" % int(round(float(m.get("cs", 4.0)))))
+	if ms.has_sv():
+		bits.append("SV")
+	var bpm := 0.0
+	for d in sd["diffs"]:
+		bpm = maxf(bpm, float(d.get("bpm", 0.0)))
+	if bpm > 0.0:
+		bits.append("%d BPM" % roundi(bpm))
+	return "  ".join(bits)
+
+
+## Rahmen je Zustand (geteilte StyleBoxen, nur bei Wechsel gesetzt).
+func _style_list_row(node: Control, state: int) -> void:
+	var hov := bool(node.get_meta("hover", false))
+	var key := state * 2 + (1 if hov else 0)
+	if int(node.get_meta("st", -1)) == key:
+		return
+	node.set_meta("st", key)
+	var p: Dictionary = node.get_meta("p", {})
+	if not p.has("frame"):
+		return
+	var box: StyleBoxFlat = _frame_sel if state == 2 else (_frame_open if state == 1 \
+			else (_frame_hover if hov else _frame_idle))
+	(p.frame as Panel).add_theme_stylebox_override("panel", box)
+	if p.has("shade"):
+		(p.shade as CanvasItem).modulate = Color(1, 1, 1, 0.9 if state > 0 else 1.0)
+
+
+func _on_row_pressed(node: Control) -> void:
+	var ms: MapSet = node.get_meta("ms", null)
+	if ms == null:
+		return
+	var kind := int(node.get_meta("kind", ROW_SET))
+	var di := int(node.get_meta("di", -1))
+	if kind == ROW_SET and di < 0:
+		if ms == _selected_set:
+			_on_play_pressed()
+			return
+		_select_set(ms, _hardest(ms))
+	else:
+		if ms == _selected_set and di == _selected_diff:
+			_on_play_pressed()
+			return
+		if ms == _selected_set:
+			_selected_diff = di
+			_update_info_panel()
+		else:
+			_select_set(ms, di)
+	_scroll_to_selected()
+
+
+func _on_row_input(ev: InputEvent, node: Control) -> void:
+	if _list_wheel(ev):
+		node.accept_event()
+		return
+	if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_RIGHT:
+		# Rechtsklick: Map nach Bestaetigung vom Datentraeger loeschen.
+		var ms: MapSet = node.get_meta("ms", null)
+		if ms != null:
+			_confirm_delete(ms)
+
+
+## Leere Liste: Hinweis (und in Sammlungen ein Rueckweg).
+func _update_empty() -> void:
+	for c in _empty_box.get_children():
+		c.queue_free()
+	var show := _filtered.is_empty() and (_coll_unplayable.is_empty() or not _collection_mode) \
+			and (_collection_mode or not _library.mapsets.is_empty())
+	_empty_box.visible = show
+	if not show:
+		return
+	var empty := Label.new()
+	empty.text = _collection_empty_text() if _collection_mode else tr("Keine Maps für diese Filter")
+	empty.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
+	empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	empty.add_theme_font_size_override("font_size", 15)
+	empty.add_theme_color_override("font_color", COL_DIM)
+	_empty_box.add_child(empty)
+	if _collection_mode:
+		var back := Button.new()
+		back.text = tr("Alle Maps zeigen")
+		back.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
+		back.custom_minimum_size = Vector2(0, 40)
+		back.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		back.add_theme_font_size_override("font_size", 14)
+		UiTheme.style_ghost_button(back, 10)
+		back.pressed.connect(func(): _set_collection_mode(false))
+		_empty_box.add_child(back)
+
+
+# ---- Cover: Worker-Thread, abbrechbar (nur sichtbare warten), kleiner LRU-Cache
+
+func _cover_touch(path: String) -> void:
+	_cover_order.erase(path)
+	_cover_order.append(path)
+
+
+func _cover_put(path: String, tex: Texture2D) -> void:
+	_cover_lru[path] = tex
+	_cover_touch(path)
+	while _cover_order.size() > COVER_LRU:
+		var old: String = _cover_order.pop_front()
+		_cover_lru.erase(old)
+		_cover_dim.erase(old)
+
+
+## Auftraege starten: hoechstens COVER_JOBS gleichzeitig. Was aus dem Bild
+## scrollt, faellt aus _cover_want heraus und wird nie geladen.
+func _cover_pump() -> void:
+	while _cover_jobs.size() < COVER_JOBS and not _cover_want.is_empty():
+		var ms: MapSet = _cover_want.pop_front()
+		var path := ms.osz_path
+		if _cover_lru.has(path) or _cover_jobs.has(path):
+			continue
+		if ms.background_file == "":
+			_cover_loaded(path, null)
+			continue
+		_cover_jobs[path] = WorkerThreadPool.add_task(_cover_task.bind(ms), false, "browser-cover")
+
+
+## Worker-Thread: kleines Cover von Disk, sonst einmal aus dem .osz bauen.
+func _cover_task(ms: MapSet) -> void:
+	var img: Image = null
+	var thumb := ms.thumb_path()
+	if FileAccess.file_exists(thumb):
+		img = Image.new()
+		if img.load(ProjectSettings.globalize_path(thumb)) != OK:
+			img = null
+	if img == null:
+		img = cover_build(ms.osz_path, ms.background_file, thumb)
+	_cover_loaded.call_deferred(ms.osz_path, img, cover_dim(img))
+
+
+## Cover aus dem Archiv lesen, auf 320 px verkleinern, als webp ablegen (thread-sicher).
+static func cover_build(osz: String, bg_file: String, thumb: String) -> Image:
+	if bg_file == "":
+		return null
+	var bytes := OszImporter.read_file_bytes(osz, bg_file)
+	if bytes.is_empty():
+		return null
+	var img := Image.new()
+	var err := ERR_FILE_UNRECOGNIZED
+	match bg_file.get_extension().to_lower():
+		"png":
+			err = img.load_png_from_buffer(bytes)
+		"bmp":
+			err = img.load_bmp_from_buffer(bytes)
+		"webp":
+			err = img.load_webp_from_buffer(bytes)
+		_:
+			err = img.load_jpg_from_buffer(bytes)
+			if err != OK:
+				err = img.load_png_from_buffer(bytes)
+	if err != OK or img.is_empty():
+		return null
+	var scale := 320.0 / maxf(float(img.get_width()), 1.0)
+	if scale < 1.0:
+		img.resize(int(img.get_width() * scale), int(img.get_height() * scale), Image.INTERPOLATE_BILINEAR)
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("user://covers"))
+	img.save_webp(ProjectSettings.globalize_path(thumb), true, 0.82)
+	return img
+
+
+## Helligkeit fuer ein Cover: helle Bilder (weisser Hintergrund) staerker
+## abdunkeln, damit Sterne, Rang und Titel lesbar bleiben (thread-sicher).
+static func cover_dim(img: Image) -> float:
+	if img == null or img.is_empty():
+		return 0.62
+	var small := img.duplicate() as Image
+	if small.is_compressed():
+		return 0.62
+	small.convert(Image.FORMAT_RGB8)
+	small.resize(8, 5, Image.INTERPOLATE_BILINEAR)
+	var lum := 0.0
+	for y in 5:
+		for x in 8:
+			lum += small.get_pixel(x, y).get_luminance()
+	lum /= 40.0
+	return clampf(0.30 / maxf(lum, 0.01), 0.34, 0.72)
+
+
+func _cover_loaded(path: String, img: Image, dim: float = 0.62) -> void:
+	if _cover_jobs.has(path):
+		WorkerThreadPool.wait_for_task_completion(_cover_jobs[path])
+		_cover_jobs.erase(path)
+	if not is_inside_tree():
+		return
+	_bench_cov += 1
+	var tex: Texture2D = ImageTexture.create_from_image(img) if img != null and not img.is_empty() else null
+	_cover_put(path, tex)
+	_cover_dim[path] = dim
+	for node in _live.values():
+		if int(node.get_meta("kind", -1)) == ROW_SET and node.get_meta("need_cover", false) \
+				and (node.get_meta("ms") as MapSet).osz_path == path:
+			(node.get_meta("p")["cover"] as TextureRect).texture = tex
+			(node.get_meta("p")["cover"] as TextureRect).modulate = Color(dim, dim, dim * 1.03)
+			node.set_meta("need_cover", false)
+	if _cover_jobs.is_empty() and _cover_want.is_empty() and _perf_ready_t > 0:
+		GameSession.perf_since("Browser: sichtbare Cover geladen (seit _ready)", _perf_ready_t)
+		_perf_ready_t = 0
+	_cover_pump()
 
 
 # ---------------------------------------------------------------------------
@@ -1892,14 +2865,21 @@ func _load_browser_state() -> bool:
 		_sv_filter = bool(cfg.get_value("browser", "sv_filter", false))
 		var kf := int(cfg.get_value("browser", "key_filter", 0))
 		_key_filter = kf if ManiaKeys.supported(kf) else 0
-		var old_sort := clampi(int(cfg.get_value("browser", "sort_mode", 0)), 0, SORT_NAMES.size() - 1)
+		# Sortier-Nummern v1 (6 Sortierungen) auf die osu!-Liste (SORT_KEYS) umstellen.
+		var v2 := int(cfg.get_value("browser", "sort_ver", 1)) >= 2
+		var old_sort := int(cfg.get_value("browser", "sort_mode", 0))
+		if not v2:
+			old_sort = sort_from_v1(old_sort)
 		var mfs = cfg.get_value("browser", "mode_filters", {})
 		for m in PLAY_MODES:
 			var raw = mfs.get(m, {}) if mfs is Dictionary else {}
 			var mf := sanitize_mode_filter(raw if raw is Dictionary else {})
 			if not (raw is Dictionary and raw.has("sort")):
-				mf["sort"] = old_sort  # alter Stand ohne Modus-Trennung
+				mf["sort"] = clampi(old_sort, 0, SORT_KEYS.size() - 1)  # alter Stand ohne Modus-Trennung
+			elif not v2:
+				mf["sort"] = sort_from_v1(int(raw["sort"]))
 			_mode_filters[m] = mf
+		_group_mode = clampi(int(cfg.get_value("browser", "group_mode", 0)), 0, GROUP_KEYS.size() - 1)
 		_saved_search = str(cfg.get_value("browser", "search", ""))
 		var coll := str(cfg.get_value("browser", "collection", ""))
 		_active_collection = coll if CollectionStore.list_names().has(coll) else ""
@@ -1925,6 +2905,8 @@ func _save_browser_state() -> void:
 	cfg.set_value("browser", "sv_filter", _sv_filter)
 	cfg.set_value("browser", "key_filter", _key_filter)
 	cfg.set_value("browser", "sort_mode", _sort_mode())
+	cfg.set_value("browser", "sort_ver", 2)
+	cfg.set_value("browser", "group_mode", _group_mode)
 	var mfs := {}
 	for m in PLAY_MODES:
 		mfs[m] = sanitize_mode_filter(_mode_filters.get(m, {}))
@@ -1949,15 +2931,14 @@ func _refresh_filter(query: String) -> void:
 	var mf := _mode_filter()
 	var best_f := int(mf["best"])
 	var grades: Array = mf["grades"]
-	var sort_m := int(mf["sort"])
+	var sort_m := clampi(int(mf["sort"]), 0, SORT_KEYS.size() - 1)
+	var sort_key: String = SORT_KEYS[sort_m]
 	# Sammlungs-Ansicht zeigt IMMER alle ihre Maps: Sterne-, Bestwert-, Noten- und
 	# SV-Filter gelten dort nicht (ihre Chips sind dann ausgeblendet).
 	var coll := _collection_mode
 	var star_f := _star_filter != 0 and not coll
 	var by_best := (best_f != BEST_ALL or not grades.is_empty()) and not coll
-	var need_scores := by_best or sort_m == SORT_RECENT or sort_m == SORT_MOST_PLAYED
-	var idx: Dictionary = _scores_for_mode() if need_scores else {}
-	var rows: Array = []
+	var sets: Array = []
 	_filtered.clear()
 	_coll_unplayable.clear()
 	var coll_files := {}
@@ -1978,11 +2959,9 @@ func _refresh_filter(query: String) -> void:
 			if coll:
 				_coll_unplayable.append(ms)  # bleibt sichtbar, als nicht spielbar markiert
 			continue
-		# Sterne des aktiven Modus (fehlende vorlaeufig Mania-Sterne).
-		var smap := _mode_star_map(ms) if star_f \
-				or sort_m == SORT_STARS_UP or sort_m == SORT_STARS_DOWN else {}
 		# Sterne-Filter: Set passt, wenn IRGENDEINE sichtbare Diff im Bereich liegt.
 		if star_f:
+			var smap := _mode_star_map(ms)
 			var in_range := false
 			for i in vis:
 				var st := ms.star_or_base(i, smap)
@@ -1991,27 +2970,41 @@ func _refresh_filter(query: String) -> void:
 					break
 			if not in_range:
 				continue
-		var row := {"ms": ms, "i": rows.size()}
-		if need_scores:
-			# Bestwert/Plays nur der im Modus sichtbaren Diffs (wie das Rang-Badge).
-			var info: Dictionary = idx.get(ms.osz_path.get_file(), {})
-			var versions: Array = []
-			for i in vis:
-				versions.append(ms.version_name_at(i))
-			if by_best and not passes_best_filter(set_best_grade(info, versions), best_f, grades):
-				continue
-			row["last"] = set_last_played(info, versions)
-			row["plays"] = set_plays(info, versions)
-		if sort_m == SORT_STARS_UP or sort_m == SORT_STARS_DOWN:
-			row["stars"] = ms.max_visible_stars(_vm(), smap)
-		elif sort_m == SORT_DOWNLOADED:
+		var sd := _sort_set(ms)
+		# Bestwert-Filter ueber die im Modus sichtbaren Diffs (wie das Rang-Badge).
+		if by_best and not passes_best_filter(str(sd["_best"]), best_f, grades):
+			continue
+		if sort_key == "date_added" and not sd.has("date_added"):
 			if not _mtime_cache.has(ms.osz_path):
 				_mtime_cache[ms.osz_path] = FileAccess.get_modified_time(ms.osz_path)
-			row["mtime"] = _mtime_cache[ms.osz_path]
-		rows.append(row)
-	sort_rows(rows, sort_m)
-	for r in rows:
-		_filtered.append(r["ms"])
+			sd["date_added"] = int(_mtime_cache[ms.osz_path])
+		sets.append(sd)
+	var colls := {}
+	if GROUP_KEYS[_group_mode] == "collections":
+		for n in CollectionStore.list_names():
+			colls[n] = CollectionStore.maps_in(n)
+	var groups := browser_entries(sets, sort_m, _group_mode, colls)
+	_e_ms.clear()
+	_e_di = PackedInt32Array()
+	_e_g = PackedInt32Array()
+	_g_title.clear()
+	_g_count = PackedInt32Array()
+	var seen := {}
+	for gi in groups.size():
+		var g: Dictionary = groups[gi]
+		var gt := str(g["title"])
+		_g_title.append(tr(gt) if gt in ["Andere", "Ungespielt", "Keine Sammlung"] else gt)
+		_g_count.append((g["entries"] as Array).size())
+		for en in g["entries"]:
+			var sd: Dictionary = en["set"]
+			var ms: MapSet = sd["_ms"]
+			var di := int(en.get("diff_index", -1))
+			_e_ms.append(ms)
+			_e_di.append(int(sd["diffs"][di]["_i"]) if di >= 0 else -1)
+			_e_g.append(gi)
+			if not seen.has(ms):
+				seen[ms] = true
+				_filtered.append(ms)
 	_rebuild_cards()
 	var count_txt := tr("%d Maps") % _filtered.size()
 	if _collection_mode and _active_collection != "":
@@ -2152,49 +3145,41 @@ static func passes_best_filter(grade: String, best_f: int, grades: Array) -> boo
 	return grades.is_empty() or grades.has(grade)
 
 
-## Zeilen {"i": Bibliotheks-Reihenfolge, "stars", "last", "plays", "mtime"}
-## sortieren. Gleichstand und fehlende Werte: Bibliotheks-Reihenfolge (Titel).
-static func sort_rows(rows: Array, sort_m: int) -> void:
-	match sort_m:
-		SORT_STARS_UP:
-			rows.sort_custom(func(a, b): return _cmp(a, b, -float(a.get("stars", 0.0)), -float(b.get("stars", 0.0))))
-		SORT_STARS_DOWN:
-			rows.sort_custom(func(a, b): return _cmp(a, b, float(a.get("stars", 0.0)), float(b.get("stars", 0.0))))
-		SORT_RECENT:
-			rows.sort_custom(func(a, b): return _cmp(a, b, str(a.get("last", "")), str(b.get("last", ""))))
-		SORT_DOWNLOADED:
-			rows.sort_custom(func(a, b): return _cmp(a, b, int(a.get("mtime", 0)), int(b.get("mtime", 0))))
-		SORT_MOST_PLAYED:
-			rows.sort_custom(func(a, b): return _cmp(a, b, int(a.get("plays", 0)), int(b.get("plays", 0))))
+## Alte Sortier-Nummer (v1: Titel, Sterne auf/ab, zuletzt gespielt,
+## heruntergeladen, meistgespielt) -> Index in SORT_KEYS.
+static func sort_from_v1(i: int) -> int:
+	return [SORT_TITLE, SORT_DIFFICULTY, SORT_DIFFICULTY, SORT_RECENT, SORT_ADDED, SORT_RECENT][clampi(i, 0, 5)]
 
 
-## Groesserer Wert zuerst, bei Gleichstand kleinerer Index.
-static func _cmp(a: Dictionary, b: Dictionary, va: Variant, vb: Variant) -> bool:
-	if va != vb:
-		return va > vb
-	return int(a["i"]) < int(b["i"])
+## BrowserSort-Sets sortieren und gruppieren -> [{title, entries: [{set, diff_index}]}].
+## Bei "difficulty" steht jede Diff einzeln in der Liste (wie osu!).
+static func browser_entries(sets: Array, sort_i: int, group_i: int, colls: Dictionary = {}) -> Array:
+	var key: String = SORT_KEYS[clampi(sort_i, 0, SORT_KEYS.size() - 1)]
+	var entries := BrowserSort.sort_sets(sets, key, SORT_DESC.has(key))
+	return BrowserSort.group(entries, GROUP_KEYS[clampi(group_i, 0, GROUP_KEYS.size() - 1)], colls)
 
 
 func _process(delta: float) -> void:
+	if _bench_on:
+		_bench_proc(delta)
+		return
 	_beat_react(delta)
 	_loudness_step()
 	_prepare_step()
 	_game_preload_step()
-	# Thumbnails haeppchenweise laden (Zeitbudget pro Frame) — Browser bleibt fluessig.
-	var t_end := Time.get_ticks_usec() + THUMB_BUDGET_USEC
-	var budget := 2
-	while (budget > 0 or Time.get_ticks_usec() < t_end) and not _thumb_queue.is_empty():
-		var job: Dictionary = _thumb_queue.pop_front()
-		var bg_rect: TextureRect = job.bg
-		if not is_instance_valid(bg_rect):
-			continue
-		var tex: Texture2D = (job.ms as MapSet).thumb_texture()
-		if tex != null:
-			bg_rect.texture = tex
-		budget -= 1
-		if _thumb_queue.is_empty() and _perf_ready_t > 0:
-			GameSession.perf_since("Browser: alle Thumbnails sichtbar (seit _ready)", _perf_ready_t)
-			_perf_ready_t = 0
+	_list_step(delta)
+
+
+## Wie _process, misst aber jeden Schritt (nur --bench-browser).
+func _bench_proc(delta: float) -> void:
+	var steps := [["beat", _beat_react.bind(delta)], ["loud", _loudness_step],
+		["prep", _prepare_step], ["gpre", _game_preload_step], ["list", _list_step.bind(delta)]]
+	for st in steps:
+		var t := Time.get_ticks_usec()
+		(st[1] as Callable).call()
+		var us := Time.get_ticks_usec() - t
+		if us > 1500:
+			_bench_misc += "%s=%.1f " % [st[0], us / 1000.0]
 
 
 ## Lautheitsmessung der Vorschau; nach >= 6 s Gain speichern und anwenden.
@@ -2227,24 +3212,15 @@ func _beat_react(delta: float) -> void:
 		_bg.scale = Vector2(s, s)
 		var b := 0.30 + 0.03 * p
 		_bg.modulate = Color(b, b * 0.97, b * 0.93)
-	var idx := _filtered.find(_selected_set)
-	var card: Button = null
-	if idx >= 0 and idx < _card_buttons.size() and is_instance_valid(_card_buttons[idx]):
-		card = _card_buttons[idx]
+	# Gewaehlte Zeile (Karte bzw. Diff) atmet leicht mit, nur Helligkeit.
+	var card := _sel_node
 	if card != _pulse_card:
 		if _pulse_card != null and is_instance_valid(_pulse_card):
 			_pulse_card.modulate = Color.WHITE
-			var old_bg := _pulse_card.get_child(0) as TextureRect
-			if old_bg != null:
-				old_bg.self_modulate = Color.WHITE
 		_pulse_card = card
-	if card != null:
-		var c := 1.0 + 0.04 * p
+	if card != null and is_instance_valid(card):
+		var c := 1.0 + 0.05 * p
 		card.modulate = Color(c, c, c)
-		var cbg := card.get_child(0) as TextureRect
-		if cbg != null:
-			var g := 1.0 + 0.25 * p
-			cbg.self_modulate = Color(g, g, g)
 	# Glow der Auswahl atmet mit dem Beat (nur Skalar auf bestehender StyleBox).
 	if _sel_box != null:
 		var gs := 10 + int(round(6.0 * p))
@@ -2332,67 +3308,15 @@ func _prepare_step() -> void:
 		_load_fullres_bg(target)
 
 
+## Liste neu aus _e_ms/_e_di aufbauen: nur Zeilen-Daten, sichtbare Nodes
+## werden beim naechsten Layout neu gebunden (kein Neuaufbau aller Karten).
 func _rebuild_cards() -> void:
-	_scores_cfg = ConfigFile.new()
-	if _scores_cfg.load(ScoreStore.PATH) != OK:
-		_scores_cfg = null
 	_pulse_card = null
-	_thumb_queue.clear()
-	for c in _list_box.get_children():
-		c.queue_free()
-	_card_buttons.clear()
-	for i in _filtered.size():
-		var card := _make_card(_filtered[i])
-		# Halter (vom VBox gelayoutet) -> Slider (frei verschiebbar fuer den
-		# Hover-Slide) -> [Glow-Panel hinter der Karte, Karte].
-		var holder := Control.new()
-		holder.custom_minimum_size = Vector2(0, CARD_H)
-		holder.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var slider := Control.new()
-		slider.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		slider.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		holder.add_child(slider)
-		var glow := Panel.new()
-		glow.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		glow.visible = false
-		slider.add_child(glow)
-		card.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		slider.add_child(card)
-		_list_box.add_child(holder)
-		_card_buttons.append(card)
-		card.mouse_entered.connect(_slide_card.bind(card, true))
-		card.mouse_exited.connect(_slide_card.bind(card, false))
-	if _collection_mode:
-		for ms in _coll_unplayable:
-			_list_box.add_child(_make_unplayable_card(ms))
-	if _filtered.is_empty() and (_coll_unplayable.is_empty() or not _collection_mode) \
-			and (_collection_mode or not _library.mapsets.is_empty()):
-		var empty := Label.new()
-		empty.text = _collection_empty_text() if _collection_mode else tr("Keine Maps für diese Filter")
-		empty.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
-		empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		empty.custom_minimum_size = Vector2(0, CARD_H)
-		empty.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		empty.add_theme_font_size_override("font_size", 14)
-		empty.add_theme_color_override("font_color", COL_DIM)
-		_list_box.add_child(empty)
-		if _collection_mode:
-			# Klarer Rueckweg aus einer leeren Sammlung.
-			var back := Button.new()
-			back.text = tr("Alle Maps zeigen")
-			back.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
-			back.custom_minimum_size = Vector2(0, 40)
-			back.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-			back.add_theme_font_size_override("font_size", 14)
-			UiTheme.style_ghost_button(back, 10)
-			back.pressed.connect(func(): _set_collection_mode(false))
-			_list_box.add_child(back)
-	_scores_cfg = null
-	if _selected_set != null:
-		_apply_card_highlight()
+	_rebuild_rows()
+	_release_all()
+	_clamp_scroll()
+	_update_empty()
+	_layout_list()
 
 
 ## Sammlungs-Ansicht: Map ohne Diff fuer den aktuellen Modus. Bleibt sichtbar,
@@ -2476,30 +3400,6 @@ func _share_selected_map() -> void:
 	})
 
 
-## Hover-Slide: Karte gleitet 8 px nach links (ausgewaehlte bleibt draussen).
-func _slide_card(card: Button, hovered: bool) -> void:
-	if not is_instance_valid(card):
-		return
-	var slider := card.get_parent() as Control
-	if slider == null:
-		return
-	var idx := _card_buttons.find(card)
-	var is_sel := idx >= 0 and idx < _filtered.size() and _filtered[idx] == _selected_set
-	_update_card_frame(card, hovered, is_sel)
-	var target := -CARD_SLIDE if (hovered or is_sel) else 0.0
-	if is_equal_approx(slider.offset_left, target):
-		return
-	if slider.has_meta("tw"):
-		var old := slider.get_meta("tw") as Tween
-		if old != null and old.is_valid():
-			old.kill()
-	var tw := slider.create_tween().set_parallel(true)
-	tw.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	tw.tween_property(slider, "offset_left", target, 0.16)
-	tw.tween_property(slider, "offset_right", target, 0.16)
-	slider.set_meta("tw", tw)
-
-
 ## Rechtsklick auf eine Karte: .osz nach Bestaetigung loeschen.
 func _confirm_delete(ms: MapSet) -> void:
 	var dlg := ConfirmationDialog.new()
@@ -2521,164 +3421,12 @@ func _confirm_delete(ms: MapSet) -> void:
 	dlg.popup_centered()
 
 
-func _sv_badge() -> Control:
-	var pc := PanelContainer.new()
-	pc.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	var bb := UiTheme.solid_box(Color(COL_ACCENT.r, COL_ACCENT.g, COL_ACCENT.b, 0.9), 8)
-	bb.content_margin_left = 7
-	bb.content_margin_right = 7
-	bb.content_margin_top = 2
-	bb.content_margin_bottom = 2
-	pc.add_theme_stylebox_override("panel", bb)
-	pc.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	pc.tooltip_text = "Enthält Scroll-Velocity-Wechsel (SV)"
-	var l := Label.new()
-	l.text = "SV"
-	l.add_theme_font_size_override("font_size", 12)
-	l.add_theme_color_override("font_color", Color(0.03, 0.05, 0.08))
-	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	pc.add_child(l)
-	return pc
-
-
-func _make_card(ms: MapSet) -> Button:
-	var card := Button.new()
-	card.custom_minimum_size = Vector2(0, CARD_H)
-	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	card.focus_mode = Control.FOCUS_NONE
-	# Schmaler Diff-Streifen in Sternfarbe (einziger Farbakzent der Karte).
-	var base := _card_box(COL_CARD, _star_color(_mode_max(ms)))
-	for st in ["normal", "hover", "pressed", "focus"]:
-		card.add_theme_stylebox_override(st, base)
-	card.pressed.connect(func(): _on_card_pressed(ms))
-	# Rechtsklick: Map nach Bestaetigung vom Datenträger loeschen.
-	card.gui_input.connect(func(e):
-		if e is InputEventMouseButton and e.pressed \
-				and e.button_index == MOUSE_BUTTON_RIGHT:
-			_confirm_delete(ms))
-
-	# Cover als Kartenhintergrund — LAZY: Thumbnails werden ueber Frames
-	# verteilt geladen (UI erscheint sofort, kein Ruckeln). Kind 0 (Beat-Puls).
-	# Shader: abgerundete Ecken + deckender Verlauf links (Text lesbar).
-	var card_bg := TextureRect.new()
-	card_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	card_bg.offset_left = 4
-	card_bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	card_bg.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
-	card_bg.material = _card_cover_mat
-	card_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card_bg.resized.connect(_on_card_bg_resized.bind(card_bg))
-	card.add_child(card_bg)
-	_thumb_queue.append({ "ms": ms, "bg": card_bg })
-
-	var hb := HBoxContainer.new()
-	hb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	hb.offset_left = 20
-	hb.offset_right = -16
-	hb.add_theme_constant_override("separation", 12)
-	hb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	card.add_child(hb)
-
-	var vb := VBoxContainer.new()
-	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	vb.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	vb.add_theme_constant_override("separation", 4)
-	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hb.add_child(vb)
-
-	var t := Label.new()
-	t.text = "%s - %s" % [ms.artist, ms.title]
-	t.add_theme_font_size_override("font_size", 17)
-	t.add_theme_color_override("font_color", COL_TEXT)
-	t.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.6))
-	t.add_theme_constant_override("shadow_offset_y", 1)
-	t.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vb.add_child(t)
-
-	var m := Label.new()
-	m.text = _card_info_text(ms)
-	card.set_meta("info_lbl", m)
-	m.add_theme_font_size_override("font_size", 13)
-	m.add_theme_color_override("font_color", Color(0.78, 0.80, 0.88))
-	m.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	m.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	vb.add_child(m)
-
-	# SV-Badge: Set enthaelt mindestens eine Diff mit echter SV.
-	if ms.has_sv():
-		hb.add_child(_sv_badge())
-	# Tasten-Badge ("7K"): nur wenn das Set mehr als 4K-Diffs zeigt.
-	var kb := _keys_badge(ms)
-	if kb != null:
-		hb.add_child(kb)
-
-	# Grade-Badge des besten Scores im aktiven Modus: klein, fester Platz,
-	# Notenfarbe. Beim Moduswechsel per _refresh_card_grades() neu.
-	var g := Label.new()
-	g.custom_minimum_size = Vector2(28, 0)
-	g.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	g.add_theme_font_override("font", UiTheme.heading_font(0))
-	g.add_theme_font_size_override("font_size", 18)
-	g.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	g.mouse_filter = Control.MOUSE_FILTER_PASS
-	hb.add_child(g)
-	card.set_meta("grade_lbl", g)
-	card.set_meta("ms", ms)
-	_set_card_grade(g, _best_grade_badge(ms))
-
-	# Rahmen oben drauf (Auswahl = ACCENT, Hover = hell, sonst fein).
-	var frame := Panel.new()
-	frame.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	frame.add_theme_stylebox_override("panel", _frame_idle)
-	card.add_child(frame)
-	card.set_meta("frame", frame)
-
-	return card
-
-## Bester Rang des Sets im aktiven Modus (Trace: eigene Sektion; Mania:
-## wie bisher "scores"). "" ohne Score.
-func _best_grade_badge(ms: MapSet) -> String:
-	if _scores_cfg == null:
-		return ""
-	var sec := ScoreStore._sec("scores", _pm())
-	var best_g := ""
-	var best_rank := 999
-	for i in range(ms.difficulty_count() - 1, -1, -1):
-		if not ms.diff_visible(i, _vm()):
-			continue
-		# Gleiche Abfrage wie ScoreStore.best(), aber ohne scores.cfg pro Aufruf neu zu lesen.
-		var best = _scores_cfg.get_value(sec, ScoreStore._key(ms.osz_path, ms.version_name_at(i)), {})
-		if best is Dictionary and not best.is_empty():
-			var gr := str(best.get("grade", ""))
-			var r := ScoreStore.GRADES.find(gr)
-			if r < 0:
-				r = ScoreStore.GRADES.find(gr.left(1))
-			if r < 0:
-				r = 99
-			if best_g == "" or r < best_rank:
-				best_g = gr
-				best_rank = r
-	return best_g
-
-
-func _set_card_grade(g: Label, grade: String) -> void:
-	g.text = grade
-	g.visible = grade != ""
-	g.add_theme_color_override("font_color", GRADE_COLOR.get(grade.left(1), COL_TEXT))
-	g.tooltip_text = (tr("Bester Rang (%s)") % ScoreStore.mode_label(_pm())) if grade != "" else ""
-
-
-## Rang-Badges aller Karten fuer den aktiven Modus neu setzen (ohne Neuaufbau).
+## Rang/Sterne aller Zeilen fuer den aktiven Modus neu (ohne Neuaufbau).
 func _refresh_card_grades() -> void:
-	_scores_cfg = ConfigFile.new()
-	if _scores_cfg.load(ScoreStore.PATH) != OK:
-		_scores_cfg = null
-	for card in _card_buttons:
-		if is_instance_valid(card) and card.has_meta("grade_lbl"):
-			_set_card_grade(card.get_meta("grade_lbl"), _best_grade_badge(card.get_meta("ms")))
-	_scores_cfg = null
+	_sort_cache.clear()
+	_order_cache.clear()
+	_release_all()
+	_list_dirty = true
 
 
 # ---------------------------------------------------------------------------
@@ -2691,17 +3439,10 @@ func _select_initial() -> void:
 		for ms in _filtered:
 			if ms.osz_path == last.osz_path:
 				_select_set(ms, clampi(int(last.difficulty_index), 0, ms.difficulty_count() - 1))
-				_scroll_to_selected.call_deferred()
+				_scroll_to_selected(true)
 				return
 	if not _filtered.is_empty():
 		_select_set(_filtered[0], _easiest(_filtered[0]))
-
-
-func _on_card_pressed(ms: MapSet) -> void:
-	if _selected_set == ms:
-		_on_play_pressed()
-		return
-	_select_set(ms, _hardest(ms))
 
 
 func _select_set(ms: MapSet, diff_index: int) -> void:
@@ -2717,12 +3458,13 @@ func _select_set(ms: MapSet, diff_index: int) -> void:
 func _cycle_difficulty(dir: int) -> void:
 	if _selected_set == null:
 		return
-	# Pfeile folgen der Diff-Leiste: Reihenfolge nach Modus-Sternen.
-	var order := _mode_order(_selected_set)
+	# Pfeile folgen den Diff-Zeilen der Liste (Tasten, dann Sterne).
+	var order := _diff_order(_selected_set)
 	if order.is_empty():
 		return
 	_selected_diff = MapSet.cycle_in(order, _selected_diff, dir)
 	_update_info_panel()
+	_scroll_to_selected()
 
 
 func _update_info_panel() -> void:
@@ -2732,7 +3474,8 @@ func _update_info_panel() -> void:
 	var m := _selected_set.meta_at(_selected_diff)
 	# Sofort das schnelle Thumbnail zeigen, das Full-Res-Cover einen Frame
 	# spaeter nachladen (Klicks fuehlen sich sofort an).
-	var quick := _selected_set.thumb_texture()
+	var quick: Texture2D = _cover_lru.get(_selected_set.osz_path) \
+			if _cover_lru.has(_selected_set.osz_path) else _selected_set.thumb_texture()
 	# Hintergrund: nur ein weicher Farbverlauf des Covers, kein erkennbares Motiv.
 	_bg.texture = UiTheme.blurred_texture(quick, 8) if quick != null else null
 	_cover.texture = quick
@@ -2802,73 +3545,41 @@ func _update_info_panel() -> void:
 	_apply_card_highlight()
 
 
-## Auswahl-Hervorhebung: Rahmen immer in ACCENT + weicher Glow dahinter.
-## Sternfarbe bleibt im schmalen Diff-Streifen.
+## Auswahl in der Liste: gewaehltes Set klappt auf (Diffs als Zeilen darunter).
+## Die angeklickte Karte bleibt an ihrer Bildschirmstelle, dann gleitet die
+## Liste zur Auswahl.
 func _apply_card_highlight() -> void:
-	_sel_box = null
-	for i in _card_buttons.size():
-		var card := _card_buttons[i]
-		if not is_instance_valid(card):
-			continue
-		var is_sel := _filtered[i] == _selected_set
-		var glow := card.get_parent().get_child(0) as Panel
-		if glow != null:
-			glow.visible = is_sel
-			if is_sel:
-				glow.add_theme_stylebox_override("panel", _glow_box)
-				_sel_box = _glow_box
-		_slide_card(card, card.is_hovered())
-
-
-## Rahmen-Stil je nach Zustand (geteilte StyleBoxen, keine Allokation).
-func _update_card_frame(card: Button, hovered: bool, is_sel: bool) -> void:
-	var frame := card.get_meta("frame", null) as Panel
-	if frame == null:
+	if _view == null:
 		return
-	var box := _frame_sel if is_sel else (_frame_hover if hovered else _frame_idle)
-	frame.add_theme_stylebox_override("panel", box)
-
-
-const _CARD_COVER_CODE := "shader_type canvas_item;
-uniform vec2 rect_size = vec2(600.0, 76.0);
-uniform float radius = 12.0;
-uniform vec3 shade_col : source_color = vec3(0.06, 0.06, 0.09);
-varying vec2 local;
-void vertex() { local = VERTEX; }
-void fragment() {
-	vec4 c = texture(TEXTURE, UV) * COLOR;
-	float x = clamp(local.x / rect_size.x, 0.0, 1.0);
-	c.rgb = mix(c.rgb, shade_col, mix(0.93, 0.30, smoothstep(0.35, 1.0, x)));
-	vec2 q = abs(local - rect_size * 0.5) - (rect_size * 0.5 - vec2(radius));
-	float d = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - radius;
-	c.a *= clamp(0.5 - d, 0.0, 1.0);
-	COLOR = c;
-}
-"
-
-
-## Alle Karten teilen ein Material; nur bei Layout-Aenderung neu setzen.
-func _on_card_bg_resized(bg: TextureRect) -> void:
-	if bg.size.x > 0.0 and not bg.size.is_equal_approx(_card_cover_size):
-		_card_cover_size = bg.size
-		_card_cover_mat.set_shader_parameter("rect_size", bg.size)
+	var old_y := -1.0
+	var r0 := _set_row_of(_selected_set)
+	if r0 >= 0:
+		old_y = _r_y[r0]
+	_rebuild_rows()
+	var r1 := _set_row_of(_selected_set)
+	if old_y >= 0.0 and r1 >= 0:
+		var dy := _r_y[r1] - old_y
+		_scroll_y += dy
+		_scroll_goal += dy
+	_clamp_scroll()
+	_layout_list()
 
 
 func _init_card_styles() -> void:
-	var sh := Shader.new()
-	sh.code = _CARD_COVER_CODE
-	_card_cover_mat = ShaderMaterial.new()
-	_card_cover_mat.shader = sh
-	_card_cover_mat.set_shader_parameter("radius", float(CARD_RADIUS))
-	_frame_idle = _frame_box(Color(1, 1, 1, 0.07), 1)
+	_frame_idle = _frame_box(Color(1, 1, 1, 0.05), 1)
 	_frame_hover = _frame_box(Color(1, 1, 1, 0.24), 1)
 	_frame_sel = _frame_box(COL_ACCENT, 2)
-	_glow_box = StyleBoxFlat.new()
-	_glow_box.bg_color = Color(0, 0, 0, 0)
-	_glow_box.set_corner_radius_all(CARD_RADIUS)
-	_glow_box.shadow_color = Color(COL_ACCENT, 0.22)
-	_glow_box.shadow_size = 10
-	_glow_box.shadow_offset = Vector2.ZERO
+	_frame_open = _frame_box(Color(COL_ACCENT, 0.45), 1)
+	_empty_sb = StyleBoxEmpty.new()
+	# Dunkler Verlauf ueber dem Cover: links deckend (Text lesbar), rechts Bild.
+	var g := Gradient.new()
+	g.offsets = PackedFloat32Array([0.0, 0.45, 1.0])
+	var sc := Color(0.045, 0.045, 0.06)
+	g.colors = PackedColorArray([Color(sc, 0.95), Color(sc, 0.88), Color(sc, 0.70)])
+	_shade_tex = GradientTexture2D.new()
+	_shade_tex.gradient = g
+	_shade_tex.width = 256
+	_shade_tex.height = 1
 
 
 func _frame_box(col: Color, w: int) -> StyleBoxFlat:
@@ -3789,6 +4500,9 @@ func _on_sv_backfill_done() -> void:
 
 
 func _exit_tree() -> void:
+	for p in _cover_jobs:
+		WorkerThreadPool.wait_for_task_completion(_cover_jobs[p])
+	_cover_jobs.clear()
 	if _import_job != null and _import_job.is_running():
 		_import_job.cancel()
 		_import_job.wait()
@@ -3804,14 +4518,45 @@ func _exit_tree() -> void:
 	if _bg_thread != null:
 		_bg_thread.wait_to_finish()
 		_bg_thread = null
+	if _preview_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_preview_task)
+		_preview_task = -1
 
 
+## Vorschau entprellt: schnelles Durchklicken laedt nicht bei jedem Schritt Audio.
 func _play_preview() -> void:
+	_preview_due = Time.get_ticks_msec() + PREVIEW_DEBOUNCE_MS
+
+
+var _preview_task := -1
+
+
+## Audio im Worker laden (Zip lesen + Stream bauen kostet bis 40 ms), danach
+## im Hauptthread starten, falls die Auswahl noch dieselbe ist.
+func _play_preview_now() -> void:
 	if _selected_set == null:
 		return
+	if _preview_task >= 0:
+		# Voriger Ladevorgang laeuft noch: kurz spaeter erneut versuchen.
+		_preview_due = Time.get_ticks_msec() + 40
+		return
 	var m := _selected_set.meta_at(_selected_diff)
-	var stream := OszImporter.load_audio_stream_named(
-		_selected_set.osz_path, str(m.get("audio_filename", "")))
+	var path := _selected_set.osz_path
+	var audio := str(m.get("audio_filename", ""))
+	_preview_task = WorkerThreadPool.add_task(func():
+		var st := OszImporter.load_audio_stream_named(path, audio)
+		_preview_loaded.call_deferred(path, audio, st), false, "browser-preview")
+
+
+func _preview_loaded(path: String, audio: String, stream: AudioStream) -> void:
+	if _preview_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_preview_task)
+		_preview_task = -1
+	if not is_inside_tree() or _selected_set == null or _selected_set.osz_path != path:
+		return
+	var m := _selected_set.meta_at(_selected_diff)
+	if str(m.get("audio_filename", "")) != audio:
+		return
 	if stream == null:
 		_stop_preview_soft()
 		return
@@ -3837,6 +4582,8 @@ func _switch_preview(stream: AudioStream, from_sec: float, song_key: String) -> 
 func _start_preview(stream: AudioStream, from_sec: float, song_key: String) -> void:
 	if not is_inside_tree():
 		return
+	if _bench_on:
+		_bench_misc += "start_preview "
 	_preview.stop()
 	_preview.stream = stream
 	_preview_len = stream.get_length()
@@ -3927,28 +4674,24 @@ func _move_selection(dir: int) -> void:
 	_scroll_to_selected()
 
 
-## Liste zur ausgewaehlten Karte scrollen (Auswahl bleibt immer sichtbar).
-func _scroll_to_selected() -> void:
-	var idx := _filtered.find(_selected_set)
-	if idx < 0 or idx >= _card_buttons.size() or not is_instance_valid(_card_buttons[idx]):
+## Liste zur Auswahl gleiten lassen (gewaehlte Diff mittig). instant = springen.
+func _scroll_to_selected(instant: bool = false) -> void:
+	if _view == null:
 		return
-	var holder := _card_buttons[idx].get_parent().get_parent() as Control
-	if holder.size.y <= 0.0:
-		# Layout noch nicht fertig (erster Frame): einen Frame warten.
+	var r := _sel_row()
+	if r < 0:
+		return
+	if _view.size.y <= 0.0:
 		await get_tree().process_frame
-		if not is_instance_valid(holder):
+		if not is_inside_tree():
 			return
-	# Ziel: Karte mittig im sichtbaren Bereich, weich eingeblendet.
-	var top := holder.position.y + float(LIST_PAD)
-	var target := top + holder.size.y * 0.5 - _scroll.size.y * 0.5
-	var vbar := _scroll.get_v_scroll_bar()
-	var max_v := maxf(vbar.max_value - vbar.page, 0.0)
-	target = clampf(target, 0.0, max_v)
-	if _scroll_tween != null and _scroll_tween.is_valid():
-		_scroll_tween.kill()
-	_scroll_tween = create_tween()
-	_scroll_tween.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	_scroll_tween.tween_property(_scroll, "scroll_vertical", int(target), 0.30)
+		r = _sel_row()
+		if r < 0:
+			return
+	_scroll_goal = clampf(_r_y[r] + _row_h(_r_kind[r]) * 0.5 - _view.size.y * 0.5, 0.0, _max_scroll())
+	if instant:
+		_scroll_y = _scroll_goal
+		_list_dirty = true
 
 
 # ---------------------------------------------------------------------------
@@ -4726,6 +5469,10 @@ func _refresh_star_label() -> void:
 
 ## Neue Modus-Sterne: Diff-Leiste des gewaehlten Sets sofort, Liste entprellt.
 func _mode_stars_arrived(osz: String) -> void:
+	for k in _sort_cache.keys():
+		if (k as MapSet).osz_path == osz:
+			_sort_cache.erase(k)
+			_order_cache.erase(k)
 	if _selected_set != null and _selected_set.osz_path == osz:
 		_rebuild_diff_bar()
 		_refresh_star_label()
@@ -4743,37 +5490,26 @@ func _resort_later() -> void:
 
 
 ## Liste mit den neuen Sternen aktualisieren. Haengt die Reihenfolge an den
-## Sternen (Sortierung/Sterne-Filter), neu aufbauen und die gewaehlte Karte an
-## ihrer Bildschirmstelle halten; sonst nur Sterne/Farbe der Karten setzen.
+## Sternen (Sortierung/Gruppe Schwierigkeit, Sterne-Filter), neu filtern und die
+## gewaehlte Karte an ihrer Bildschirmstelle halten; sonst nur neu binden.
 func _resort_keep() -> void:
-	var sort_m := int(_mode_filter()["sort"])
-	if _star_filter == 0 and sort_m != SORT_STARS_UP and sort_m != SORT_STARS_DOWN:
-		for card in _card_buttons:
-			if not is_instance_valid(card) or not card.has_meta("info_lbl"):
-				continue
-			var ms: MapSet = card.get_meta("ms")
-			(card.get_meta("info_lbl") as Label).text = _card_info_text(ms)
-			var base := _card_box(COL_CARD, _star_color(_mode_max(ms)))
-			for st in ["normal", "hover", "pressed", "focus"]:
-				card.add_theme_stylebox_override(st, base)
+	_sort_cache.clear()
+	_order_cache.clear()
+	var sort_key: String = SORT_KEYS[clampi(_sort_mode(), 0, SORT_KEYS.size() - 1)]
+	if _star_filter == 0 and sort_key != "difficulty" and GROUP_KEYS[_group_mode] != "difficulty":
+		_release_all()
+		_apply_card_highlight()
 		return
-	var off := NAN
-	var old_i := _filtered.find(_selected_set)
-	if old_i >= 0 and old_i < _card_buttons.size() and is_instance_valid(_card_buttons[old_i]):
-		var h := _card_buttons[old_i].get_parent().get_parent() as Control
-		off = h.position.y - float(_scroll.scroll_vertical)
+	var r := _set_row_of(_selected_set)
+	var off := (_r_y[r] - _scroll_y) if r >= 0 else NAN
 	_refresh_filter(_search.text)
 	if is_nan(off):
 		return
-	await get_tree().process_frame
-	var new_i := _filtered.find(_selected_set)
-	if not is_inside_tree() or new_i < 0 or new_i >= _card_buttons.size() \
-			or not is_instance_valid(_card_buttons[new_i]):
-		return
-	if _scroll_tween != null and _scroll_tween.is_valid():
-		_scroll_tween.kill()
-	var h2 := _card_buttons[new_i].get_parent().get_parent() as Control
-	_scroll.scroll_vertical = int(h2.position.y - off)
+	var r2 := _set_row_of(_selected_set)
+	if r2 >= 0:
+		_scroll_y = clampf(_r_y[r2] - off, 0.0, _max_scroll())
+		_scroll_goal = _scroll_y
+		_list_dirty = true
 
 
 ## Fehlende Modus-Sterne der Bibliothek vormerken.
