@@ -50,6 +50,7 @@ func _run() -> void:
 	_test_real_world()
 	_test_builtin()
 	_test_builtin_tint()
+	_test_arrow_skin()
 	_test_hold_geometry()
 	_test_display_name()
 	_cleanup()
@@ -220,7 +221,7 @@ const OLD_SAMPLES := [
 	["Kreise", "note_1", 80, 12, Color8(196, 150, 214), 2],
 	["Kreise", "note_1", 80, 40, Color8(60, 40, 84), 20],
 	["Pfeile", "note_0", 80, 80, Color8(150, 190, 232), 2],
-	["Pfeile", "note_0", 40, 80, Color8(150, 190, 232), 2],
+	["Pfeile", "note_0", 50, 80, Color8(150, 190, 232), 2],
 	["Pfeile", "note_1", 80, 80, Color8(224, 160, 190), 2],
 	["Pfeile", "note_3", 80, 80, Color8(232, 200, 140), 2],
 ]
@@ -407,3 +408,65 @@ Name: Ini
 	_ok(ManiaSkin.display_name("B", root) == "Original Datei", "tethra_name.txt hat Vorrang")
 	_ok(ManiaSkin.display_name("C", root) == "C", "sonst Ordnername")
 
+
+
+## Schwerpunkt der Deckkraft eines Bildes relativ zur Mitte, in Pixeln.
+func _alpha_centroid(img: Image) -> Vector2:
+	var sum := Vector2.ZERO
+	var n := 0.0
+	for y in img.get_height():
+		for x in img.get_width():
+			var a := img.get_pixel(x, y).a
+			if a > 0.5:
+				sum += Vector2(x, y)
+				n += 1.0
+	return sum / maxf(n, 1.0) - Vector2(img.get_width(), img.get_height()) * 0.5
+
+
+## Pfeile: Drehung je Spalte (l/u/o/r), Snap-Farben, Rueckfall 5K-7K (Mitte = Raute).
+func _test_arrow_skin() -> void:
+	var s := ManiaSkin.load_skin("builtin:Pfeile")
+	var cs: Array = []
+	for c in 4:
+		cs.append(_alpha_centroid(s.tex("note_%d" % c).get_image()))
+	_ok(cs[0].x < -5.0 and cs[3].x > 5.0 and cs[1].y > 5.0 and cs[2].y < -5.0, "Pfeile 4K: links/unten/oben/rechts gedreht")
+	var rc: Array = []
+	for c in 4:
+		rc.append(_alpha_centroid(s.tex("key_%d" % c).get_image()))
+		_ok(s.tex("keyd_%d" % c) != null and s.tex("tail_%d" % c).get_height() > 0, "Pfeile 4K Spalte %d: Druck-Rezeptor + Kappe" % c)
+	_ok(rc[0].x < -5.0 and rc[3].x > 5.0 and rc[1].y > 5.0 and rc[2].y < -5.0, "Pfeile 4K: Rezeptoren gedreht")
+	_ok(s.tex("note_0").get_width() >= 160, "Pfeile: Textur gross genug (>=160 px je Spalte)")
+	# Snap-Farben (1/4 rot, 1/8 blau, 1/12 violett, 1/16 gelb) bei Modus snap; Hold-Koerper dunkler.
+	NoteColors.path = _tmp + "_nc2.cfg"
+	NoteColors.reload()
+	NoteColors.set_mode(true, "snap")
+	for dv in [1, 2, 3, 4]:
+		var sc := NoteColors.snap_color(dv)
+		var tt := s.tints(1, NoteColors.color_for(1, false, true, Color.WHITE, dv), false)
+		_ok(_near(tt[0], sc, 1), "Pfeile Snap %d: Notenfarbe = Takt-Farbe" % dv)
+	_ok(NoteColors.snap_color(1).r > NoteColors.snap_color(1).b and NoteColors.snap_color(2).b > NoteColors.snap_color(2).r, "Snap-Palette: 1 rot, 2 blau")
+	NoteColors.reset(true)
+	NoteColors.path = "user://note_colors.cfg"
+	NoteColors.reload()
+	# Rueckfall 5K-7K.
+	var exp := {5: [0, 1, -1, 2, 3], 6: [0, 1, 2, 1, 2, 3], 7: [0, 1, 2, -1, 1, 2, 3]}
+	for n in exp:
+		var got: Array = []
+		for c in n:
+			got.append(ManiaSkin.arrow_dir(c, n))
+		_ok(got == exp[n], "arrow_dir %dK: %s" % [n, str(got)])
+		var sk := ManiaSkin.load_skin("builtin:Pfeile", ManiaSkin.SKINS_DIR, n)
+		var all := sk != null
+		var dir_ok := all
+		for c in n:
+			for key in ["note_%d", "head_%d", "body_%d", "tail_%d", "key_%d", "keyd_%d"]:
+				if all and sk.tex(key % c) == null:
+					all = false
+					print("    fehlt: ", key % c, " bei ", n, "K")
+			if all:
+				var ce := _alpha_centroid(sk.tex("note_%d" % c).get_image())
+				var d: int = exp[n][c]
+				var good := ce.length() < 2.0 if d < 0 else (ce.x < -5.0 if d == 0 else (ce.y > 5.0 if d == 1 else (ce.y < -5.0 if d == 2 else ce.x > 5.0)))
+				dir_ok = dir_ok and good
+		_ok(all, "Pfeile %dK: alle Texturen" % n)
+		_ok(dir_ok, "Pfeile %dK: Richtung je Spalte, Mitte = Raute" % n)
