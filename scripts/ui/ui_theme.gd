@@ -310,6 +310,74 @@ static func heading_font(spacing: int = 2) -> FontVariation:
 	return fv
 
 
+# ---------------------------------------------------------------------------
+# Rang-Buchstabe (SS/S/A/B/C/D, F = nicht geschafft): eine Quelle fuer Groesse,
+# Schrift und Farbe in Ergebnis, Rangliste, Statistik-Karte und Kampagne.
+# ---------------------------------------------------------------------------
+
+## Rang-Farben: gedaempft, gut unterscheidbar, nichts grell.
+const GRADE_COLORS := {
+	"SS": Color(1.0, 0.95, 0.80), "S": Color(1.0, 0.80, 0.40),
+	"A": Color(0.58, 0.86, 0.62), "B": Color(0.54, 0.75, 0.96),
+	"C": Color(0.78, 0.66, 0.94), "D": Color(0.90, 0.54, 0.47),
+}
+## In Listenzeilen steht der Rang so hoch wie die Score-Zahl mal diesem Faktor.
+const GRADE_ROW_FACTOR := 1.5
+
+
+## Farbe eines Rangs; F oder failed = BAD, Unbekanntes = fallback.
+static func grade_color(g: String, failed: bool = false, fallback: Color = TEXT) -> Color:
+	if failed or g == "F":
+		return BAD
+	return GRADE_COLORS.get(g, GRADE_COLORS.get(g.left(1), fallback))
+
+
+## Rang-Schrift: Bahnschrift Bold in normaler Breite, damit A/B/C/D auch klein
+## offen und klar bleiben.
+static func grade_font() -> FontVariation:
+	var f := SystemFont.new()
+	f.font_names = PackedStringArray(["Bahnschrift", "Segoe UI Semibold", "Segoe UI"])
+	f.font_weight = 700
+	var fv := FontVariation.new()
+	fv.base_font = f
+	fv.variation_opentype = {_tag("wdth"): 100.0, _tag("wght"): 700.0}
+	return fv
+
+
+## Rang-Groesse zur Bezugsgroesse ref_px (Score-Zahl daneben) mal factor
+## (Listenzeile: GRADE_ROW_FACTOR, Karten-Kopf: groesser). Nie kleiner als
+## ref_px, SS etwas enger, damit zwei Buchstaben in die Spalte passen.
+static func grade_size(ref_px: int, g: String = "", factor: float = GRADE_ROW_FACTOR) -> int:
+	var px := float(ref_px) * factor
+	if g.length() >= 2:
+		px *= 0.84
+	return maxi(int(round(px)), ref_px)
+
+
+## Rang-Label einrichten: Text, Rang-Schrift, Farbe, feine dunkle Kontur fuer
+## Kontrast auf Cover und Glas. Kein Glow, kein Schleier.
+static func style_grade(l: Label, g: String, px: int, col: Color) -> void:
+	l.text = g
+	l.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
+	l.add_theme_font_override("font", grade_font())
+	l.add_theme_font_size_override("font_size", px)
+	l.add_theme_color_override("font_color", col)
+	l.add_theme_color_override("font_outline_color", Color(BG, 0.6))
+	l.add_theme_constant_override("outline_size", clampi(px / 24, 2, 8))
+	l.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0))
+	l.add_theme_constant_override("shadow_outline_size", 0)
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+
+## Neues Rang-Label (siehe style_grade), mittig ausgerichtet.
+static func grade_label(g: String, px: int, col: Color) -> Label:
+	var l := Label.new()
+	style_grade(l, g, px, col)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	return l
+
+
 ## Fliesstext-Schnitt (globaler Theme-Font): Segoe UI mit tabellarischen
 ## Ziffern, damit Zahlenkolonnen (Scores, ms, %) sauber untereinander stehen.
 static func body_font() -> FontVariation:
