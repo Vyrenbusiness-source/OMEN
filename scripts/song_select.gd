@@ -16,7 +16,7 @@ const COL_DIM := UiTheme.DIM
 # Raster: 24 px Aussenrand, rechte Spalte (Toolbar, Filter, Liste) gleich breit.
 const M := 24
 const INFO_W := 400
-const RIGHT_W := 640
+const RIGHT_W := 720
 const HEAD_Y := 24
 const HEAD_H := 40
 const FILTER_Y := 76
@@ -51,6 +51,7 @@ var _stats_label: Label
 var _star_label: Label
 var _best_label: Label
 var _lb_box: VBoxContainer
+var _lb_scroll: ScrollContainer
 var _search: LineEdit
 var _count_label: Label
 # Bass-Reaktion der Vorschau (dezent): Onset gegen gleitenden Mittelwert.
@@ -1179,10 +1180,9 @@ func _line_icon(size: int, segs: Array) -> ImageTexture:
 func _build_info_panel() -> void:
 	# Hoehe folgt dem Inhalt: kein leerer Glasbereich unter der Bestenliste.
 	var panel := PanelContainer.new()
-	panel.anchor_bottom = 1.0
 	panel.offset_left = M
 	panel.offset_top = HEAD_Y + HEAD_H + M
-	panel.offset_bottom = -M
+	panel.offset_bottom = panel.offset_top + 400.0
 	panel.offset_right = M + INFO_W
 	panel.add_theme_stylebox_override("panel", UiTheme.glass_box(18, 0.5))
 	add_child(panel)
@@ -1197,8 +1197,9 @@ func _build_info_panel() -> void:
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 10)
 	margin.add_child(vb)
+	vb.minimum_size_changed.connect(func(): _fit_info.call_deferred())
 
-	_title_label = _add_label(vb, "", 30, COL_TEXT)
+	_title_label = _add_label(vb, "", 26, COL_TEXT)
 	_title_label.add_theme_font_override("font", UiTheme.heading_font(1))
 	_title_label.mouse_filter = Control.MOUSE_FILTER_PASS  # Tooltip mit dem vollen Titel
 	var by := VBoxContainer.new()
@@ -1454,16 +1455,19 @@ func _build_info_panel() -> void:
 	lb_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	lb_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	vb.add_child(lb_scroll)
+	_lb_scroll = lb_scroll
 	_lb_box = VBoxContainer.new()
 	_lb_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_lb_box.add_theme_constant_override("separation", 4)
 	lb_scroll.add_child(_lb_box)
+	_lb_box.minimum_size_changed.connect(func(): _fit_info.call_deferred())
 	_layout_info.call_deferred()
 
 
-## Linkes Panel und Buehne: Breite folgt dem Fenster (30 %, 500 bis 720 px).
+## Linke Spalte: schmal (24 % der Fensterbreite, 420 bis 520 px), damit Bild und
+## Liste den Platz bekommen.
 func _info_w() -> float:
-	return clampf(size.x * 0.30, 500.0, 720.0)
+	return clampf(size.x * 0.24, 420.0, 520.0)
 
 
 func _layout_info() -> void:
@@ -1472,6 +1476,21 @@ func _layout_info() -> void:
 	_info_panel.offset_right = M + _info_w()
 	if _stage != null:
 		_stage.offset_left = M + _info_w() + M
+	_fit_info()
+
+
+## Das linke Panel ist nur so hoch wie sein Inhalt: die Bestenliste bekommt genau
+## die Hoehe ihrer Zeilen, hoechstens bis zum unteren Rand (dann scrollt sie).
+func _fit_info() -> void:
+	if _info_panel == null or _lb_scroll == null:
+		return
+	var rows := _lb_box.get_combined_minimum_size().y
+	var base := _info_panel.get_combined_minimum_size().y - _lb_scroll.custom_minimum_size.y
+	var avail := maxf(size.y - M - _info_panel.offset_top - base, 0.0)
+	var want := clampf(rows, 0.0, avail)
+	if absf(_lb_scroll.custom_minimum_size.y - want) > 0.5:
+		_lb_scroll.custom_minimum_size.y = want
+	_info_panel.offset_bottom = _info_panel.offset_top + base + want
 
 
 ## Kennzahl als Paar: Beschriftung klein und ruhig, Wert darunter.
@@ -1974,11 +1993,11 @@ func _max_scroll() -> float:
 	return maxf(_content_h - (_view.size.y if _view != null else 0.0), 0.0) + _center_pad()
 
 
-## Wie osu!: erste und letzte Karte duerfen bis in die Mitte rutschen.
+## Kein Leerraum ueber der ersten oder unter der letzten Karte: die Liste fuellt
+## ihre Spalte immer ganz (Nutzer-Vorgabe). Die Auswahl steht in der Mitte, sobald
+## genug Karten davor und dahinter liegen.
 func _center_pad() -> float:
-	if _view == null:
-		return 0.0
-	return maxf(_view.size.y * 0.5 - CARD_H * 0.5 - LIST_TOP_PAD, 0.0)
+	return 0.0
 
 
 func _clamp_scroll() -> void:

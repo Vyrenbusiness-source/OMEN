@@ -280,3 +280,4 @@ Offen/klein: song_select.gd _bg_finished get_tree() null nach Verlassen; Relay-S
 - Nutzer sagt "Songauswahl", nicht "Browser" (Missverstaendnis Webbrowser).
 - Offen Songauswahl: untere Leiste + Tastatur wie osu! (Pfeile, Enter, F2 Zufall, Tippen = Suche), 641 ms erste Liste bei 1900 Sets, RuleModsHarness wartet nicht auf die verzoegerte Bestenliste.
 - warmd v0.6.2 (godot.path-Meldung weg). Platte: Temp-Eintraege aelter 2 Tage geloescht (Nutzer-Okay), alte Worktrees entfernt; eine fremde Aufnahme-App (tonvera_rec_* in Temp) schreibt laufend.
+- v1.45.1 (27.11. spaet, Nutzer: "Songauswahl schaut nicht gut aus, linkes Fenster mega gross"): linkes Panel schmal (24 %, 420-520 px) und nur so hoch wie sein Inhalt (_fit_info), Liste 720 px breit und ohne Leerraum oben/unten (_center_pad = 0). Vom Haupt-Agent selbst per Screenshot 1080p geprueft (Nutzer will, dass der Haupt-Agent UI selbst ansieht, nicht nur Subagents).
