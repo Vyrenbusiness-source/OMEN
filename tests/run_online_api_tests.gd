@@ -297,6 +297,7 @@ func _run() -> void:
 	_backfill_tests()
 	_catch_up_tests()
 	_stale_426_tests()
+	_catch_up_modes_tests()
 
 	a.free()
 	DirAccess.remove_absolute(TMP_Q)
@@ -747,4 +748,55 @@ func _stale_426_tests() -> void:
 	_script = [[200, "{}"]]
 	a._send("GET", "/auth/me", null, func(_c: int, _t: String): pass)
 	_check(not a.update_required, "2xx loescht update_required")
+	a.free()
+
+
+## Nachtrag aller Modi: 5K/7K/Trace mit richtigem Modus und Feldern, Regel-Mod, nicht
+## nachtragbare Laeufe (fehlende Felder, Minen) werden nicht gesendet.
+func _catch_up_modes_tests() -> void:
+	var a := _api()
+	a.bf_interval = 0.0
+	a.bf_rate_wait = 0.0
+	a.bf_meta_provider = func(_p: String, v: String) -> Dictionary:
+		var m := _meta()
+		m["md5"] = "md5_" + v
+		m["difficulty"] = v
+		m["total_notes"] = 60
+		return m
+	var files := {"a.osz": "/x/a.osz"}
+	var entries := [
+		_entry("a.osz", "K5", 60, {"keys": 5}),
+		_entry("a.osz", "K7", 60, {"keys": 7}),
+		_entry("a.osz", "Tr", 60, {"mode": "trace", "stars": 3.5, "pp": -1.0}),
+		_entry("a.osz", "Sd", 60, {"mods": ["SD"], "mod_mult": 1.0}),
+		_entry("a.osz", "NoStars", 60, {"mode": "trace"}),
+		_entry("a.osz", "NoMult", 60, {"mods": ["SV"], "mod_mult": null}),
+		_entry("a.osz", "Mines", 60, {"mode": "mania_mn", "mods": ["MN"]}),
+		_entry("a.osz", "K9", 60, {"keys": 9}),
+	]
+	(entries[5] as Dictionary).erase("mod_mult")
+	a.catch_up_provider = func() -> Dictionary: return files
+	a.catch_up_entries = func() -> Array: return entries
+	_script = []
+	_check(a.start_catch_up(), "Nachtrag Modi startet")
+	var bodies := {}
+	for l in _log:
+		if str(l.url).ends_with("/score"):
+			var b: Dictionary = JSON.parse_string(str(l.body))
+			bodies[str(b.difficulty)] = b
+	_check(bodies.size() == 4 and bodies.has("K5") and bodies.has("K7") and bodies.has("Tr")
+		and bodies.has("Sd"), "genau 4 gesendet: " + str(bodies.keys()))
+	_check(bodies["K5"].mode == "mania5k" and int(bodies["K5"].keys) == 5 and bodies["K5"].has("pp"),
+		"5K: Modus mania5k, keys 5, pp")
+	_check(bodies["K7"].mode == "mania7k" and int(bodies["K7"].keys) == 7, "7K: Modus mania7k, keys 7")
+	_check(bodies["Tr"].mode == "trace" and not bodies["Tr"].has("pp") and not bodies["Tr"].has("keys")
+		and absf(float(bodies["Tr"].stars) - 3.5) < 0.001, "Trace: stars statt pp")
+	_check(bodies["Sd"].mode == "mania" and "SD" in bodies["Sd"].mods and not bodies["Sd"].has("board"),
+		"Regel-Mod SD: normale Mania-Liste, Mod im Body")
+	var sk := a.backfill_sent_keys()
+	_check(sk.has("a.osz|K5|mania5k") and sk.has("a.osz|Tr|trace") and sk.has("a.osz|Sd"), "Merker je Modus")
+	var lt := _log_text()
+	_check(lt.count("nicht nachtragbar") == 3 and "stars fehlen" in lt and "mod_mult fehlt" in lt
+		and "Minen" in lt, "Protokoll: nicht nachtragbar mit Grund (%d)" % lt.count("nicht nachtragbar"))
+	_check(not a.start_catch_up(), "nichts mehr offen")
 	a.free()

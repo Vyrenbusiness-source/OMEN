@@ -633,6 +633,15 @@ static func best_plays(n: int = 5, mode: String = "") -> Array:
 	return entries.slice(0, n)
 
 
+## Alle lokalen Bestwerte fuer den Online-Nachtrag: Mania (4K-7K, Feld "keys"), Trace und die
+## Minen-Liste (wird dort als nicht nachtragbar erkannt). Eintraege tragen "mode".
+static func backfill_plays() -> Array:
+	var out: Array = best_plays(99999, "")
+	out.append_array(best_plays(99999, MODE_TRACE))
+	out.append_array(best_plays(99999, "mania_mn"))
+	return out
+
+
 ## Meistgespielte Maps (Play-Anzahl absteigend) inkl. Bestwert-Infos.
 static func most_played(n: int = 5, mode: String = "") -> Array:
 	var cfg := ConfigFile.new()

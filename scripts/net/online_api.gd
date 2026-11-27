@@ -879,11 +879,46 @@ func load_queue() -> void:
 
 
 # --- Alte Scores hochladen ---------------------------------------------------
-## Nur Mania-Bestwerte. Langsam (1 Request/s), abbrechbar, hochgeladene Keys stehen in
+## Mania 4K-7K und Trace (je Modus eigener Online-Modus, Felder wie der direkte Versand).
+## Minen-Laeufe sind nicht nachtragbar (Zaehler fehlen lokal). Langsam (1 Request/s), abbrechbar, hochgeladene Keys stehen in
 ## cfg_path (Sektion backfill) und werden nie doppelt gesendet.
 
-static func backfill_key(osz_file: String, version: String) -> String:
-	return "%s|%s" % [osz_file.get_file(), version]
+## online_mode "" oder "mania" (4K): "datei|diff" (unveraendert, alte Merker bleiben gueltig);
+## sonst "datei|diff|<modus>" (mania5k-7k, trace, mania_mn).
+static func backfill_key(osz_file: String, version: String, online_mode: String = "mania") -> String:
+	var k := "%s|%s" % [osz_file.get_file(), version]
+	if online_mode != "" and online_mode != "mania":
+		k += "|" + online_mode
+	return k
+
+
+## Online-Modus eines lokalen Eintrags: "mania" (4K) | "mania5k".."mania7k" | "trace" |
+## "mania_mn" (Minen-Rangliste, nie sendbar) | "" (entfernter/unbekannter Modus oder
+## nicht unterstuetzte Tastenzahl).
+static func backfill_mode_of(e: Dictionary) -> String:
+	var m := str(e.get("mode", "mania"))
+	if m == "trace":
+		return "trace"
+	if m == RuleMods.MINES_SCORE_MODE:
+		return RuleMods.MINES_SCORE_MODE
+	if m != "mania" and m != "":
+		return ""
+	var k := int(e.get("keys", 4))
+	return ManiaKeys.online_mode(k) if ManiaKeys.supported(k) else ""
+
+
+## Grund, warum ein lokaler Lauf nicht nachgetragen werden darf ("" = sendbar). Fehlen dem
+## Eintrag Felder, die der direkte Versand liefert, geht der Lauf nicht raus: er kaeme sonst
+## mit falschen Werten in eine falsche Rangliste.
+static func backfill_blocker(e: Dictionary, online_mode: String) -> String:
+	var mods: Array = ScoreStore._mods_of(e)
+	if online_mode == RuleMods.MINES_SCORE_MODE or mods.has(RuleMods.MN):
+		return "Minen: Zaehler (mines/mine_hits) fehlen im lokalen Eintrag"
+	if not mods.is_empty() and not e.has("mod_mult"):
+		return "mod_mult fehlt (Mods %s)" % ",".join(mods)
+	if online_mode == "trace" and float(e.get("stars", -1.0)) < 0.0:
+		return "stars fehlen im lokalen Eintrag"
+	return ""
 
 
 ## Summe der Trefferzahlen eines ScoreStore-Eintrags.
@@ -939,25 +974,27 @@ static func backfill_candidates(entries: Array, done_keys: Array, osz_files: Dic
 	for e in entries:
 		if not (e is Dictionary):
 			continue
-		if not str(e.get("mode", "mania")) in ["mania", ""]:
-			continue
+		var om := backfill_mode_of(e)
+		if om == "":
+			continue   # entfernter Modus / unbekannte Tastenzahl
 		if bool(e.get("unranked", false)) or bool(e.get("failed", false)) or str(e.get("grade", "")) == "F":
 			continue
 		if str(e.get("online_id", "")) != "":
 			continue   # Server hat ihn schon
 		var f := str(e.get("osz_file", "")).get_file()
 		var v := str(e.get("version", ""))
-		var key := backfill_key(f, v)
+		var key := backfill_key(f, v, om)
 		if done_keys.has(key) or seen.has(key) or not osz_files.has(f) or AmWriter.is_auto_set(f):
 			continue
 		seen[key] = true
 		out.append({"key": key, "osz_file": f, "osz_path": str(osz_files[f]),
-			"version": v, "entry": e})
+			"version": v, "entry": e, "mode": om,
+			"store": "trace" if om == "trace" else ("mania_mn" if om == RuleMods.MINES_SCORE_MODE else "mania")})
 	return out
 
 
 ## Meta der Map fuer den Upload (Thread-tauglich): meta_from_beatmap oder {}.
-static func backfill_meta(osz_path: String, version: String) -> Dictionary:
+static func backfill_meta(osz_path: String, version: String, online_mode: String = "mania") -> Dictionary:
 	var imp := OszImporter.import(osz_path)
 	if not bool(imp.get("ok", false)):
 		return {}
@@ -965,14 +1002,18 @@ static func backfill_meta(osz_path: String, version: String) -> Dictionary:
 		var bm: Beatmap = d.beatmap
 		if bm.version_name() != version:
 			continue
-		if int(bm.general.get("Mode", 0)) != 3 or int(float(bm.difficulty.get("CircleSize", 4))) != 4:
+		if int(bm.general.get("Mode", 0)) != 3:
+			return {}
+		# Mania: Tastenzahl der Map muss zum Modus passen; Trace spielt jede Mania-Map.
+		if online_mode != "trace" and int(float(bm.difficulty.get("CircleSize", 4))) \
+				!= ManiaKeys.keys_of_online_mode(online_mode):
 			return {}
 		return meta_from_beatmap(bm, osz_path, str(d.osu_filename))
 	return {}
 
 
-func _bf_job(osz_path: String, version: String, out: Dictionary) -> void:
-	out["meta"] = backfill_meta(osz_path, version)
+func _bf_job(osz_path: String, version: String, online_mode: String, out: Dictionary) -> void:
+	out["meta"] = backfill_meta(osz_path, version, online_mode)
 
 
 ## Merker laden; v1-Merker ("done") verwerfen: sie mischten angenommene und
@@ -1069,7 +1110,7 @@ func backfill_running() -> bool:
 ## Wie viele Bestwerte noch hochzuladen waeren.
 func backfill_pending(osz_files: Dictionary, entries: Array = []) -> int:
 	if entries.is_empty():
-		entries = ScoreStore.best_plays(99999, "")
+		entries = ScoreStore.backfill_plays()
 	return backfill_candidates(entries, backfill_done_keys(), osz_files).size()
 
 
@@ -1079,7 +1120,7 @@ func start_backfill(osz_files: Dictionary, entries: Array = []) -> bool:
 	if not enabled() or not logged_in() or update_required or bool(_bf.running):
 		return false
 	if entries.is_empty():
-		entries = ScoreStore.best_plays(99999, "")
+		entries = ScoreStore.backfill_plays()
 	var list := backfill_candidates(entries, backfill_done_keys(), osz_files)
 	if list.is_empty():
 		return false
@@ -1118,7 +1159,7 @@ func start_catch_up() -> bool:
 			or not catch_up_provider.is_valid():
 		return false
 	var entries: Array = catch_up_entries.call() if catch_up_entries.is_valid() \
-		else ScoreStore.best_plays(99999, "")
+		else ScoreStore.backfill_plays()
 	if entries.is_empty():
 		return false
 	var files: Dictionary = catch_up_provider.call()
@@ -1190,12 +1231,22 @@ func _bf_step() -> void:
 		return
 	var c: Dictionary = _bf.list[int(_bf.idx)]
 	_bf["cur"] = c
+	var why := backfill_blocker(c.entry, str(c.get("mode", "mania")))
+	if why != "":
+		# Nicht nachtragbar: nicht senden (falsche Rangliste), protokollieren, merken.
+		_bf_mark(str(c.key), "skipped")
+		_bf_log.append({"key": str(c.key), "kind": "not_sendable", "code": why, "http": 0})
+		_log_line("catchup", 0, "nicht nachtragbar: " + why, {"body": {"mode": str(c.get("mode", "")),
+			"title": str(c.key).get_slice("|", 0), "difficulty": str(c.version)}})
+		_bf["skipped"] = int(_bf.skipped) + 1
+		_bf_advance(0.0)
+		return
 	if bf_meta_provider.is_valid():
 		_bf_got_meta(c, bf_meta_provider.call(c.osz_path, c.version))
 		return
 	_bf["out"] = {}
 	_bf["task"] = WorkerThreadPool.add_task(
-		Callable(self, "_bf_job").bind(c.osz_path, c.version, _bf.out))
+		Callable(self, "_bf_job").bind(c.osz_path, c.version, str(c.get("mode", "mania")), _bf.out))
 
 
 ## Naechster Eintrag nach Pause (0 = sofort).
@@ -1234,7 +1285,8 @@ func _bf_got_meta(c: Dictionary, meta: Dictionary) -> void:
 	res["pp"] = maxf(float(e.get("pp", 0.0)), 0.0)
 	var m := meta.duplicate()
 	m["ranked"] = true
-	var body := build_body(res, m, "mania")
+	var omode := str(c.get("mode", "mania"))
+	var body := build_body(res, m, omode)
 	# Alte Bestwerte ohne gespeicherte Combo: nicht 0 behaupten (Server stuft das als
 	# verdaechtig ein), sondern als unbekannt melden.
 	if int(e.get("max_combo", 0)) <= 0:
@@ -1242,11 +1294,11 @@ func _bf_got_meta(c: Dictionary, meta: Dictionary) -> void:
 		body["combo_unknown"] = true
 	# Replay nur, wenn das lokale Replay genau dieser Bestwert ist (Score + Datum).
 	if str(e.get("date", "")) != "":
-		var rc := replay_content_for(str(c.osz_path), str(c.version), "mania",
+		var rc := replay_content_for(str(c.osz_path), str(c.version), omode,
 			int(e.get("score", 0)), str(e.get("date", "")))
 		if rc != "":
 			body["replay_content"] = rc
-	var reg := build_register_body(m, "mania")
+	var reg := build_register_body(m, omode)
 	_bf_in_flight = true
 	_send("POST", "/score", body, func(code: int, text: String):
 		_bf_on_reply(c, reg, code, text))
@@ -1261,18 +1313,19 @@ func _bf_on_reply(c: Dictionary, reg: Dictionary, code: int, text: String) -> vo
 	match str(r.kind):
 		"ok":
 			_store_online_id({"osz_file": str(c.osz_file), "version": str(c.version),
-				"mode": "mania", "score": int((c.entry as Dictionary).get("score", 0))}, str(r.score_id))
+				"mode": str(c.get("store", "mania")), "score": int((c.entry as Dictionary).get("score", 0))}, str(r.score_id))
 			_bf_mark(str(c.key), "sent")
 			_bf["sent"] = int(_bf.sent) + 1
 			var md5 := str(reg.get("beatmap_md5", ""))
-			if str(r.pp_source) == "client" and md5 != "" and not _registered_md5.has(md5):
+			if str(r.pp_source) == "client" and md5 != "" and not _registered_md5.has(md5) \
+					and ManiaKeys.is_mania_online(str(reg.get("mode", ""))):
 				_register_map(reg, func(): _bf_advance(bf_interval))
 			else:
 				_bf_advance(bf_interval)
 		"drop":
 			_note_error(code, str(r.message))
 			_bf_reject(str(c.key), "HTTP %d %s" % [code, str(r.message)])
-			_log_line("dropped", code, "catch-up: " + str(r.message), {"body": {"mode": "mania",
+			_log_line("dropped", code, "catch-up: " + str(r.message), {"body": {"mode": str(reg.get("mode", "mania")),
 				"title": str(c.key).get_slice("|", 0), "difficulty": str(c.version)}})
 			_bf["skipped"] = int(_bf.skipped) + 1
 			_bf_advance(bf_interval)
