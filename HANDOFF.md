@@ -273,3 +273,10 @@ Offen/klein: song_select.gd _bg_finished get_tree() null nach Verlassen; Relay-S
 - Agents: Hook sperrt bei ~63 Tool-Aufrufen, Handoff hoechstens 3x -> Tasks klein schneiden (ein grosser Datei-Block je Task).
 - Platte C: knapp (11-13 GB frei): .godot-Caches alter Worktrees geloescht; rund 60 alte Worktrees unter .warmd-worktrees/rhyg koennten weg (Nutzer gefragt, Antwort offen).
 - Server: docs/server/SERVER.md Abschnitt v1.44.0 (vier Modi weg), min_version bleibt 1.30.0.
+
+## Stand 2026-11-27 ~23:50 (v1.45.0 released)
+- Songauswahl nach Nutzer-Kritik an v1.44.0 ("Liste nur unten rechts in der Ecke") neu geordnet: Liste rechts ueber die volle Hoehe, Auswahl in der Mitte; "For you" ist ein eigener Reiter (nicht mehr ueber der Liste); Filter klappen ueber einen Knopf auf; links nur noch Map-Info, Play, EINE aufklappbare Mods-Zeile, "More" (Collection, Senden, Marathon) und Bestenliste mit grossem Rang; scharfes Map-Bild kleiner in der Mitte, dasselbe Bild unscharf + abgedunkelt bildfuellend dahinter (Nutzer-Entscheidung, so lassen). Auswahlwechsel ohne Frame > 8 ms (docs/perf/browser.md).
+- Rang gross auch in Lobby-Rangliste, Vorbestwert-Zeile, Chat-Score-Karte, Kampagnen-Stufe, Statistik-Karte (Helfer in ui_theme.gd).
+- Nutzer sagt "Songauswahl", nicht "Browser" (Missverstaendnis Webbrowser).
+- Offen Songauswahl: untere Leiste + Tastatur wie osu! (Pfeile, Enter, F2 Zufall, Tippen = Suche), 641 ms erste Liste bei 1900 Sets, RuleModsHarness wartet nicht auf die verzoegerte Bestenliste.
+- warmd v0.6.2 (godot.path-Meldung weg). Platte: Temp-Eintraege aelter 2 Tage geloescht (Nutzer-Okay), alte Worktrees entfernt; eine fremde Aufnahme-App (tonvera_rec_* in Temp) schreibt laufend.
