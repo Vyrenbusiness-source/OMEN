@@ -294,3 +294,9 @@ Offen/klein: song_select.gd _bg_finished get_tree() null nach Verlassen; Relay-S
 - NICHT durch `warmd check` gelaufen: C: hatte 1,7 GB frei (warmd braucht 4,0). Geprueft von Hand: Parse 0 Fehler, tests/run_online_api_tests.gd + run_score_store_tests.gd gruen, Paket-Version + Start-Smoke. Sobald Platz da ist: `warmd check` im Haupt-Checkout nachholen.
 - Platte: Ein anderes Projekt (Desktop/.warmd-worktrees/Tonvera + drei Sitzungs-Temp-Ordner je 2-3 GB) fuellt C: laufend. In rhyg loeschbar, wenn der Nutzer zustimmt: release/TETHRA_Setup.exe (408 MB, alt), release/TETHRA.exe (170 MB, alt), TETHRA_v1.zip (339 MB), Godot_v4.7-stable_win64.exe.zip (80 MB).
 - Offen: Tastaturbedienung der Songauswahl (.warmd/tasks136.txt, Zeile select-keys; wartet auf Plattenplatz).
+
+## Stand 2026-11-28 ~01:45 (v1.47.0 released)
+- Songauswahl neues Aussehen "Plakat statt Formular" (Nutzer fand die Kasten-Optik "optisch echt schlecht"; Vorgabe der Hauptsession in .warmd/tasks137.txt): keine Glas-Panels/Pillen, Text frei auf dem Map-Bild mit Verlaeufen, Text-Reiter mit Bernstein-Unterstrich, kompakter Play-Knopf, Mods/More als Textknoepfe, Bestenliste als Zeilen mit Trennlinien, Karten buendig rechts mit glatter Kurve, helle Cover abgedunkelt. Diese Sprache beibehalten. Von der Hauptsession am Screenshot abgenommen.
+- ScoreStore Schema 4: neue Laeufe speichern mod_mult, mines, mine_hits, stars, keys, client_version (.bak vor dem ersten Schreiben); Nachtrag sendet Minen-Laeufe mit gespeicherten Zaehlern.
+- Laeuft/offen: select-keys (Tastatur + Maus wie osu!, .warmd/tasks138.txt).
+- Gesamt-Check fuer v1.46.1 nachgeholt: gruen.
