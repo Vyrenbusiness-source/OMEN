@@ -1,0 +1,16 @@
+{
+ "version": "1.47.0",
+ "size": 22361404,
+ "sha256": "6af6c73639a161e8ef1614246744d2dac96220dd05c77f6bbf08f518a7c7355d",
+ "notes": "Song select redesigned, runs stored completely",
+ "parts": [
+  {
+   "name": "TETHRA.pck.000",
+   "size": 15728640
+  },
+  {
+   "name": "TETHRA.pck.001",
+   "size": 6632764
+  }
+ ]
+}
