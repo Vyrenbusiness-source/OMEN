@@ -300,3 +300,8 @@ Offen/klein: song_select.gd _bg_finished get_tree() null nach Verlassen; Relay-S
 - ScoreStore Schema 4: neue Laeufe speichern mod_mult, mines, mine_hits, stars, keys, client_version (.bak vor dem ersten Schreiben); Nachtrag sendet Minen-Laeufe mit gespeicherten Zaehlern.
 - Laeuft/offen: select-keys (Tastatur + Maus wie osu!, .warmd/tasks138.txt).
 - Gesamt-Check fuer v1.46.1 nachgeholt: gruen.
+
+## Stopp fuer heute 2026-11-28 ~01:55 (letztes Release v1.47.0, alles gepusht)
+- Kein Agent laeuft. Einzige offene Arbeit: Branch warmd/select-keys (Worktree .warmd-worktrees/rhyg/select-keys, 2 Commits vor main, gepusht): Tastatur + Maus der Songauswahl wie osu! ist umgesetzt (11f90d4), aber UNGEPRUEFT: kein `warmd check`, kein Screenshot der Hinweiszeile, WIP-Commit a36c5f9 enthaelt neu importierte Uebersetzungen. Fortsetzen: Agent "Read .warmd/tasks/select-keys.md, git log main..HEAD im Worktree, pruefen (Screenshot 1920x1080 selbst ansehen), warmd check, warmd finish"; dann `warmd merge warmd/select-keys`, Hauptsession sieht den Screenshot an, Release v1.48.0.
+- Danach offen: Circleguard-Rueckmeldung abwarten (v1.46.1 sollte seine Scores von selbst nachtragen; sonst user://online_log.txt ansehen). Vom AMD-Absturz-Betroffenen die Datei aus user://crash + Treiberversion erfragen.
+- Arbeitsregeln neu: hoechstens 5 Agents; UI vor jedem Release von der Hauptsession selbst am Screenshot abnehmen; warmd-Bremsen nach Desktop/warmd-Probleme.md (Abschnitt 4 anhaengen).
